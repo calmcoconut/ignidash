@@ -26,6 +26,7 @@ import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
 import { TaxProcessor, type TaxesData } from './taxes';
+import { taxYearFor } from './tax-data';
 import { type AssetFlows, zeroAssetAmounts } from './asset';
 
 /**
@@ -138,12 +139,14 @@ export class FinancialSimulationEngine {
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
     const portfolioProcessor = new PortfolioProcessor(simulationState, simulationContext, contributionRules, this.inputs.glidePath);
     // The tax year is explicit: the ruleset (bracket thresholds, deductions, §86 tiers) is resolved
-    // for the year being settled, never from a module-level constant. The engine's only calendar
-    // source is the clock, so this stays deterministic; it is re-resolved below for every year.
+    // for the year being settled, never from a module-level constant. The year comes from the same
+    // timezone-free calendar arithmetic as the result dates, not from a Date getter (a locally built
+    // Jan 1 is still Dec 31 in UTC, so `getUTCFullYear()` would pick the prior year's ruleset in a
+    // UTC+ zone). It is re-resolved below for every year.
     const taxProcessor = new TaxProcessor(
       simulationState,
       this.inputs.taxSettings.filingStatus,
-      simulationState.time.date.getUTCFullYear()
+      taxYearFor(startCalendarDate, simulationState.time.month)
     );
 
     // Init phase identifier
@@ -174,7 +177,7 @@ export class FinancialSimulationEngine {
 
       if (simulationState.time.month % 12 === 0) {
         // Settle the year that just closed under its own ruleset, not the run's first year's.
-        taxProcessor.setTaxYear(simulationState.time.date.getUTCFullYear());
+        taxProcessor.setTaxYear(taxYearFor(startCalendarDate, simulationState.time.month));
 
         // Get annual data from processors
         const annualPortfolioDataBeforeTaxes = portfolioProcessor.getAnnualData();

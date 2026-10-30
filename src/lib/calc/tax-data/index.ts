@@ -14,6 +14,8 @@
 import type { FederalTaxRuleset, Jurisdiction, TaxRuleset, TaxYear } from './types';
 import { FEDERAL_2026 } from './years/2026';
 
+export { taxYearFor } from './tax-year';
+
 const FEDERAL_RULESETS: ReadonlyMap<TaxYear, FederalTaxRuleset> = new Map([[FEDERAL_2026.year, FEDERAL_2026]]);
 
 /** Every jurisdiction's rulesets, by year. A jurisdiction appears once it has a ruleset. */
