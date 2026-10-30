@@ -7,8 +7,10 @@
  */
 
 import type { TimelineInputs } from '@/lib/schemas/inputs/timeline-form-schema';
+import { isCoupleHousehold } from '@/lib/schemas/inputs/household-schema';
 
 import type { SimulationState } from './simulation-engine';
+import type { TimeBinding } from './time-binding';
 
 export type PhaseName = 'accumulation' | 'retirement';
 
@@ -21,7 +23,13 @@ export interface PhaseData {
 export class PhaseIdentifier {
   constructor(
     private simulationState: SimulationState,
-    private timeline: TimelineInputs
+    private timeline: TimelineInputs,
+    /**
+     * The wage incomes that can still keep a couple in accumulation, resolved through the shared
+     * time binding. Empty for a single-member plan (and for a couple that has no wage income with
+     * a bound of its own), in which case this class behaves exactly as it did before P1-P3.
+     */
+    private workingIncomeBindings: readonly TimeBinding[] = []
   ) {}
 
   /**
@@ -29,6 +37,11 @@ export class PhaseIdentifier {
    * @returns Phase data indicating accumulation or retirement
    */
   getCurrentPhase(): PhaseData {
+    return this.holdJointPhaseForEarners(this.getStrategyPhase());
+  }
+
+  /** The phase the retirement strategy alone asks for, unchanged from before P1-P3. */
+  private getStrategyPhase(): PhaseData {
     switch (this.timeline.retirementStrategy.type) {
       case 'fixedAge':
         const age = this.simulationState.time.age;
@@ -65,5 +78,26 @@ export class PhaseIdentifier {
 
         return { name: meanAnnualExpenses + meanAnnualDebtPayments < safeWithdrawalAmount ? 'retirement' : 'accumulation' };
     }
+  }
+
+  /**
+   * A couple has not retired while one of its members is still earning a wage (P1-P3 piece 3).
+   *
+   * The joint phase therefore starts at the *later* retirement, not at the first one: both the
+   * fixed-age and the SWR rule are held in accumulation until no wage-earner is still being paid.
+   * The gate can only ever delay retirement; it never brings it forward, so a couple whose wages
+   * stop when the phase flips (an income ending `atRetirement`) is unaffected, and a household of
+   * one is not consulted at all — one person's phase is exactly what it was before this item.
+   *
+   * Retirement is a one-way latch in the SWR case already; this gate inherits that, because it
+   * reports accumulation only while a wage is genuinely still being paid.
+   */
+  private holdJointPhaseForEarners(phase: PhaseData): PhaseData {
+    if (phase.name !== 'retirement') return phase;
+    if (!isCoupleHousehold(this.timeline.household)) return phase;
+
+    const someoneStillEarning = this.workingIncomeBindings.some((binding) => binding.isActiveAt(this.simulationState));
+
+    return someoneStillEarning ? { name: 'accumulation' } : phase;
   }
 }

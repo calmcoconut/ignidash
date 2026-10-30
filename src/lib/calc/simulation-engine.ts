@@ -10,6 +10,8 @@
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import type { HistoricalBacktestMode } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 import { type TimelineInputs, type RetirementStrategyInputs, calculatePreciseAge } from '@/lib/schemas/inputs/timeline-form-schema';
+import { type Household, isCoupleHousehold } from '@/lib/schemas/inputs/household-schema';
+import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
 import { type CalendarDate, type Clock, type ISODateString, addMonths, formatISODate, parseISODateString, toSimulationDate } from './clock';
 
@@ -27,7 +29,7 @@ import { PayrollTaxProcessor, type WagePayrollTaxes } from './payroll-taxes';
 import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
-import type { TimeBindingContext } from './time-binding';
+import { TimeBinding, type TimeBindingContext } from './time-binding';
 import { TaxProcessor, type TaxesData } from './taxes';
 import { taxYearFor } from './tax-data';
 import { type AssetFlows, zeroAssetAmounts } from './asset';
@@ -51,6 +53,24 @@ function monthStartAfter(start: CalendarDate, months: number): CalendarDate {
  */
 function yearStartAfter(start: CalendarDate, years: number): CalendarDate {
   return monthStartAfter(start, years * 12);
+}
+
+/**
+ * The filing status a run settles taxes under (P1-P3, piece 4: derived from the household).
+ *
+ * A household of one — and a plan written before households existed, which reads as one member —
+ * keeps the status stored in `taxSettings`, so a single-member plan files exactly as it does
+ * today: `single` by default, and `headOfHousehold` where the user already selected it.
+ *
+ * A household of two files jointly. `marriedFilingJointly` is a status the ruleset and the
+ * payroll layer already carry, and married filing separately is a later item (P3-P1b), so there
+ * is no other status a couple could meaningfully settle under yet. Until that item lands, a
+ * couple's stored status is deliberately ignored rather than half-honoured: a two-member plan
+ * that still says `single` was written before the household existed, and filing it as one person
+ * would be the wrong answer.
+ */
+export function deriveFilingStatus(household: Household | undefined, storedFilingStatus: FilingStatus): FilingStatus {
+  return isCoupleHousehold(household) ? 'marriedFilingJointly' : storedFilingStatus;
 }
 
 /** A single year's output data from the simulation */
@@ -145,6 +165,26 @@ export class FinancialSimulationEngine {
       marketAssumptions: this.inputs.marketAssumptions,
     };
 
+    // Filing status follows the household, not the stored field alone (piece 4). Both tax
+    // processors take it, so the Additional Medicare threshold and the income-tax brackets agree.
+    const filingStatus = deriveFilingStatus(timeline.household, this.inputs.taxSettings.filingStatus);
+
+    // Wage income that keeps a couple in accumulation (piece 3: the joint phase starts when the
+    // last earner retires). Built from the raw inputs through the shared time binding, because
+    // `Incomes.getActiveIncomesByTimeFrame` carries the one-time latch and must only be asked
+    // once per month, by the incomes processor itself.
+    //
+    // An income ending `atRetirement` is excluded: it stops *because* the phase flips, so asking
+    // whether it is still active is circular and would deadlock the phase forever. Only a wage
+    // with a bound of its own — a custom age or date, life expectancy, or no end at all — can
+    // hold the joint phase back. For a single-member plan the list stays empty: one person's
+    // phase is exactly what it was before this item.
+    const workingIncomeBindings = isCoupleHousehold(timeline.household)
+      ? Object.values(this.inputs.incomes)
+          .filter((income) => !income.disabled && income.taxes.incomeType === 'wage' && income.timeframe.end?.type !== 'atRetirement')
+          .map((income) => new TimeBinding(income.timeframe.start, income.timeframe.end, timeBindingContext))
+      : [];
+
     const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext);
     const expenses = new Expenses(Object.values(this.inputs.expenses), timeBindingContext);
     const debts = new Debts(Object.values(this.inputs.debts), timeBindingContext);
@@ -158,10 +198,7 @@ export class FinancialSimulationEngine {
     // Payroll withholding has its own state (year-to-date wages, so the OASDI wage base can stop
     // mid-year), so it is created once and shared: the incomes processor applies each paycheque's
     // withholding and the tax processor reports the same year's total.
-    const payrollTaxProcessor = new PayrollTaxProcessor(
-      taxYearFor(startCalendarDate, simulationState.time.month),
-      this.inputs.taxSettings.filingStatus
-    );
+    const payrollTaxProcessor = new PayrollTaxProcessor(taxYearFor(startCalendarDate, simulationState.time.month), filingStatus);
     const incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
     const expensesProcessor = new ExpensesProcessor(simulationState, expenses);
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
@@ -172,14 +209,10 @@ export class FinancialSimulationEngine {
     // timezone-free calendar arithmetic as the result dates, not from a Date getter (a locally built
     // Jan 1 is still Dec 31 in UTC, so `getUTCFullYear()` would pick the prior year's ruleset in a
     // UTC+ zone). It is re-resolved below for every year.
-    const taxProcessor = new TaxProcessor(
-      simulationState,
-      this.inputs.taxSettings.filingStatus,
-      taxYearFor(startCalendarDate, simulationState.time.month)
-    );
+    const taxProcessor = new TaxProcessor(simulationState, filingStatus, taxYearFor(startCalendarDate, simulationState.time.month));
 
     // Init phase identifier
-    const phaseIdentifier = new PhaseIdentifier(simulationState, timeline);
+    const phaseIdentifier = new PhaseIdentifier(simulationState, timeline, workingIncomeBindings);
     simulationState.phase = phaseIdentifier.getCurrentPhase();
 
     while (simulationState.time.date < simulationContext.endDate) {
