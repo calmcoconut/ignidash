@@ -210,6 +210,7 @@ export const clonePlan = mutation({
       debts,
       physicalAssets,
       accounts,
+      glidePath,
       contributionRules,
       baseContributionRule,
       marketAssumptions,
@@ -224,6 +225,8 @@ export const clonePlan = mutation({
       debts: structuredClone(debts),
       physicalAssets: structuredClone(physicalAssets),
       accounts: structuredClone(accounts),
+      // Optional: only copy the key when the source plan actually has a value.
+      ...(glidePath === undefined ? {} : { glidePath: structuredClone(glidePath) }),
       contributionRules: structuredClone(contributionRules),
       baseContributionRule: structuredClone(baseContributionRule),
       marketAssumptions: structuredClone(marketAssumptions),

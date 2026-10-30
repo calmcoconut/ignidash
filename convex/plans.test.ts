@@ -3,7 +3,9 @@
 import { convexTest } from 'convex-test';
 import { describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
+import type { Doc } from './_generated/dataModel';
 import schema from './schema';
+import { planDataFields } from './validators/plan_data_fields';
 import { basicTemplate } from './templates/basic';
 import { earlyRetirementTemplate } from './templates/early_retirement';
 
@@ -16,6 +18,60 @@ type PlanOverrides = Partial<typeof basicTemplate> & { name?: string };
 function makePlan(overrides: PlanOverrides = {}) {
   return { ...basicTemplate, userId: TEST_USER, name: 'Test Plan', ...overrides };
 }
+
+/**
+ * Names of the optional top-level plan fields, read from the `plans` validator.
+ *
+ * Derived at test time on purpose: a new optional field added to
+ * `convex/validators/plan_data_fields.ts` must show up here, which fails the
+ * coverage test below until a fixture is added, and then fails the round-trip
+ * test until `clonePlan` copies it.
+ */
+function optionalPlanFieldNames(): string[] {
+  return Object.entries(planDataFields)
+    .filter(([, validator]) => (validator as { isOptional?: string }).isOptional === 'optional')
+    .map(([field]) => field)
+    .sort();
+}
+
+/** One distinct value per optional plan field, so a dropped field is visible. */
+const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets' | 'glidePath'> = {
+  debts: [
+    {
+      id: 'debt-1',
+      name: 'Mortgage',
+      balance: 250000,
+      apr: 4.25,
+      interestType: 'compound',
+      compoundingFrequency: 'monthly',
+      startDate: { type: 'now' },
+      monthlyPayment: 1500,
+      disabled: false,
+      syncedFinanceId: 'finance-1',
+    },
+  ],
+  physicalAssets: [
+    {
+      id: 'asset-1',
+      name: 'Primary Residence',
+      assetType: 'primaryResidence',
+      purchaseDate: { type: 'now' },
+      purchasePrice: 600000,
+      marketValue: 650000,
+      appreciationRate: 3,
+      saleDate: { type: 'atLifeExpectancy' },
+      paymentMethod: { type: 'loan', downPayment: 120000, loanBalance: 480000, apr: 5, monthlyPayment: 2500 },
+      syncedAssetId: 'asset-sync-1',
+      syncedLiabilityId: 'liability-sync-1',
+    },
+  ],
+  glidePath: {
+    id: 'glide-path-1',
+    endTimePoint: { type: 'customAge', age: 65 },
+    targetBondAllocation: 60,
+    enabled: true,
+  },
+};
 
 // --- deletePlan ---
 
@@ -223,6 +279,43 @@ describe('clonePlan', () => {
 
     const asUser = t.withIdentity({ subject: TEST_USER });
     await expect(asUser.mutation(api.plans.clonePlan, { newPlanName: 'Over Limit', planId: 'template1' })).rejects.toThrow();
+  });
+});
+
+// --- clonePlan: no plan field may be dropped ---
+
+describe('clonePlan field round-trip', () => {
+  it('fixtures cover every optional field in the plans validator', () => {
+    expect(Object.keys(OPTIONAL_PLAN_FIELD_FIXTURES).sort()).toEqual(optionalPlanFieldNames());
+  });
+
+  it('preserves every plan field, including every optional one, through a clone', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await t.run(async (ctx) => {
+      return ctx.db.insert('plans', makePlan({ isDefault: true, ...OPTIONAL_PLAN_FIELD_FIXTURES }));
+    });
+
+    const asUser = t.withIdentity({ subject: TEST_USER });
+    const clonedId = await asUser.mutation(api.plans.clonePlan, { newPlanName: 'Clone With Every Field', planId });
+
+    await t.run(async (ctx) => {
+      const source = await ctx.db.get(planId);
+      const cloned = await ctx.db.get(clonedId);
+      expect(source).not.toBeNull();
+      expect(cloned).not.toBeNull();
+
+      const optionalFields = optionalPlanFieldNames();
+      expect(optionalFields).toContain('glidePath');
+      for (const field of optionalFields) {
+        expect((source as unknown as Record<string, unknown>)[field], `fixture for optional field "${field}" is empty`).toBeDefined();
+      }
+
+      for (const field of Object.keys(planDataFields)) {
+        const expected = (source as unknown as Record<string, unknown>)[field];
+        const actual = (cloned as unknown as Record<string, unknown>)[field];
+        expect(actual, `clonePlan dropped plan field "${field}"`).toEqual(expected);
+      }
+    });
   });
 });
 
