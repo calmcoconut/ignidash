@@ -7,7 +7,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/react';
 import { MinusIcon, PlusIcon } from '@heroicons/react/24/outline';
-import { CalendarIcon, CreditCardIcon } from 'lucide-react';
+import { CalendarIcon, CreditCardIcon, InfoIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
 
@@ -22,6 +22,14 @@ import { liabilityTypeForDisplay, type LiabilityInputs } from '@/lib/schemas/fin
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
 import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { timeFrameForDisplay } from '@/lib/utils/display-formatters';
+import { newDebtDefaults } from '@/lib/utils/entity-form-defaults';
+import {
+  AMOUNT_BASIS_HINTS,
+  AMOUNT_BASIS_OPTIONS,
+  OPTIONAL_YEARS_FIELD,
+  RECURRENCE_HINTS,
+  showsRecurrenceControl,
+} from '@/lib/utils/time-binding-inputs';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
 import { Field, Fieldset, FieldGroup, Label, ErrorMessage } from '@/components/catalyst/fieldset';
@@ -32,6 +40,7 @@ import { Button } from '@/components/catalyst/button';
 import { Input } from '@/components/catalyst/input';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 import { getErrorMessages } from '@/lib/utils/form-utils';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Divider } from '@/components/catalyst/divider';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
 
@@ -52,18 +61,7 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
   const [selectedDebt] = useState(_selectedDebt);
   const numDebts = Object.keys(debts).length;
 
-  const newDebtDefaultValues = useMemo(
-    () =>
-      ({
-        id: '',
-        name: 'Debt ' + (numDebts + 1),
-        apr: 24,
-        interestType: 'compound',
-        compoundingFrequency: 'daily',
-        startDate: { type: 'now' },
-      }) as const satisfies Partial<DebtInputs>,
-    [numDebts]
-  );
+  const newDebtDefaultValues = useMemo(() => newDebtDefaults(numDebts), [numDebts]);
 
   const defaultValues = selectedDebt || newDebtDefaultValues;
 
@@ -262,7 +260,29 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                     autoFocus={!isSynced}
                     readOnly={isSynced}
                   />
+                  <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
+                    <span className="whitespace-nowrap">Amount Basis</span>
+                    <Tooltip>
+                      <TooltipTrigger className="text-muted-foreground">
+                        <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {AMOUNT_BASIS_HINTS.map((hint) => (
+                          <p key={hint}>{hint}</p>
+                        ))}
+                        <p>Applies to the balance and the monthly payment.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis" disabled={isSynced}>
+                    {AMOUNT_BASIS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
                   {errors.balance && <ErrorMessage>{errors.balance?.message}</ErrorMessage>}
+                  {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
                 </Field>
                 <Field>
                   <Label htmlFor="monthlyPayment">Monthly Payment</Label>
@@ -395,6 +415,34 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                               />
                             </Field>
                           </>
+                        )}
+                        {showsRecurrenceControl(startType) && (
+                          <Field className="col-span-1">
+                            <Label htmlFor="startDate.everyNYears" className="flex w-full items-center justify-between">
+                              <span className="whitespace-nowrap">Repeat Every</span>
+                              <Tooltip>
+                                <TooltipTrigger className="text-muted-foreground">
+                                  <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {RECURRENCE_HINTS.map((hint) => (
+                                    <p key={hint}>{hint}</p>
+                                  ))}
+                                </TooltipContent>
+                              </Tooltip>
+                            </Label>
+                            <Input
+                              {...register('startDate.everyNYears', OPTIONAL_YEARS_FIELD)}
+                              id="startDate.everyNYears"
+                              name="startDate.everyNYears"
+                              inputMode="numeric"
+                              placeholder="Every year"
+                              autoComplete="off"
+                              invalid={!!errors.startDate?.everyNYears}
+                              aria-invalid={!!errors.startDate?.everyNYears}
+                            />
+                            {errors.startDate?.everyNYears && <ErrorMessage>{errors.startDate.everyNYears.message}</ErrorMessage>}
+                          </Field>
                         )}
                         {startType === 'customAge' && (
                           <Field>

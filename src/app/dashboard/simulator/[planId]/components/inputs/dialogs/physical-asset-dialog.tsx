@@ -7,7 +7,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/react';
 import { MinusIcon, PlusIcon } from '@heroicons/react/24/outline';
-import { CalendarIcon, HomeIcon, BanknoteArrowDownIcon, BanknoteXIcon } from 'lucide-react';
+import { CalendarIcon, HomeIcon, BanknoteArrowDownIcon, BanknoteXIcon, InfoIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
 
@@ -23,6 +23,14 @@ import { liabilityTypeForDisplay, type LiabilityInputs } from '@/lib/schemas/fin
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
 import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { physicalAssetTimeFrameForDisplay } from '@/lib/utils/display-formatters';
+import { newPhysicalAssetDefaults } from '@/lib/utils/entity-form-defaults';
+import {
+  AMOUNT_BASIS_HINTS,
+  AMOUNT_BASIS_OPTIONS,
+  OPTIONAL_YEARS_FIELD,
+  RECURRENCE_HINTS,
+  showsRecurrenceControl,
+} from '@/lib/utils/time-binding-inputs';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
 import { Field, Fieldset, FieldGroup, Label, ErrorMessage, Description } from '@/components/catalyst/fieldset';
@@ -33,6 +41,7 @@ import { Button } from '@/components/catalyst/button';
 import { Input } from '@/components/catalyst/input';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 import { getErrorMessages } from '@/lib/utils/form-utils';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Divider } from '@/components/catalyst/divider';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
 
@@ -61,19 +70,7 @@ export default function PhysicalAssetDialog({
   const [selectedPhysicalAsset] = useState(_selectedPhysicalAsset);
   const numPhysicalAssets = Object.keys(physicalAssets).length;
 
-  const newAssetDefaultValues = useMemo(
-    () =>
-      ({
-        id: '',
-        name: 'Asset ' + (numPhysicalAssets + 1),
-        assetType: 'other',
-        purchaseDate: { type: 'now' },
-        appreciationRate: 1,
-        saleDate: { type: 'atLifeExpectancy' },
-        paymentMethod: { type: 'cash' },
-      }) as const satisfies Partial<PhysicalAssetInputs>,
-    [numPhysicalAssets]
-  );
+  const newAssetDefaultValues = useMemo(() => newPhysicalAssetDefaults(numPhysicalAssets), [numPhysicalAssets]);
 
   const defaultValues = selectedPhysicalAsset || newAssetDefaultValues;
 
@@ -348,7 +345,29 @@ export default function PhysicalAssetDialog({
                     prefix={getCurrencySymbol()}
                     autoFocus
                   />
+                  <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
+                    <span className="whitespace-nowrap">Amount Basis</span>
+                    <Tooltip>
+                      <TooltipTrigger className="text-muted-foreground">
+                        <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {AMOUNT_BASIS_HINTS.map((hint) => (
+                          <p key={hint}>{hint}</p>
+                        ))}
+                        <p>Applies to the purchase price, market value and loan amounts.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
+                    {AMOUNT_BASIS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
                   {errors.purchasePrice && <ErrorMessage>{errors.purchasePrice?.message}</ErrorMessage>}
+                  {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
                 </Field>
                 <Field>
                   <Label htmlFor="marketValue" className="flex w-full items-center justify-between">
@@ -473,6 +492,34 @@ export default function PhysicalAssetDialog({
                                 />
                               </Field>
                             </>
+                          )}
+                          {showsRecurrenceControl(purchaseDateType) && (
+                            <Field className="col-span-1">
+                              <Label htmlFor="purchaseDate.everyNYears" className="flex w-full items-center justify-between">
+                                <span className="whitespace-nowrap">Repeat Every</span>
+                                <Tooltip>
+                                  <TooltipTrigger className="text-muted-foreground">
+                                    <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {RECURRENCE_HINTS.map((hint) => (
+                                      <p key={hint}>{hint}</p>
+                                    ))}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </Label>
+                              <Input
+                                {...register('purchaseDate.everyNYears', OPTIONAL_YEARS_FIELD)}
+                                id="purchaseDate.everyNYears"
+                                name="purchaseDate.everyNYears"
+                                inputMode="numeric"
+                                placeholder="Every year"
+                                autoComplete="off"
+                                invalid={!!errors.purchaseDate?.everyNYears}
+                                aria-invalid={!!errors.purchaseDate?.everyNYears}
+                              />
+                              {errors.purchaseDate?.everyNYears && <ErrorMessage>{errors.purchaseDate.everyNYears.message}</ErrorMessage>}
+                            </Field>
                           )}
                           {purchaseDateType === 'customAge' && (
                             <Field>

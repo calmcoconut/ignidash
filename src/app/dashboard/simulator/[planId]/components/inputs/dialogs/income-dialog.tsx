@@ -24,6 +24,14 @@ import {
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
 import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { timeFrameForDisplay, growthForDisplay, incomeTaxTreatmentForDisplay } from '@/lib/utils/display-formatters';
+import { newIncomeDefaults } from '@/lib/utils/entity-form-defaults';
+import {
+  AMOUNT_BASIS_HINTS,
+  AMOUNT_BASIS_OPTIONS,
+  OPTIONAL_YEARS_FIELD,
+  RECURRENCE_HINTS,
+  showsRecurrenceControl,
+} from '@/lib/utils/time-binding-inputs';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
 import { Field, Fieldset, FieldGroup, Label, ErrorMessage } from '@/components/catalyst/fieldset';
@@ -48,18 +56,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
   const planId = useSelectedPlanId();
   const [selectedIncome] = useState(_selectedIncome);
 
-  const newIncomeDefaultValues = useMemo(
-    () =>
-      ({
-        name: 'Income ' + (numIncomes + 1),
-        id: '',
-        frequency: 'yearly',
-        timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } },
-        growth: { growthRate: 0 },
-        taxes: { incomeType: 'wage', withholding: getDefaultWithholding('wage') },
-      }) as const satisfies Partial<IncomeInputs>,
-    [numIncomes]
-  );
+  const newIncomeDefaultValues = useMemo(() => newIncomeDefaults(numIncomes), [numIncomes]);
 
   const defaultValues = selectedIncome || newIncomeDefaultValues;
 
@@ -276,7 +273,28 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                     prefix={getCurrencySymbol()}
                     autoFocus
                   />
+                  <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
+                    <span className="whitespace-nowrap">Amount Basis</span>
+                    <Tooltip>
+                      <TooltipTrigger className="text-muted-foreground">
+                        <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {AMOUNT_BASIS_HINTS.map((hint) => (
+                          <p key={hint}>{hint}</p>
+                        ))}
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
+                    {AMOUNT_BASIS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
                   {errors.amount && <ErrorMessage>{errors.amount?.message}</ErrorMessage>}
+                  {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
                 </Field>
                 <Field>
                   <Label htmlFor="frequency">Frequency</Label>
@@ -384,6 +402,36 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                               />
                             </Field>
                           </>
+                        )}
+                        {showsRecurrenceControl(startType) && (
+                          <Field className="col-span-1">
+                            <Label htmlFor="timeframe.start.everyNYears" className="flex w-full items-center justify-between">
+                              <span className="whitespace-nowrap">Repeat Every</span>
+                              <Tooltip>
+                                <TooltipTrigger className="text-muted-foreground">
+                                  <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {RECURRENCE_HINTS.map((hint) => (
+                                    <p key={hint}>{hint}</p>
+                                  ))}
+                                </TooltipContent>
+                              </Tooltip>
+                            </Label>
+                            <Input
+                              {...register('timeframe.start.everyNYears', OPTIONAL_YEARS_FIELD)}
+                              id="timeframe.start.everyNYears"
+                              name="timeframe.start.everyNYears"
+                              inputMode="numeric"
+                              placeholder="Every year"
+                              autoComplete="off"
+                              invalid={!!errors.timeframe?.start?.everyNYears}
+                              aria-invalid={!!errors.timeframe?.start?.everyNYears}
+                            />
+                            {errors.timeframe?.start?.everyNYears && (
+                              <ErrorMessage>{errors.timeframe.start.everyNYears.message}</ErrorMessage>
+                            )}
+                          </Field>
                         )}
                         {startType === 'customAge' && (
                           <Field>

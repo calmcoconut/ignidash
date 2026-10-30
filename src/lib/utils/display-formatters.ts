@@ -10,6 +10,26 @@ import type { TimePoint, Growth, Frequency } from '@/lib/schemas/inputs/income-e
 import type { IncomeType } from '@/lib/schemas/inputs/income-form-schema';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 
+/**
+ * Cadence suffix for a time point, or `null` when it does not repeat.
+ *
+ * Read from the time point's own `everyNYears`, so a label can never claim a cadence the
+ * engine will not apply.
+ */
+export const recurrenceForDisplay = (timePoint: TimePoint): string | null => {
+  const everyNYears = timePoint.everyNYears;
+  if (everyNYears === undefined) return null;
+  if (everyNYears === 1) return 'every year';
+
+  return `every ${everyNYears} yrs`;
+};
+
+/** `Age 45 (every 5 yrs)`, or the bare label when the event does not repeat. */
+const withRecurrence = (label: string, timePoint: TimePoint): string => {
+  const recurrence = recurrenceForDisplay(timePoint);
+  return recurrence === null ? label : `${label} (${recurrence})`;
+};
+
 export const timeFrameForDisplay = (startTimePoint: TimePoint, endTimePoint?: TimePoint) => {
   function labelFromType(tp: TimePoint) {
     switch (tp.type) {
@@ -35,7 +55,7 @@ export const timeFrameForDisplay = (startTimePoint: TimePoint, endTimePoint?: Ti
     }
   }
 
-  const startLabel = labelFromType(startTimePoint);
+  const startLabel = withRecurrence(labelFromType(startTimePoint), startTimePoint);
   const endLabel = endTimePoint ? labelFromType(endTimePoint) : undefined;
 
   return endLabel ? `${startLabel} → ${endLabel}` : startLabel;
@@ -66,7 +86,7 @@ export const physicalAssetTimeFrameForDisplay = (startTimePoint: TimePoint, endT
     }
   }
 
-  const startLabel = labelFromType(startTimePoint);
+  const startLabel = withRecurrence(labelFromType(startTimePoint), startTimePoint);
   const endLabel = endTimePoint ? labelFromType(endTimePoint) : undefined;
 
   return endLabel ? `${startLabel} → ${endLabel}` : startLabel;

@@ -79,7 +79,13 @@ export const incomeTimeFrameForDisplay = (startTimePoint: IncomeTimePoint, endTi
     }
   }
 
-  const startLabel = labelFromType(startTimePoint);
+  // A cadence is part of the label: "Age 45" alone would read as a continuous stream.
+  function withRecurrence(label: string, tp: IncomeTimePoint): string {
+    if (tp.everyNYears === undefined) return label;
+    return `${label} (${tp.everyNYears === 1 ? 'every year' : `every ${tp.everyNYears} yrs`})`;
+  }
+
+  const startLabel = withRecurrence(labelFromType(startTimePoint), startTimePoint);
   const endLabel = endTimePoint ? labelFromType(endTimePoint) : undefined;
 
   return endLabel ? `${startLabel} → ${endLabel}` : startLabel;
