@@ -6,20 +6,19 @@
  * the requested number of simulations, and forwards partial results to the merge worker.
  *
  * The worker is a separate JS realm, so it cannot see the store's clock: the caller passes
- * the resolved `asOf` ISO date as a plain argument, and the worker rebuilds the same fixed
- * clock here. That keeps every run traceable to one explicit date rather than to the
- * worker's wall clock.
+ * the resolved `asOf` ISO date as a plain argument, and the clock is rebuilt from it here.
+ *
+ * The worker owns a *trial range*, not a seed base: trial `j` of the run is
+ * `baseSeed + j * 1009` no matter which worker runs it, so the pool can split the work any way
+ * it likes (P2-P3). Each worker streams its range into a bounded summary and hands that, plus
+ * whatever full results the retention mode keeps, to the merge worker.
  */
 
 import * as Comlink from 'comlink';
 
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
-import { type ISODateString, fixedClock } from '@/lib/calc/clock';
-import {
-  MonteCarloSimulationEngine,
-  LcgHistoricalBacktestSimulationEngine,
-  type MultiSimulationResult,
-} from '@/lib/calc/simulation-engine';
+import type { ISODateString } from '@/lib/calc/clock';
+import { type MonteCarloRetention, runMonteCarloRange } from '@/lib/calc/monte-carlo';
 
 import type { MergeWorkerAPI } from './merge.worker';
 
@@ -28,27 +27,22 @@ const simulationAPI = {
     inputs: SimulatorInputs,
     asOf: ISODateString,
     baseSeed: number,
+    startIndex: number,
     numSimulations: number,
     simulationMode: 'monteCarloStochasticReturns' | 'monteCarloHistoricalReturns',
+    retention: MonteCarloRetention,
     mergeWorker: Comlink.Remote<MergeWorkerAPI>,
     onProgress?: () => void
   ): Promise<void> {
-    // Rebuild the caller's clock explicitly; the worker never reads its own wall clock.
-    const clock = fixedClock(asOf);
-
-    let res: MultiSimulationResult;
-    switch (simulationMode) {
-      case 'monteCarloStochasticReturns': {
-        const engine = new MonteCarloSimulationEngine(inputs, baseSeed, clock);
-        res = engine.runMonteCarloSimulation(numSimulations, onProgress);
-        break;
-      }
-      case 'monteCarloHistoricalReturns': {
-        const engine = new LcgHistoricalBacktestSimulationEngine(inputs, baseSeed, clock);
-        res = engine.runLcgHistoricalBacktest(numSimulations, onProgress);
-        break;
-      }
-    }
+    const res = runMonteCarloRange(inputs, {
+      mode: simulationMode,
+      baseSeed,
+      asOf,
+      config: { retention },
+      startIndex,
+      count: numSimulations,
+      onTrial: onProgress,
+    });
 
     await mergeWorker.addPartialResult(res);
   },

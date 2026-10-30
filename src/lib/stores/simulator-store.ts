@@ -12,6 +12,7 @@ import type { SimulationResult as ConvexSimulationResult } from '@/convex/valida
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import { FinancialSimulationEngine, type SimulationResult } from '@/lib/calc/simulation-engine';
 import { type Clock, fixedClock } from '@/lib/calc/clock';
+import { DEFAULT_MONTE_CARLO_TRIALS } from '@/lib/calc/monte-carlo';
 import type { MultiSimulationAnalysis } from '@/lib/calc/data-analyzers/multi-simulation-analyzer';
 import { FixedReturnsProvider } from '@/lib/calc/returns-providers/fixed-returns-provider';
 import { StochasticReturnsProvider } from '@/lib/calc/returns-providers/stochastic-returns-provider';
@@ -488,22 +489,33 @@ export const useMultiSimulationResult = (
 
       const pool = createWorkerPool();
 
-      const chunks: number[] = [];
-      for (let i = 0; i < 500; i += 10) {
-        chunks.push(Math.min(10, 500 - i));
+      // Chunks are trial index ranges now, not seed bases: trial `j` is `seed + j * 1009` wherever
+      // it runs (P2-P3). The pool size only decides how the work is divided.
+      const chunks: Array<{ start: number; size: number }> = [];
+      for (let start = 0; start < DEFAULT_MONTE_CARLO_TRIALS; start += 10) {
+        chunks.push({ start, size: Math.min(10, DEFAULT_MONTE_CARLO_TRIALS - start) });
       }
 
       let chunkIndex = 0;
-      const getNextChunk = () => {
-        if (chunkIndex >= chunks.length) return null;
-        return { size: chunks[chunkIndex], seed: simulationSeed + chunkIndex * 9973, index: chunkIndex++ };
-      };
+      const getNextChunk = () => (chunkIndex >= chunks.length ? null : { ...chunks[chunkIndex], index: chunkIndex++ });
 
       await Promise.all(
         pool.map(async (worker) => {
           let chunk;
           while ((chunk = getNextChunk())) {
-            await worker.runSimulation(inputs, clock.asOf, chunk.seed, chunk.size, simulationMode, mergeWorker, Comlink.proxy(onProgress));
+            await worker.runSimulation(
+              inputs,
+              clock.asOf,
+              simulationSeed,
+              chunk.start,
+              chunk.size,
+              simulationMode,
+              // The UI's per-seed table and quick-select read individual runs, so the store asks for
+              // them; `'summary'` is the bounded mode for callers that only need aggregates.
+              'full',
+              mergeWorker,
+              Comlink.proxy(onProgress)
+            );
           }
         })
       );

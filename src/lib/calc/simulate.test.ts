@@ -5,13 +5,8 @@ import type { ExpenseInputs } from '@/lib/schemas/inputs/expense-form-schema';
 
 import { cumulativeInflationIndex as cumulativeInflationIndexFromTimeBinding } from './time-binding';
 import { fixedClock } from './clock';
-import {
-  FinancialSimulationEngine,
-  LcgHistoricalBacktestSimulationEngine,
-  MonteCarloSimulationEngine,
-  type MultiSimulationResult,
-  type SimulationResult,
-} from './simulation-engine';
+import { FinancialSimulationEngine, type SimulationResult } from './simulation-engine';
+import { mergeMonteCarloSummaries, runMonteCarloRange, type MonteCarloRunResult } from './monte-carlo';
 import { FixedReturnsProvider } from './returns-providers/fixed-returns-provider';
 import { StochasticReturnsProvider } from './returns-providers/stochastic-returns-provider';
 import { LcgHistoricalBacktestReturnsProvider } from './returns-providers/lcg-historical-backtest-returns-provider';
@@ -93,10 +88,9 @@ function storeSingleRun(
 }
 
 /**
- * Exactly what the store's worker pool runs: chunks of 10 trials, chunk `c` seeded with
- * `seed + c * 9973`, each worker asking its engine for `chunk.size` simulations. The store runs
- * the chunks in parallel, so arrival order varies; seeds are the stable key, so results are
- * compared per seed.
+ * Exactly what the store's worker pool runs: trial index ranges of 10, each handed to a worker,
+ * and the merge worker folding the pieces back together. Chunks arrive in any order, so the
+ * comparison is order-insensitive by construction (the merge sorts and sums).
  */
 function storeMonteCarloRun(
   inputs: SimulatorInputs,
@@ -104,30 +98,18 @@ function storeMonteCarloRun(
   seed: number,
   asOf: string,
   totalTrials: number
-): Array<[number, SimulationResult]> {
-  const clock = fixedClock(asOf);
+): { simulations: Array<[number, SimulationResult]>; summary: MonteCarloRunResult['summary'] } {
+  const chunks: Array<{ start: number; size: number }> = [];
+  for (let start = 0; start < totalTrials; start += 10) chunks.push({ start, size: Math.min(10, totalTrials - start) });
 
-  const chunks: number[] = [];
-  for (let i = 0; i < totalTrials; i += 10) chunks.push(Math.min(10, totalTrials - i));
+  const partials = chunks.map((chunk) =>
+    runMonteCarloRange(inputs, { mode, baseSeed: seed, asOf, config: { retention: 'full' }, startIndex: chunk.start, count: chunk.size })
+  );
 
-  let chunkIndex = 0;
-  const getNextChunk = () => {
-    if (chunkIndex >= chunks.length) return null;
-    return { size: chunks[chunkIndex], seed: seed + chunkIndex * 9973, index: chunkIndex++ };
+  return {
+    simulations: partials.flatMap((partial) => partial.simulations),
+    summary: mergeMonteCarloSummaries(partials.map((p) => p.summary)),
   };
-
-  const merged: Array<[number, SimulationResult]> = [];
-  let chunk;
-  while ((chunk = getNextChunk())) {
-    const res: MultiSimulationResult =
-      mode === 'monteCarloStochasticReturns'
-        ? new MonteCarloSimulationEngine(inputs, chunk.seed, clock).runMonteCarloSimulation(chunk.size)
-        : new LcgHistoricalBacktestSimulationEngine(inputs, chunk.seed, clock).runLcgHistoricalBacktest(chunk.size);
-
-    merged.push(...res.simulations);
-  }
-
-  return merged;
 }
 
 const bySeed = (simulations: Array<[number, SimulationResult]>): Map<number, SimulationResult> =>
@@ -140,11 +122,11 @@ const seedsOf = (simulations: Array<[number, SimulationResult]>): number[] => si
 // ============================================================================
 
 describe('simulate determinism', () => {
-  it.each(ALL_MODES)('returns deep-equal results for identical arguments (%s)', (mode) => {
+  it.each(ALL_MODES)('returns deep-equal results for identical arguments (%s)', { timeout: 60_000 }, (mode) => {
     const inputs = createPlan();
     const options: SimulateOptions =
       mode === 'monteCarloStochasticReturns' || mode === 'monteCarloHistoricalReturns'
-        ? { mode, seed: 4242, asOf: AS_OF, trials: 12 }
+        ? { mode, seed: 4242, asOf: AS_OF, monteCarlo: { trials: 100 } }
         : { mode, seed: 4242, asOf: AS_OF };
 
     const first = simulate(inputs, options);
@@ -158,7 +140,7 @@ describe('simulate determinism', () => {
     const before = structuredClone(inputs);
 
     simulate(inputs, { mode: 'fixedReturns', seed: 1, asOf: AS_OF });
-    simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 1, asOf: AS_OF, trials: 3 });
+    simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 1, asOf: AS_OF, monteCarlo: { trials: 100 } });
 
     expect(inputs).toStrictEqual(before);
   });
@@ -191,22 +173,22 @@ afterAll(() => {
 });
 
 describe('simulate host independence', () => {
-  it('returns identical results under three different process timezones', () => {
+  it('returns identical results under three different process timezones', { timeout: 60_000 }, () => {
     const inputs = createPlan();
 
     const runIn = <T>(timeZone: string, run: () => T) => runInTimezone(timeZone, () => ({ offset: winterOffsetMinutes(), value: run() }));
 
     const utc = runIn('UTC', () => ({
       fixed: simulate(inputs, { mode: 'fixedReturns', seed: 1, asOf: AS_OF }),
-      mc: simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 99, asOf: AS_OF, trials: 4 }),
+      mc: simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 99, asOf: AS_OF, monteCarlo: { trials: 100 } }),
     }));
     const losAngeles = runIn('America/Los_Angeles', () => ({
       fixed: simulate(inputs, { mode: 'fixedReturns', seed: 1, asOf: AS_OF }),
-      mc: simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 99, asOf: AS_OF, trials: 4 }),
+      mc: simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 99, asOf: AS_OF, monteCarlo: { trials: 100 } }),
     }));
     const kiritimati = runIn('Pacific/Kiritimati', () => ({
       fixed: simulate(inputs, { mode: 'fixedReturns', seed: 1, asOf: AS_OF }),
-      mc: simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 99, asOf: AS_OF, trials: 4 }),
+      mc: simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 99, asOf: AS_OF, monteCarlo: { trials: 100 } }),
     }));
 
     expect(utc.offset).toBe(0);
@@ -254,24 +236,37 @@ describe('simulate equals the existing store/worker path', () => {
     expect(outcome.result.context.historicalRanges?.[0]?.startYear).toBe(1975);
   });
 
-  it('monteCarloStochasticReturns matches the worker pool seed-for-seed', () => {
+  it('monteCarloStochasticReturns matches the worker pool seed-for-seed', { timeout: 60_000 }, () => {
     const inputs = createPlan();
-    const outcome = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 9521, asOf: AS_OF, trials: 20 });
+    const outcome = simulate(inputs, {
+      mode: 'monteCarloStochasticReturns',
+      seed: 9521,
+      asOf: AS_OF,
+      monteCarlo: { trials: 100, retention: 'full' },
+    });
 
-    const stored = storeMonteCarloRun(inputs, 'monteCarloStochasticReturns', 9521, AS_OF, 20);
+    const stored = storeMonteCarloRun(inputs, 'monteCarloStochasticReturns', 9521, AS_OF, 100);
 
-    expect(seedsOf(outcome.result.simulations)).toEqual(seedsOf(stored));
-    expect(bySeed(outcome.result.simulations)).toStrictEqual(bySeed(stored));
+    expect(seedsOf(outcome.result.simulations)).toEqual(seedsOf(stored.simulations));
+    expect(bySeed(outcome.result.simulations)).toStrictEqual(bySeed(stored.simulations));
+    // The chunked worker path and the one-shot run must agree on the aggregates too.
+    expect(outcome.result.summary).toStrictEqual(stored.summary);
   });
 
-  it('monteCarloHistoricalReturns matches the worker pool seed-for-seed', () => {
+  it('monteCarloHistoricalReturns matches the worker pool seed-for-seed', { timeout: 60_000 }, () => {
     const inputs = createPlan();
-    const outcome = simulate(inputs, { mode: 'monteCarloHistoricalReturns', seed: 9521, asOf: AS_OF, trials: 20 });
+    const outcome = simulate(inputs, {
+      mode: 'monteCarloHistoricalReturns',
+      seed: 9521,
+      asOf: AS_OF,
+      monteCarlo: { trials: 100, retention: 'full' },
+    });
 
-    const stored = storeMonteCarloRun(inputs, 'monteCarloHistoricalReturns', 9521, AS_OF, 20);
+    const stored = storeMonteCarloRun(inputs, 'monteCarloHistoricalReturns', 9521, AS_OF, 100);
 
-    expect(seedsOf(outcome.result.simulations)).toEqual(seedsOf(stored));
-    expect(bySeed(outcome.result.simulations)).toStrictEqual(bySeed(stored));
+    expect(seedsOf(outcome.result.simulations)).toEqual(seedsOf(stored.simulations));
+    expect(bySeed(outcome.result.simulations)).toStrictEqual(bySeed(stored.simulations));
+    expect(outcome.result.summary).toStrictEqual(stored.summary);
   });
 
   it('matches the store path for a plan with no incomes, expenses, debts or assets', () => {
@@ -291,39 +286,69 @@ describe('simulate equals the existing store/worker path', () => {
 // ============================================================================
 
 describe('simulate trials', () => {
-  it('honours an explicit trial count exactly, across chunk boundaries', () => {
+  it('honours an explicit trial count exactly, across chunk boundaries', { timeout: 60_000 }, () => {
     const inputs = createPlan();
 
-    expect(simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, trials: 12 }).result.simulations).toHaveLength(12);
-    expect(simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, trials: 10 }).result.simulations).toHaveLength(10);
-    expect(simulate(inputs, { mode: 'monteCarloHistoricalReturns', seed: 7, asOf: AS_OF, trials: 11 }).result.simulations).toHaveLength(11);
+    const count = (mode: 'monteCarloStochasticReturns' | 'monteCarloHistoricalReturns', trials: number) => {
+      const outcome = simulate(inputs, { mode, seed: 7, asOf: AS_OF, monteCarlo: { trials, retention: 'full' } });
+      expect(outcome.result.simulations).toHaveLength(trials);
+      expect(outcome.result.summary.trials).toBe(trials);
+      return outcome.result.summary.successes;
+    };
+
+    count('monteCarloStochasticReturns', 100);
+    count('monteCarloStochasticReturns', 101);
+    count('monteCarloHistoricalReturns', 137);
   });
 
-  it(`defaults to ${DEFAULT_MONTE_CARLO_TRIALS} trials when trials is omitted`, () => {
+  it(`defaults to ${DEFAULT_MONTE_CARLO_TRIALS} trials and summary retention when nothing is configured`, { timeout: 60_000 }, () => {
     expect(DEFAULT_MONTE_CARLO_TRIALS).toBe(500);
 
-    // A bare plan keeps this 500-simulation assertion cheap; the count is the point here.
+    // A bare plan keeps this 500-trial assertion cheap; the count is the point here.
     const inputs = createSimulatorInputs({
       timeline: { ...createDefaultTimeline(), lifeExpectancy: 60 },
       accounts: { 'savings-1': create401kAccount({ id: 'savings-1', balance: 250000 }) },
     });
     const outcome = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF });
 
-    expect(outcome.result.simulations).toHaveLength(DEFAULT_MONTE_CARLO_TRIALS);
+    expect(outcome.result.summary.trials).toBe(DEFAULT_MONTE_CARLO_TRIALS);
+    expect(outcome.result.simulations).toEqual([]);
+    expect(outcome.result.summary.histogram.bins.reduce((total, bin) => total + bin.count, 0)).toBe(DEFAULT_MONTE_CARLO_TRIALS);
   });
 
-  it.each(['fixedReturns', 'stochasticReturns', 'historicalReturns'] as const)('rejects trials for the single-run mode %s', (mode) => {
-    const inputs = createPlan();
+  it('keeps the trials shorthand on full retention, the behaviour it had before retention existed', () => {
+    // The headless CLI's `--trials N` means "run N trials and hand me the N runs"; `monteCarlo`
+    // is the supported configuration and defaults to summary retention.
+    const inputs = createSimulatorInputs({
+      timeline: { ...createDefaultTimeline(), lifeExpectancy: 62 },
+      accounts: { 'savings-1': create401kAccount({ id: 'savings-1', balance: 250000 }) },
+    });
 
-    expect(() => simulate(inputs, { mode, seed: 1, asOf: AS_OF, trials: 100 })).toThrow(/trials is only valid for the Monte Carlo modes/);
+    const legacy = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, trials: 3 });
+    const modern = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, monteCarlo: { trials: 100 } });
+
+    expect(legacy.result.simulations).toHaveLength(3);
+    expect(modern.result.simulations).toEqual([]);
+    // Retention changes what is kept, never the aggregates.
+    expect(modern.result.summary.trials).toBe(100);
   });
 
-  it.each([0, -5, 1.5, Number.NaN])('rejects an invalid trial count (%s)', (trials) => {
+  it.each(['fixedReturns', 'stochasticReturns', 'historicalReturns'] as const)(
+    'rejects Monte Carlo options for the single-run mode %s',
+    (mode) => {
+      const inputs = createPlan();
+
+      expect(() => simulate(inputs, { mode, seed: 1, asOf: AS_OF, trials: 100 })).toThrow(/Monte Carlo options are only valid/);
+      expect(() => simulate(inputs, { mode, seed: 1, asOf: AS_OF, monteCarlo: { trials: 100 } })).toThrow(
+        /Monte Carlo options are only valid/
+      );
+    }
+  );
+
+  it.each([0, -5, 1.5, Number.NaN])('rejects an invalid trial shorthand (%s)', (trials) => {
     const inputs = createPlan();
 
-    expect(() => simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 1, asOf: AS_OF, trials })).toThrow(
-      /trials must be a positive integer/
-    );
+    expect(() => simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 1, asOf: AS_OF, trials })).toThrow(/trials must be/);
   });
 });
 

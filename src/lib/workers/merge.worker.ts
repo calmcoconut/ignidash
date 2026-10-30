@@ -17,12 +17,14 @@ import { ChartDataExtractor } from '@/lib/calc/data-extractors/chart-data-extrac
 import { TableDataExtractor } from '@/lib/calc/data-extractors/table-data-extractor';
 import { KeyMetricsExtractor } from '@/lib/calc/data-extractors/key-metrics-extractor';
 import type { MultiSimulationResult } from '@/lib/calc/simulation-engine';
+import { mergeMonteCarloSummaries, type MonteCarloRunResult } from '@/lib/calc/monte-carlo';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 
 type CacheEntry = { handle: string; res: MultiSimulationResult };
 let cache: CacheEntry | null = null;
 
-let partialResults: MultiSimulationResult[] = [];
+/** Chunk results carry the bounded summary alongside whatever full runs retention kept. */
+let partialResults: MonteCarloRunResult[] = [];
 
 type DerivedMultiSimulationData = {
   analysis: MultiSimulationAnalysis;
@@ -34,13 +36,19 @@ type DerivedMultiSimulationData = {
 
 const mergeAPI = {
   /** Buffers a partial result from a simulation worker for later merging. */
-  async addPartialResult(result: MultiSimulationResult): Promise<void> {
+  async addPartialResult(result: MonteCarloRunResult): Promise<void> {
     partialResults.push(result);
   },
 
-  /** Merges all buffered partial results, caches the combined result, and returns a UUID handle. */
+  /**
+   * Merges all buffered partial results, caches the combined result, and returns a UUID handle.
+   * The summaries merge order-independently, so whichever worker finishes first changes nothing.
+   */
   async getMergedResult(): Promise<{ handle: string }> {
-    const merged: MultiSimulationResult = { simulations: partialResults.flatMap((r) => r.simulations) };
+    const merged: MonteCarloRunResult = {
+      simulations: partialResults.flatMap((result) => result.simulations),
+      summary: mergeMonteCarloSummaries(partialResults.map((result) => result.summary)),
+    };
     partialResults = [];
 
     const handle = uuidv4();

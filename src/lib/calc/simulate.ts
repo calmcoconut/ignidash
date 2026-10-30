@@ -26,15 +26,29 @@ import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import type { SimulationSettingsInputs } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 
 import { type ISODateString, fixedClock } from './clock';
-import {
-  FinancialSimulationEngine,
-  LcgHistoricalBacktestSimulationEngine,
-  MonteCarloSimulationEngine,
-  type MultiSimulationResult,
-  type SimulationResult,
-} from './simulation-engine';
+import { FinancialSimulationEngine, LcgHistoricalBacktestSimulationEngine, type SimulationResult } from './simulation-engine';
 import { FixedReturnsProvider } from './returns-providers/fixed-returns-provider';
 import { StochasticReturnsProvider } from './returns-providers/stochastic-returns-provider';
+import {
+  DEFAULT_MONTE_CARLO_TRIALS,
+  MONTE_CARLO_MAX_TRIALS,
+  MONTE_CARLO_MIN_TRIALS,
+  type MonteCarloConfig,
+  type MonteCarloRetention,
+  type MonteCarloRunResult,
+  type MonteCarloSummary,
+  resolveMonteCarloConfig,
+  runMonteCarloRange,
+} from './monte-carlo';
+
+export {
+  DEFAULT_MONTE_CARLO_TRIALS,
+  MONTE_CARLO_MAX_TRIALS,
+  MONTE_CARLO_MIN_TRIALS,
+  type MonteCarloConfig,
+  type MonteCarloRunResult,
+  type MonteCarloSummary,
+};
 
 /**
  * Contract 3.1 — the single definition of the plan's cumulative inflation path.
@@ -69,10 +83,18 @@ export interface SimulateOptions<M extends SimulationMode = SimulationMode> {
   /** The run's clock, as an ISO calendar date (`YYYY-MM-DD`). Never defaulted from the host clock. */
   asOf: ISODateString;
   /**
-   * Monte Carlo trials. Only valid for the two `monteCarlo*` modes, where it is honoured
-   * exactly; omitted means {@link DEFAULT_MONTE_CARLO_TRIALS}. Passing it to a single-run mode
-   * throws instead of being ignored. The bounded/streaming configuration (retention,
-   * histogram, the 100–5000 range) is P2-P3.
+   * Monte Carlo configuration (P2-P3): `{ trials?: 100–5000, retention?: 'summary' | 'full' }`.
+   * Only valid for the two `monteCarlo*` modes; passing it to a single-run mode throws.
+   * Defaults are F7's: 500 trials, `'summary'` retention.
+   */
+  monteCarlo?: MonteCarloConfig;
+  /**
+   * Shorthand for `monteCarlo.trials`, kept for the headless CLI (`--trials`, P5-P2). It is
+   * validated as a positive integer but deliberately not held to the 100–5000 range so that CLI
+   * keeps working for quick, small runs; new callers should use `monteCarlo`.
+   *
+   * It also implies `retention: 'full'` when no retention is given, because the shorthand predates
+   * retention: `--trials 3` has always meant "run three trials and hand me the three runs".
    */
   trials?: number;
 }
@@ -83,10 +105,14 @@ export interface SingleSimulationOutcome<M extends SingleSimulationMode = Single
   result: SimulationResult;
 }
 
-/** A Monte Carlo outcome: the engine's own `MultiSimulationResult`. */
+/**
+ * A Monte Carlo outcome: retained full results (empty under `retention: 'summary'`) plus the
+ * bounded summary. Still a `MultiSimulationResult` structurally, so the analyzers and extractors
+ * consume it unchanged.
+ */
 export interface MonteCarloOutcome<M extends MonteCarloSimulationMode = MonteCarloSimulationMode> {
   mode: M;
-  result: MultiSimulationResult;
+  result: MonteCarloRunResult;
 }
 
 export type SimulateResult = SingleSimulationOutcome | MonteCarloOutcome;
@@ -100,25 +126,12 @@ export type SimulateResultFor<M extends SimulationMode> = M extends SingleSimula
   ? SingleSimulationOutcome<M>
   : MonteCarloOutcome<Extract<M, MonteCarloSimulationMode>>;
 
-/** The app's Monte Carlo default trial count (F7); matches what the store's pool runs today. */
-export const DEFAULT_MONTE_CARLO_TRIALS = 500;
-
-/**
- * Chunking of a Monte Carlo run, mirroring today's store/worker path exactly: the store splits
- * the trials into chunks of 10 and gives chunk `c` the base seed `seed + c * 9973`, and each
- * engine then uses `baseSeed + i * 1009` inside its chunk. Reproducing that mapping is what
- * makes a pure run agree seed-for-seed with the worker pool. P2-P3 replaces it with a mapping
- * that does not depend on chunking at all.
- */
-const MONTE_CARLO_CHUNK_SIZE = 10;
-const MONTE_CARLO_CHUNK_STRIDE = 9973;
-
 /**
  * Runs one simulation, or one Monte Carlo collection, as a pure function of its arguments.
  *
  * @throws if the plan has no timeline, if `asOf` is not a real `YYYY-MM-DD` date, if `seed` is
- * not a positive integer, if `trials` is not a positive integer, or if `trials` is passed to a
- * single-run mode.
+ * not a positive integer, if the Monte Carlo configuration is out of range or disagrees between
+ * `monteCarlo.trials` and the `trials` shorthand, or if either is passed to a single-run mode.
  */
 export function simulate<M extends SimulationMode>(inputs: SimulatorInputs, options: SimulateOptions<M>): SimulateResultFor<M> {
   // Safe by construction: `runSimulation` picks `mode` and the result shape in the same switch,
@@ -164,22 +177,14 @@ function runSimulation(inputs: SimulatorInputs, options: SimulateOptions): Simul
       return { mode, result: engine.runSingleSimulation(seed, historicalStartYearOverride, historicalRetirementStartYearOverride) };
     }
 
-    case 'monteCarloStochasticReturns': {
-      const trials = resolveTrials(options);
-      const simulations = runInChunks(seed, trials, (chunkSeed, size) =>
-        new MonteCarloSimulationEngine(inputs, chunkSeed, clock).runMonteCarloSimulation(size)
-      );
-
-      return { mode, result: { simulations } };
-    }
-
+    case 'monteCarloStochasticReturns':
     case 'monteCarloHistoricalReturns': {
-      const trials = resolveTrials(options);
-      const simulations = runInChunks(seed, trials, (chunkSeed, size) =>
-        new LcgHistoricalBacktestSimulationEngine(inputs, chunkSeed, clock).runLcgHistoricalBacktest(size)
-      );
+      const { retention, trials } = resolveMonteCarloOptions(options);
 
-      return { mode, result: { simulations } };
+      return {
+        mode,
+        result: runMonteCarloRange(inputs, { mode, baseSeed: seed, asOf, config: { retention }, startIndex: 0, count: trials }),
+      };
     }
 
     default: {
@@ -193,40 +198,41 @@ function runSimulation(inputs: SimulatorInputs, options: SimulateOptions): Simul
 }
 
 /**
- * Splits `trials` into the store's worker-sized chunks and concatenates the per-chunk results,
- * preserving seed order (chunk by chunk, seed within chunk) so the output is deterministic.
+ * Merges `monteCarlo` and the `trials` shorthand into one configuration. The two must agree when
+ * both are given: silently letting one win is how a caller ends up reading a run they did not ask
+ * for. The shorthand is exempt from the 100-trial floor (see `SimulateOptions.trials`).
  */
-function runInChunks(
-  seed: number,
-  trials: number,
-  runChunk: (chunkSeed: number, size: number) => MultiSimulationResult
-): Array<[number, SimulationResult]> {
-  const simulations: Array<[number, SimulationResult]> = [];
+function resolveMonteCarloOptions(options: SimulateOptions): { retention: MonteCarloRetention; trials: number } {
+  const shorthand = options.trials;
+  const configured = options.monteCarlo;
 
-  for (let offset = 0, chunkIndex = 0; offset < trials; offset += MONTE_CARLO_CHUNK_SIZE, chunkIndex++) {
-    const size = Math.min(MONTE_CARLO_CHUNK_SIZE, trials - offset);
-    simulations.push(...runChunk(seed + chunkIndex * MONTE_CARLO_CHUNK_STRIDE, size).simulations);
+  if (shorthand !== undefined && configured?.trials !== undefined && shorthand !== configured.trials) {
+    throw new Error(
+      `simulate(): monteCarlo.trials (${configured.trials}) disagrees with trials (${shorthand}); pass one or make them equal.`
+    );
   }
 
-  return simulations;
-}
-
-/** Resolves and validates the Monte Carlo trial count. */
-function resolveTrials(options: SimulateOptions): number {
-  const trials = options.trials ?? DEFAULT_MONTE_CARLO_TRIALS;
-
-  if (!Number.isInteger(trials) || trials < 1) {
-    throw new Error(`simulate(): trials must be a positive integer, received ${String(trials)}.`);
+  if (shorthand !== undefined && (!Number.isInteger(shorthand) || shorthand < 1)) {
+    throw new Error(`simulate(): trials must be a positive integer, received ${String(shorthand)}.`);
   }
 
-  return trials;
+  // The public configuration is range-checked (100-5000) and its retention validated here.
+  const resolved = configured === undefined ? undefined : resolveMonteCarloConfig(configured);
+
+  // The shorthand keeps its pre-retention behaviour: ask for N trials, get N runs back.
+  const shorthandRetention: MonteCarloRetention | undefined = shorthand === undefined ? undefined : 'full';
+
+  return {
+    retention: resolved?.retention ?? shorthandRetention ?? 'summary',
+    trials: configured?.trials ?? shorthand ?? DEFAULT_MONTE_CARLO_TRIALS,
+  };
 }
 
 /** Single-run modes have nothing to do with trials, so a supplied value is a caller bug, not a no-op. */
 function assertNoTrials(options: SimulateOptions): void {
-  if (options.trials !== undefined) {
+  if (options.trials !== undefined || options.monteCarlo !== undefined) {
     throw new Error(
-      `simulate(): trials is only valid for the Monte Carlo modes (${MONTE_CARLO_MODES.join(', ')}), but mode "${options.mode}" runs once.`
+      `simulate(): Monte Carlo options are only valid for the Monte Carlo modes (${MONTE_CARLO_MODES.join(', ')}), but mode "${options.mode}" runs once.`
     );
   }
 }
