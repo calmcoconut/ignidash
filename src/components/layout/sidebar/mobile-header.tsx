@@ -37,7 +37,7 @@ export default function MobileHeader({ onMenuClick }: MobileHeaderProps) {
   const email = user?.email;
 
   return (
-    <div className="bg-emphasized-background border-border/50 fixed top-0 z-40 flex w-full items-center gap-x-6 border-b px-4 py-4 sm:px-6 lg:hidden">
+    <div className="bg-emphasized-background border-border/50 fixed top-0 z-40 flex w-full items-center gap-x-6 border-b px-4 py-4 sm:px-6 lg:hidden print:hidden">
       <button type="button" onClick={onMenuClick} className="focus-outline -m-2.5 p-2.5 lg:hidden">
         <span className="sr-only">Open sidebar</span>
         <MenuIcon aria-hidden="true" className="size-6" />

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, lazy, Suspense } from 'react';
-import { MessageCircleMoreIcon, PresentationIcon, SettingsIcon, Undo2Icon, WandSparklesIcon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { MessageCircleMoreIcon, PresentationIcon, PrinterIcon, SettingsIcon, Undo2Icon, WandSparklesIcon } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import IconButton from '@/components/ui/icon-button';
@@ -13,6 +14,7 @@ import { useRegenSimulation } from '@/hooks/use-regen-simulation';
 import { useSimulationSettingsData } from '@/hooks/use-convex-data';
 import { useUndoPlanChange } from '@/hooks/use-undo-plan-change';
 import { useShowAIChatPulse, useUpdateShowAIChatPulse } from '@/lib/stores/simulator-store';
+import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 
 import DrillDownBreadcrumb from './drill-down-breadcrumb';
 
@@ -21,6 +23,8 @@ const AIChatDrawer = lazy(() => import('./drawers/ai-chat-drawer'));
 const SimulationSettingsDrawer = lazy(() => import('./drawers/simulation-settings-drawer'));
 
 export default function ResultsColumnHeader() {
+  const router = useRouter();
+  const planId = useSelectedPlanId();
   const { icon, label, handleClick, isDisabled } = useRegenSimulation();
   const { canUndo, handleUndo } = useUndoPlanChange();
   const isMac = navigator.userAgent.includes('Mac');
@@ -106,6 +110,12 @@ export default function ResultsColumnHeader() {
             {!isDisabled && (
               <IconButton icon={icon} label={label} onClick={handleClick} surfaceColor="emphasized" isDisabled={isDisabled} />
             )}
+            <IconButton
+              icon={PrinterIcon}
+              label="Print report"
+              onClick={() => router.push(`/dashboard/simulator/${planId}/report`)}
+              surfaceColor="emphasized"
+            />
             <IconButton
               icon={SettingsIcon}
               label="Simulation Settings"

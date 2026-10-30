@@ -17,7 +17,7 @@ export default function Drawer({ open, setOpen, title, children, size = 'regular
   const sizeClasses = size === 'large' ? 'sm:max-w-lg md:max-w-2xl lg:max-w-4xl xl:max-w-6xl' : 'sm:max-w-md';
 
   return (
-    <Dialog open={open} onClose={setOpen} className="relative z-50">
+    <Dialog open={open} onClose={setOpen} className="relative z-50 print:hidden">
       <DialogBackdrop
         transition
         className="bg-emphasized-background fixed inset-0 transition-opacity duration-300 ease-in-out data-closed:opacity-0 sm:bg-stone-100/75 dark:sm:bg-stone-900/75"

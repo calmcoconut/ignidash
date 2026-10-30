@@ -111,3 +111,88 @@ input[type='number'] {
   content: '.';
   animation: ellipsis 1.5s infinite;
 }
+
+/* ============================================================================
+   PRINT / PDF (P4-P5)
+
+   Browser print-to-PDF only: no server rendering, no PDF library, no new
+   dependency. Every rule below is inside `@media print` (or an `@page` rule), so
+   screen rendering is untouched; the only screen-visible additions elsewhere are
+   `print:` utility variants on the app chrome and the report route.
+   ============================================================================ */
+
+@page {
+  /* Margins only. The paper size is deliberately NOT forced: the operator's default
+     (Letter in the US) is the right choice, and forcing A4 would letterbox it. */
+  margin: 12mm 10mm;
+}
+
+@media print {
+  /* Print on white paper with black ink regardless of the active theme. */
+  :root {
+    color-scheme: light;
+    --background: #ffffff;
+    --emphasized-background: #ffffff;
+    --foreground: #000000;
+    --muted-foreground: #333333;
+    --border: #9a9a9a;
+  }
+
+  html,
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  /* The app scrolls inside fixed, viewport-height containers. In print that clips the
+     document to one page, so let the document flow instead. */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  main {
+    position: static !important;
+    inset: auto !important;
+    height: auto !important;
+    padding-left: 0 !important;
+    overflow: visible !important;
+  }
+
+  main > div,
+  main > div > div {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Long tables: keep each row whole and repeat the header on every page. */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr,
+  img,
+  svg {
+    break-inside: avoid;
+  }
+
+  /* Explicit breaks for the report's own sections and blocks. */
+  .print-break-before {
+    break-before: page;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+
+  /* Ink: drop the screen chrome's shadows and rounding artefacts. */
+  * {
+    box-shadow: none !important;
+  }
+}
