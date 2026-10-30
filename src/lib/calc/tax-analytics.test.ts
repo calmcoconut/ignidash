@@ -580,14 +580,13 @@ describe('engine equivalence', () => {
     expect(line('payrollAdditionalMedicare')).toBeCloseTo(taxes.fica.wages.additionalMedicare, 6);
     expect(line('selfEmploymentTax')).toBeCloseTo(taxes.fica.selfEmployment.total, 6);
 
-    // SDI is the one line whose *rate* moves by year. The engine's first settlement year withholds
-    // at the run's start year (2026 → 1.3%), while the row itself dates from the following year
-    // (2027 → 1.4%). The analytics follows the row's year, so the two differ by exactly that step,
-    // and they agree from the second settlement year (the next test). This is the engine's payroll
-    // convention, not an analytics choice: payroll advances at the annual boundary.
+    // SDI is the one line whose *rate* moves by year, so it is the line that proves the payroll and
+    // income-tax tables agree. The row dates from 2027, and both sides withhold 2027's 1.4% — the
+    // alignment fix removed the one-year lag that once had this settlement withholding 2026's 1.3%.
     const engineWages = data[1].incomes!.totalWageIncome;
-    expect(taxes.fica.wages.stateDisability).toBeCloseTo(engineWages * 0.013, 6);
-    expect(line('payrollStateDisability')).toBeCloseTo(engineWages * 0.014, 6);
+    expect(taxes.fica.wages.stateDisability).toBeCloseTo(engineWages * 0.014, 6);
+    expect(line('payrollStateDisability')).toBeCloseTo(taxes.fica.wages.stateDisability, 6);
+    expect(line('payrollStateDisability')).not.toBeCloseTo(engineWages * 0.013, 6);
 
     // `reported` is the engine's own figure, copied rather than recomputed.
     expect(analytics.reported).toMatchObject({
@@ -599,7 +598,7 @@ describe('engine equivalence', () => {
     });
   });
 
-  it('agrees with the engine on every payroll line once the payroll year and the row year line up', () => {
+  it('agrees with the engine on every payroll line in a later settlement too', () => {
     const analytics = analyzeSimulationTaxYear({ data, index: 2, filingStatus: 'single' });
     const taxes = data[2].taxes!;
     const line = (id: string) => analytics.baseline.find((entry) => entry.id === id)?.amount ?? 0;

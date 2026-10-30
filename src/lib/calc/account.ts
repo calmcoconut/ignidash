@@ -407,6 +407,22 @@ export class TaxableBrokerageAccount extends InvestmentAccount {
     return this.costBasis;
   }
 
+  /**
+   * Steps the cost basis toward the account's market value (IRC §1014, at a member's death).
+   *
+   * `fraction` is the share of the account whose basis is reset: 1 for community property, where
+   * §1014(b)(6) steps up both halves, 0.5 for the deceased's half of separate or joint-tenancy
+   * property, and 0 for property the survivor already owned. The whole balance is the account's
+   * market value — returns are applied to the balance and withdrawals realize gains pro rata
+   * against this basis — so a full step-up sets the basis to the balance and every later
+   * withdrawal realizes only the gain that accrues afterward. Withdrawals and rebalancing keep
+   * the pair in step; nothing else in this class needs to know a step-up happened.
+   */
+  applyBasisStepUp(fraction: number): void {
+    const steppedUpShare = Math.min(Math.max(fraction, 0), 1);
+    this.costBasis += (this.balance - this.costBasis) * steppedUpShare;
+  }
+
   applyContribution(amount: number, type: ContributionType, contributionAllocation: AssetAllocation): AssetFlows {
     const contributed = super.applyContributionShared(amount, type, contributionAllocation);
     this.costBasis += amount;

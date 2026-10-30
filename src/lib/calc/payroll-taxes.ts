@@ -218,6 +218,14 @@ export function computeSelfEmploymentTaxes({
  * wage-base or threshold boundary (a December bonus can be taxed at 0% OASDI because January's
  * paycheques already filled the base), and it makes the annual total independent of how the year's
  * wages are spread across months.
+ *
+ * ## Which year it withholds under
+ *
+ * The engine drives this processor with the **settlement year of the period being accumulated**, not
+ * the year the run starts in, and calls `startNewYear` with the next period's settlement year. A
+ * settlement therefore prices its payroll and its income tax from the same year's tables: the two
+ * cannot disagree, which they did before the alignment fix (the first settlement withheld 2026's
+ * SDI rate while its income tax already resolved 2027's).
  */
 export class PayrollTaxProcessor {
   private taxYear: TaxYear;
@@ -231,7 +239,11 @@ export class PayrollTaxProcessor {
     this.filingStatus = filingStatus;
   }
 
-  /** Points the processor at a new tax year and resets the year-to-date wage base. */
+  /**
+   * Points the processor at a new tax year and resets the year-to-date wage base. The engine passes
+   * the *next* settlement period's year, so the period that follows withholds under the same year
+   * it will be settled under.
+   */
   startNewYear(taxYear: TaxYear): void {
     this.taxYear = taxYear;
     this.yearToDateWages = 0;

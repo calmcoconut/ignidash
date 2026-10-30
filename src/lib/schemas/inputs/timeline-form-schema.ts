@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { type ISODateString, parseISODateString } from '@/lib/calc/clock';
 import { ageField, percentageField } from '@/lib/utils/zod-utils';
 
-import { householdSchema } from './household-schema';
+import { householdSchema, resolveHouseholdMembers } from './household-schema';
 
 export const retirementStrategySchema = z.discriminatedUnion('type', [
   z.object({
@@ -91,7 +91,31 @@ export function createTimelineFormSchema(now: ISODateString | Date) {
         message: 'Retirement age must be between current age and life expectancy',
         path: ['retirementStrategy', 'retirementAge'],
       }
-    );
+    )
+    .superRefine((data, ctx) => {
+      // A member who stored its own ages is validated against them; one that inherits the plan's
+      // is already covered by the rules above, so it would only duplicate their messages.
+      const planAges = { birthMonth: data.birthMonth, birthYear: data.birthYear, lifeExpectancy: data.lifeExpectancy };
+      resolveHouseholdMembers(data.household, planAges).forEach((member, index) => {
+        if (!member.hasStoredAges) return;
+
+        const memberAge = calculateAge(member.birthMonth, member.birthYear, now);
+        if (memberAge < 18 || memberAge > 100) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Each household member must be between 18 and 100 years old',
+            path: ['household', 'members', index, 'birthYear'],
+          });
+        }
+        if (memberAge >= member.lifeExpectancy) {
+          ctx.addIssue({
+            code: 'custom',
+            message: "Each household member's life expectancy must be greater than their current age",
+            path: ['household', 'members', index, 'lifeExpectancy'],
+          });
+        }
+      });
+    });
 }
 
 /**

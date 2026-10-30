@@ -21,6 +21,30 @@
  * Every field is optional. A stored plan written before this module existed has no `owner`,
  * no `propertyRegime` and no `household`; readers apply `owner ?? 'primary'` and treat a
  * missing household as one person, so old plans load and simulate exactly as they did.
+ *
+ * ## Member ages (P1-P3)
+ *
+ * A member may carry its own `birthMonth`, `birthYear` and `lifeExpectancy`, because a couple
+ * is two people of two ages: each member's own birth year decides that member's RMD age, and
+ * the run lasts until the *longest* lived member's expectancy. Every one of the three is
+ * optional, and an absent field falls back **field by field** to the plan-level timeline value:
+ *
+ * | stored on the member | resolved value |
+ * | --- | --- |
+ * | `birthMonth` + `birthYear` | the member's own date |
+ * | neither | the plan's `birthMonth`/`birthYear`, i.e. the primary's |
+ * | `lifeExpectancy` | the member's own expectancy |
+ * | absent | the plan's `lifeExpectancy` |
+ *
+ * The plan-level fields are the primary member's own calendar facts, so a household of one
+ * holding no member ages resolves to exactly the plan's values — that is what keeps a
+ * single-member plan's numbers unchanged. A *partner* that stores no ages therefore resolves
+ * to the primary's, which models the couple as two people of the same age rather than
+ * inventing an age for them; the timeline drawer asks for the partner's ages, and a plan that
+ * omits them keeps working (the run simply has no survivor window).
+ *
+ * Absence is never read as an error and never as zero: a zero birth year would make the member
+ * older than the calendar, which is the opposite of the fallback.
  */
 
 import { z } from 'zod';
@@ -46,6 +70,14 @@ export const householdMemberSchema = z.object({
   /** Stable id, so later items can reference a member (per-member RMD age, survivor rules). */
   id: z.string().min(1),
   role: householdMemberRoleSchema,
+  /**
+   * The member's own birth date. Optional and stored as a pair: a member either knows its own
+   * birthday or inherits the plan's (see `resolveHouseholdMember`), never half of each.
+   */
+  birthMonth: z.number().int().min(1).max(12).optional(),
+  birthYear: z.number().int().min(1925).max(2025).optional(),
+  /** The member's own life expectancy, i.e. the age at which this member dies. */
+  lifeExpectancy: z.number().int().min(50).max(110).optional(),
 });
 
 export type HouseholdMember = z.infer<typeof householdMemberSchema>;
@@ -61,12 +93,56 @@ export const householdSchema = z
   .refine((data) => new Set(data.members.map((member) => member.role)).size === data.members.length, {
     message: 'Each household member must have a distinct role',
     path: ['members'],
+  })
+  .refine((data) => data.members.every((member) => (member.birthMonth === undefined) === (member.birthYear === undefined)), {
+    message: "A member's birth month and birth year go together",
+    path: ['members'],
   });
 
 export type Household = z.infer<typeof householdSchema>;
 
 /** The household of a plan that predates this module: one person, the plan's owner. */
 export const SINGLE_MEMBER_HOUSEHOLD: Household = { members: [{ id: 'primary', role: 'primary' }] };
+
+/**
+ * The calendar facts the plan timeline carries: the primary member's own birth date and
+ * life expectancy. They are the fallback every member without its own ages inherits.
+ */
+export interface PlanMemberAges {
+  readonly birthMonth: number;
+  readonly birthYear: number;
+  readonly lifeExpectancy: number;
+}
+
+/** A member with every absent age filled from the plan, ready for the engine to use. */
+export interface ResolvedHouseholdMember extends PlanMemberAges {
+  readonly role: HouseholdMemberRole;
+  /** True when the member stored at least one age of its own rather than inheriting it. */
+  readonly hasStoredAges: boolean;
+}
+
+/** The members of a plan's household; a plan with no stored household is one person. */
+export const householdMembersOf = (household: Household | undefined): readonly HouseholdMember[] =>
+  household?.members ?? SINGLE_MEMBER_HOUSEHOLD.members;
+
+/**
+ * A member's own ages, with every absent field filled from the plan-level timeline values.
+ *
+ * Field by field rather than all-or-nothing: a member that stores a life expectancy but no birth
+ * date is a real case ("same age as the plan, different horizon"), and refusing to mix would
+ * force the user to restate the primary's birthday on the partner.
+ */
+export const resolveHouseholdMember = (member: HouseholdMember, planAges: PlanMemberAges): ResolvedHouseholdMember => ({
+  role: member.role,
+  birthMonth: member.birthMonth ?? planAges.birthMonth,
+  birthYear: member.birthYear ?? planAges.birthYear,
+  lifeExpectancy: member.lifeExpectancy ?? planAges.lifeExpectancy,
+  hasStoredAges: member.birthMonth !== undefined || member.birthYear !== undefined || member.lifeExpectancy !== undefined,
+});
+
+/** Every member of the household, with the plan-level fallback applied. */
+export const resolveHouseholdMembers = (household: Household | undefined, planAges: PlanMemberAges): readonly ResolvedHouseholdMember[] =>
+  householdMembersOf(household).map((member) => resolveHouseholdMember(member, planAges));
 
 /** The owner of an entity. Absence means `primary`, which is what every reader applies. */
 export const ownerOf = (entity: { owner?: Owner | undefined }): Owner => entity.owner ?? 'primary';

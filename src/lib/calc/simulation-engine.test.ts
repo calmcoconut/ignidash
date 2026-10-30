@@ -19,7 +19,9 @@ import {
 import { FixedReturnsProvider } from './returns-providers/fixed-returns-provider';
 import { Portfolio } from './portfolio';
 import { Incomes, IncomesProcessor } from './incomes';
-import { PayrollTaxProcessor } from './payroll-taxes';
+import { computeWagePayrollTaxes, PayrollTaxProcessor } from './payroll-taxes';
+import { parseISODateString } from './clock';
+import { getCaliforniaSdi } from './tax-data/california-sdi';
 import { Expenses, ExpensesProcessor } from './expenses';
 import { PhaseIdentifier } from './phase';
 import { SeededRandom } from './returns-providers/seeded-random';
@@ -533,9 +535,11 @@ describe('FinancialSimulationEngine', () => {
     });
 
     it('withholds California SDI from wages and reports it inside TaxesData.fica', () => {
-      // $100,000 of wages, 2026 single, no income-tax withholding:
-      //   OASDI 6.2% = $6,200.00, Medicare 1.45% = $1,450.00, SDI 1.3% = $1,300.00
-      //   payroll withheld = $8,950.00, all of it credited against the annual liability
+      // $100,000 of wages, single, no income-tax withholding. The first settlement closes a year
+      // after the run starts (TEST_CLOCK is 2026-10-01), so it settles under 2027 and withholds
+      // 2027's published SDI rate:
+      //   OASDI 6.2% = $6,200.00, Medicare 1.45% = $1,450.00, SDI 1.4% = $1,400.00
+      //   payroll withheld = $9,050.00, all of it credited against the annual liability
       const inputs = createSimulatorInputs({
         timeline: createDefaultTimeline(),
         accounts: {},
@@ -548,14 +552,53 @@ describe('FinancialSimulationEngine', () => {
 
       expect(firstYear.taxes?.fica.wages.socialSecurity).toBeCloseTo(6200);
       expect(firstYear.taxes?.fica.wages.medicare).toBeCloseTo(1450);
-      expect(firstYear.taxes?.fica.wages.stateDisability).toBeCloseTo(1300);
-      expect(firstYear.taxes?.fica.wages.total).toBeCloseTo(8950);
-      expect(firstYear.incomes?.totalFicaTax).toBeCloseTo(8950);
+      expect(firstYear.taxes?.fica.wages.stateDisability).toBeCloseTo(1400);
+      expect(firstYear.taxes?.fica.wages.total).toBeCloseTo(9050);
+      expect(firstYear.incomes?.totalFicaTax).toBeCloseTo(9050);
       // Take-home is gross less income-tax withholding (0) and payroll tax.
-      expect(firstYear.incomes?.totalIncomeAfterPayrollDeductions).toBeCloseTo(100000 - 8950);
+      expect(firstYear.incomes?.totalIncomeAfterPayrollDeductions).toBeCloseTo(100000 - 9050);
       // The year-end bill is the income tax alone: the payroll tax was already withheld.
       expect(firstYear.taxes?.totalTaxesDue).toBeCloseTo(firstYear.taxes!.federalIncomeTaxes.federalIncomeTaxAmount);
       expect(firstYear.taxes?.totalTaxesRefund).toBe(0);
+    });
+
+    it('prices payroll and income tax from the same year in every settlement', () => {
+      // The regression this pins: the payroll processor used to be created with the run's *start*
+      // year, so the first settlement withheld 2026's SDI (1.3%) while its income tax already
+      // resolved 2027 (1.4%). A settlement is one period closed on one date, so every table it
+      // applies — income tax, OASDI/Medicare, the wage base, SDI — comes from that date's year.
+      //
+      // TEST_CLOCK is 2026-10-01, so settlement N closes on 2026-10-01 + 12N months:
+      //   row 1 → 2027-10-01 → tax year 2027 → SDI 1.4% (not 1.3%)
+      //   row 2 → 2028-10-01 → tax year 2028 → SDI 1.4% (the 2027 row, by fallback)
+      const inputs = createSimulatorInputs({
+        timeline: { ...createDefaultTimeline(), lifeExpectancy: 40 },
+        accounts: {},
+        incomes: { 'wage-1': createWageIncome({ id: 'wage-1', amount: 100000, taxes: { incomeType: 'wage', withholding: 0 } }) },
+        expenses: {},
+      });
+
+      const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+
+      for (const index of [1, 2]) {
+        const row = result.data[index];
+        const settlementYear = parseISODateString(row.date).year;
+        const wages = row.incomes!.totalWageIncome;
+
+        // The payroll table the settlement used is the one published for its own year.
+        const expected = computeWagePayrollTaxes({ wages, filingStatus: 'single', taxYear: settlementYear });
+        expect(row.taxes!.fica.wages.socialSecurity).toBeCloseTo(expected.socialSecurity, 6);
+        expect(row.taxes!.fica.wages.medicare).toBeCloseTo(expected.medicare, 6);
+        expect(row.taxes!.fica.wages.stateDisability).toBeCloseTo(expected.stateDisability, 6);
+        expect(row.taxes!.fica.wages.total).toBeCloseTo(expected.total, 6);
+
+        // And that is the year's own SDI rate: 1.4% for 2027, never the start year's 1.3%.
+        expect(row.taxes!.fica.wages.stateDisability / wages).toBeCloseTo(getCaliforniaSdi(settlementYear).values.rate, 10);
+        expect(row.taxes!.fica.wages.stateDisability).toBeCloseTo(wages * 0.014, 6);
+      }
+
+      // The start year's rate would have been 1.3%: the row-1 line is exactly what the fix changed.
+      expect(result.data[1].incomes!.totalWageIncome * 0.013).not.toBeCloseTo(result.data[1].taxes!.fica.wages.stateDisability, 6);
     });
   });
 

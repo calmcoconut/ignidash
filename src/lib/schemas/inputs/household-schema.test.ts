@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { simulatorSchema } from './simulator-schema';
+import { timelineFromConvex, timelineToConvex } from '@/lib/utils/data-transformers';
 import {
   householdSchema,
   isCoupleHousehold,
@@ -9,6 +10,8 @@ import {
   propertyRegimeOf,
   ownershipForStorage,
   propertyRegimeSchema,
+  resolveHouseholdMember,
+  resolveHouseholdMembers,
   SINGLE_MEMBER_HOUSEHOLD,
 } from './household-schema';
 
@@ -120,6 +123,29 @@ describe('the schema values', () => {
       }).success
     ).toBe(false);
   });
+
+  it('carries each member`s own ages, all of them optional (P1-P3)', () => {
+    expect(
+      householdSchema.safeParse({
+        members: [
+          { id: 'a', role: 'primary' },
+          { id: 'b', role: 'partner', birthMonth: 9, birthYear: 1984, lifeExpectancy: 92 },
+        ],
+      }).success
+    ).toBe(true);
+
+    // A member with a life expectancy but no birth date is a real shape: same age as the plan.
+    expect(householdSchema.safeParse({ members: [{ id: 'a', role: 'partner', lifeExpectancy: 90 }] }).success).toBe(true);
+
+    // Half a birthday is not: the pair is what `resolveHouseholdMember` can reason about.
+    expect(householdSchema.safeParse({ members: [{ id: 'a', role: 'partner', birthYear: 1984 }] }).success).toBe(false);
+    expect(householdSchema.safeParse({ members: [{ id: 'a', role: 'partner', birthMonth: 9 }] }).success).toBe(false);
+
+    // Out-of-range ages are refused rather than silently falling back.
+    expect(householdSchema.safeParse({ members: [{ id: 'a', role: 'partner', birthMonth: 9, birthYear: 1800 }] }).success).toBe(false);
+    expect(householdSchema.safeParse({ members: [{ id: 'a', role: 'partner', birthMonth: 13, birthYear: 1984 }] }).success).toBe(false);
+    expect(householdSchema.safeParse({ members: [{ id: 'a', role: 'partner', lifeExpectancy: 10 }] }).success).toBe(false);
+  });
 });
 
 describe('the readers default for a plan that predates ownership', () => {
@@ -221,5 +247,66 @@ describe('ownershipForStorage', () => {
       owner: 'primary',
       propertyRegime: undefined,
     });
+  });
+});
+
+describe('member ages fall back to the plan field by field (P1-P3)', () => {
+  const planAges = { birthMonth: 6, birthYear: 1990, lifeExpectancy: 87 };
+
+  it('fills every absent age from the plan and keeps the ones the member stores', () => {
+    expect(resolveHouseholdMember({ id: 'a', role: 'primary' }, planAges)).toEqual({
+      ...planAges,
+      role: 'primary',
+      hasStoredAges: false,
+    });
+
+    expect(resolveHouseholdMember({ id: 'b', role: 'partner', birthMonth: 9, birthYear: 1984, lifeExpectancy: 92 }, planAges)).toEqual({
+      role: 'partner',
+      birthMonth: 9,
+      birthYear: 1984,
+      lifeExpectancy: 92,
+      hasStoredAges: true,
+    });
+
+    // Field by field: a member that knows only its own expectancy still inherits the plan's birthday.
+    expect(resolveHouseholdMember({ id: 'b', role: 'partner', lifeExpectancy: 92 }, planAges)).toEqual({
+      ...planAges,
+      lifeExpectancy: 92,
+      role: 'partner',
+      hasStoredAges: true,
+    });
+  });
+
+  it('treats a missing household as the plan`s one person', () => {
+    const members = resolveHouseholdMembers(undefined, planAges);
+
+    expect(members).toHaveLength(1);
+    expect(members[0]).toEqual({ ...planAges, role: 'primary', hasStoredAges: false });
+  });
+
+  it('never reads an absent age as zero', () => {
+    // Zero would make the member older than the calendar — the opposite of a fallback.
+    const resolved = resolveHouseholdMember({ id: 'b', role: 'partner' }, planAges);
+
+    expect(resolved.birthMonth).toBe(planAges.birthMonth);
+    expect(resolved.birthYear).toBe(planAges.birthYear);
+    expect(resolved.lifeExpectancy).toBe(planAges.lifeExpectancy);
+  });
+
+  it('round-trips member ages through the Convex transformers, both ways', () => {
+    const timeline = {
+      ...LEGACY_PLAN.timeline,
+      household: {
+        members: [
+          { id: 'primary', role: 'primary' as const },
+          { id: 'partner', role: 'partner' as const, birthMonth: 9, birthYear: 1984, lifeExpectancy: 92 },
+        ],
+      },
+    };
+
+    const toConvex = timelineToConvex(timeline);
+    expect(toConvex?.household?.members[1]).toEqual({ id: 'partner', role: 'partner', birthMonth: 9, birthYear: 1984, lifeExpectancy: 92 });
+
+    expect(timelineFromConvex(toConvex)).toStrictEqual(timeline);
   });
 });

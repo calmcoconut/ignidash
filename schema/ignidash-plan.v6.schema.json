@@ -82,6 +82,21 @@
                           "primary",
                           "partner"
                         ]
+                      },
+                      "birthMonth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "birthYear": {
+                        "type": "integer",
+                        "minimum": 1925,
+                        "maximum": 2025
+                      },
+                      "lifeExpectancy": {
+                        "type": "integer",
+                        "minimum": 50,
+                        "maximum": 110
                       }
                     },
                     "required": [

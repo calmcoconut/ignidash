@@ -4,6 +4,7 @@ import type { Doc } from '../../../convex/_generated/dataModel';
 import { planDataFields } from '../../../convex/validators/plan_data_fields';
 import { basicTemplate } from '../../../convex/templates/basic';
 import { earlyRetirementTemplate } from '../../../convex/templates/early_retirement';
+import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inputs/household-schema';
 
 import {
   EXPORT_SCHEMA_VERSION,
@@ -50,6 +51,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
   //   v3 — incomes[0].owner, debts[0].owner / .propertyRegime, timeline.household.
   //   v4 — simulationSettings.historicalBacktest.
   //   v5 — incomes[0].socialSecurity.
+  //   v6 — timeline.household.members[*].birthMonth / .birthYear / .lifeExpectancy.
   const [firstIncome, ...otherIncomes] = basicTemplate.incomes;
   const incomes = [
     {
@@ -70,6 +72,17 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
     name: 'My Plan',
     isDefault: true,
     incomes,
+    // A two-member household that knows both ages, so the v6 fixture has v6 fields to strip and
+    // the v5 fixture below is the same household with only `id` and `role` on each member.
+    timeline: {
+      ...basicTemplate.timeline!,
+      household: {
+        members: [
+          { id: 'primary', role: 'primary' as const, birthMonth: 4, birthYear: 1980, lifeExpectancy: 88 },
+          { id: 'partner', role: 'partner' as const, birthMonth: 9, birthYear: 1984, lifeExpectancy: 92 },
+        ],
+      },
+    },
     simulationSettings: { ...basicTemplate.simulationSettings, historicalBacktest: { mode: 'truncate' as const } },
     glidePath: GLIDE_PATH,
     debts: [
@@ -172,6 +185,49 @@ const VERSION_4_FIELDS = ['historicalBacktest'];
 
 /** What the v5 bump (P1-P8) added. */
 const VERSION_5_FIELDS = ['socialSecurity'];
+
+/** What the v6 bump (P1-P3) added: a household member's own ages. */
+const VERSION_6_FIELDS = ['birthMonth', 'birthYear', 'lifeExpectancy'];
+
+/**
+ * Visits every household member in a payload, wherever the envelope keeps it.
+ *
+ * The v6 fields are stripped and counted through this rather than through `stripFields`, because
+ * `timeline.birthMonth`, `timeline.birthYear` and `timeline.lifeExpectancy` are version-1 plan
+ * fields with the same names: a blanket strip would fabricate a file no version ever wrote.
+ */
+function forEachHouseholdMember(value: unknown, visit: (member: Record<string, unknown>) => void): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) forEachHouseholdMember(entry, visit);
+    return;
+  }
+  if (typeof value !== 'object' || value === null) return;
+
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.members)) {
+    for (const member of record.members) {
+      if (typeof member === 'object' && member !== null) visit(member as Record<string, unknown>);
+    }
+  }
+  for (const entry of Object.values(record)) forEachHouseholdMember(entry, visit);
+}
+
+/** How many member ages a payload carries, so a strip can be shown to have had work to do. */
+function countMemberAges(value: unknown): number {
+  let total = 0;
+  forEachHouseholdMember(value, (member) => {
+    total += VERSION_6_FIELDS.filter((field) => field in member).length;
+  });
+
+  return total;
+}
+
+/** Removes every member age, leaving the members themselves — the shape a v5 file has. */
+function stripMemberAges(value: unknown): void {
+  forEachHouseholdMember(value, (member) => {
+    for (const field of VERSION_6_FIELDS) delete member[field];
+  });
+}
 
 /** Removes every key in `fields` wherever it appears, so a payload can be turned into an older file. */
 function stripFields(value: unknown, fields: readonly string[]): void {
@@ -353,8 +409,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 5 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5];
+    // an older file fails here, not in a support thread. Adding version 6 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -565,6 +621,47 @@ describe('malformed files report the exact field paths', () => {
     // ...and the stored income still carries everything a v4 file does have.
     expect(income).toHaveProperty('amountBasis', 'nominal');
     expect(income).toHaveProperty('owner', 'partner');
+  });
+
+  it('imports a version 5 household without member ages as a fallback, not as an error or a zero', () => {
+    // v6 is the change that adds `birthMonth`/`birthYear`/`lifeExpectancy` to a member, so this is
+    // the real v5 shape: the same two-person household with only `id` and `role` on each member.
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    expect(countMemberAges(envelope)).toBe(6); // two members, three ages each
+
+    const v5 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v5.schemaVersion = 5;
+    stripMemberAges(v5);
+    expect(countMemberAges(v5)).toBe(0);
+
+    const parsed = parseEnvelope(JSON.stringify(v5));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(5);
+    // Nothing invented on the way in: an absent age stays absent in the parsed document, so a
+    // re-export of an untouched v5 plan is still a v5-shaped household rather than a guess.
+    expect(parsed.envelope).toStrictEqual(v5);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const household = (imported.plans[0] as unknown as { timeline: { household: { members: HouseholdMember[] } } }).timeline.household;
+    expect(household.members).toHaveLength(2);
+
+    // Absence means "inherit the plan's own values" — the primary's — never an error and never a
+    // zero. A zero birth year would make the member older than the calendar, the opposite of this.
+    const planAges = { birthMonth: 6, birthYear: 1990, lifeExpectancy: 87 };
+    for (const member of household.members) {
+      for (const field of VERSION_6_FIELDS) expect(member).not.toHaveProperty(field);
+      expect(resolveHouseholdMember(member, planAges)).toMatchObject({ ...planAges, hasStoredAges: false });
+    }
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {

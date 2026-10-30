@@ -12,14 +12,24 @@ import { v } from 'convex/values';
 /** `primary`, `partner` or `joint` (California community property unless tagged). */
 export const ownerValidator = v.union(v.literal('primary'), v.literal('partner'), v.literal('joint'));
 
-/** `community` is the California default for a `joint` item; `jointTenancy` is the exception. */
+/**
+ * `community` is the California default for a `joint` item; `jointTenancy` is the exception.
+ */
 export const propertyRegimeValidator = v.union(v.literal('community'), v.literal('jointTenancy'));
 
+/**
+ * A member's optional ages (P1-P3). Absent means "inherit the plan-level timeline value", so a
+ * v5 document — whose members carry only `id` and `role` — still validates and reads through
+ * `resolveHouseholdMember` exactly as it did before the fields existed.
+ */
 export const householdValidator = v.object({
   members: v.array(
     v.object({
       id: v.string(),
       role: v.union(v.literal('primary'), v.literal('partner')),
+      birthMonth: v.optional(v.number()),
+      birthYear: v.optional(v.number()),
+      lifeExpectancy: v.optional(v.number()),
     })
   ),
 });

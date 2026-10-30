@@ -12,6 +12,7 @@
  */
 
 import type { IncomeInputs, IncomeType } from '@/lib/schemas/inputs/income-form-schema';
+import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
 
 import type { PayrollTaxProcessor } from './payroll-taxes';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
@@ -162,13 +163,38 @@ export interface IncomesData {
 /** Collection of income sources that filters by active time frame */
 export class Incomes {
   private readonly incomes: Income[];
+  private readonly memberDeaths: Partial<Record<HouseholdMemberRole, number>>;
 
-  constructor(data: IncomeInputs[], context?: TimeBindingContext) {
+  /**
+   * @param memberDeaths - Plan-axis age at which each member dies, when a survivor outlives them.
+   *   An income whose owner is that member stops being active from that age (P1-P3 piece 4); a
+   *   `joint` income keeps paying, because community income is the survivor's too. Empty for a
+   *   single-member plan, and for a couple with no survivor window, so nothing moves there.
+   */
+  constructor(data: IncomeInputs[], context?: TimeBindingContext, memberDeaths: Partial<Record<HouseholdMemberRole, number>> = {}) {
     this.incomes = data.filter((income) => !income.disabled).map((income) => new Income(income, context));
+    this.memberDeaths = memberDeaths;
   }
 
   getActiveIncomesByTimeFrame(simulationState: SimulationState): Income[] {
-    return this.incomes.filter((income) => income.getIsActiveByTimeFrame(simulationState));
+    return this.incomes.filter((income) => {
+      if (this.isStoppedByDeath(income, simulationState)) return false;
+
+      return income.getIsActiveByTimeFrame(simulationState);
+    });
+  }
+
+  /**
+   * True once the income's owner has died. Checked before the time frame, so an income the death
+   * stopped is never asked about — `getIsActiveByTimeFrame` carries the one-time latch and must
+   * only run for incomes the processor is actually considering.
+   */
+  private isStoppedByDeath(income: Income, simulationState: SimulationState): boolean {
+    const owner = income.getOwner();
+    if (owner === 'joint') return false;
+
+    const deathAge = this.memberDeaths[owner];
+    return deathAge !== undefined && simulationState.time.age >= deathAge;
   }
 }
 
@@ -188,6 +214,7 @@ export class Income {
   private hasOneTimeIncomeOccurred: boolean;
   private id: string;
   private name: string;
+  private owner: Owner;
   private amount: number;
   private growthRate: number | undefined;
   private growthLimit: number | undefined;
@@ -205,6 +232,7 @@ export class Income {
     this.hasOneTimeIncomeOccurred = false;
     this.id = data.id;
     this.name = data.name;
+    this.owner = ownerOf(data);
     this.binding = new TimeBinding(data.timeframe.start, data.timeframe.end, context);
     // A nominal amount is expressed in the dollars of the date the income starts, so it is
     // converted to the plan's real dollars here. The growth limit is an amount too, so it moves
@@ -221,6 +249,11 @@ export class Income {
   /** The tax treatment this income is declared under; payroll tax applies to `wage` only. */
   getIncomeType(): IncomeType {
     return this.incomeType;
+  }
+
+  /** Whose income this is. Absent on a pre-household plan, which reads as `primary`. */
+  getOwner(): Owner {
+    return this.owner;
   }
 
   /**

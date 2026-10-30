@@ -12,6 +12,7 @@ import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { createTimelineFormSchema, type TimelineInputs, type RetirementStrategyInputs } from '@/lib/schemas/inputs/timeline-form-schema';
 import { SINGLE_MEMBER_HOUSEHOLD } from '@/lib/schemas/inputs/household-schema';
 import NumberInput from '@/components/ui/number-input';
+import { Input } from '@/components/catalyst/input';
 import SectionHeader from '@/components/ui/section-header';
 import SectionContainer from '@/components/ui/section-container';
 import Card from '@/components/ui/card';
@@ -116,6 +117,20 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
 
   const retirementStrategyType = useWatch({ control, name: 'retirementStrategy.type' });
 
+  // A member that stored its own ages is edited here (P1-P3). The plan-level fields above are the
+  // primary's, so only a second member needs a block of its own; a one-member plan has none.
+  const members = useWatch({ control, name: 'household.members' });
+  const partnerIndex = members?.findIndex((member) => member?.role === 'partner') ?? -1;
+
+  const partnerFieldError = (field: 'birthMonth' | 'birthYear' | 'lifeExpectancy'): string | undefined => {
+    // SAFETY: react-hook-form types a nested array's errors as one FieldError, but the timeline
+    // resolver reports per-member issues at their real paths, so `members` is an array of
+    // FieldErrors keyed by member index. The index and field are both ours, not user input.
+    const memberErrors = (errors.household as FieldErrors | undefined)?.members as unknown as Array<FieldErrors> | undefined;
+
+    return memberErrors?.[partnerIndex]?.[field]?.message as string | undefined;
+  };
+
   useEffect(() => {
     if (retirementStrategyType !== 'swrTarget') {
       unregister('retirementStrategy.safeWithdrawalRate');
@@ -210,6 +225,80 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
                   <NumberInput name="lifeExpectancy" control={control} id="lifeExpectancy" inputMode="numeric" placeholder="78" />
                   {errors.lifeExpectancy && <ErrorMessage>{errors.lifeExpectancy?.message}</ErrorMessage>}
                 </Field>
+                {partnerIndex >= 0 && (
+                  <>
+                    <Divider />
+                    <div className="grid grid-cols-2 items-end gap-x-4">
+                      <Field>
+                        <Label>Partner&apos;s Birth Month</Label>
+                        <Controller
+                          name={`household.members.${partnerIndex}.birthMonth`}
+                          control={control}
+                          render={({ field: { onChange, value, name } }) => (
+                            <Select
+                              name={name}
+                              value={value ?? ''}
+                              aria-label="Partner's birth month"
+                              onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+                            >
+                              <option value="">Same as plan</option>
+                              {months.map((month) => (
+                                <option key={month.value} value={month.value}>
+                                  {month.name}
+                                </option>
+                              ))}
+                            </Select>
+                          )}
+                        />
+                        <ErrorMessage>{partnerFieldError('birthMonth')}</ErrorMessage>
+                      </Field>
+                      <Field>
+                        <Label htmlFor={`household.members.${partnerIndex}.birthYear`}>Partner&apos;s Birth Year</Label>
+                        <Controller
+                          name={`household.members.${partnerIndex}.birthYear`}
+                          control={control}
+                          render={({ field: { onChange, onBlur, value, name, ref } }) => (
+                            <Input
+                              id={`household.members.${partnerIndex}.birthYear`}
+                              name={name}
+                              ref={ref}
+                              inputMode="numeric"
+                              placeholder="Same as plan"
+                              value={value === undefined ? '' : String(value)}
+                              onBlur={onBlur}
+                              onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+                            />
+                          )}
+                        />
+                        <ErrorMessage>{partnerFieldError('birthYear')}</ErrorMessage>
+                      </Field>
+                    </div>
+                    <Field>
+                      <Label htmlFor={`household.members.${partnerIndex}.lifeExpectancy`}>Partner&apos;s Life Expectancy</Label>
+                      <Controller
+                        name={`household.members.${partnerIndex}.lifeExpectancy`}
+                        control={control}
+                        render={({ field: { onChange, onBlur, value, name, ref } }) => (
+                          <Input
+                            id={`household.members.${partnerIndex}.lifeExpectancy`}
+                            name={name}
+                            ref={ref}
+                            inputMode="numeric"
+                            placeholder="Same as plan"
+                            value={value === undefined ? '' : String(value)}
+                            onBlur={onBlur}
+                            onChange={(event) => onChange(event.target.value === '' ? undefined : Number(event.target.value))}
+                          />
+                        )}
+                      />
+                      <ErrorMessage>{partnerFieldError('lifeExpectancy')}</ErrorMessage>
+                      <Description>
+                        The partner&apos;s own age drives their RMD age, and the plan runs until the longer of the two life expectancies.
+                        Leave a field blank to use the plan&apos;s value.
+                      </Description>
+                    </Field>
+                  </>
+                )}
                 <Divider />
                 <Field>
                   <Label htmlFor="retirementStrategy.type">Retirement Trigger</Label>

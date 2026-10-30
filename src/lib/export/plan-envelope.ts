@@ -41,12 +41,12 @@ import {
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 5 (P5-P1, bumped by P1-P1, P1-P2, P2-P4 and P1-P8).
+ * Export/import envelope, version 6 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8 and P1-P3).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 5, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 5, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 6, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 6, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -71,6 +71,12 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       imports with the field absent, and every reader treats that income as having no Social
  *       Security estimate (`income.socialSecurity === undefined`) — not as a zero benefit, and
  *       not as an error. The same holds for v1–v3 files, which cannot carry it either.
+ *   6 — P1-P3 household behaviour: optional `birthMonth`/`birthYear`/`lifeExpectancy` on a
+ *       `household` member. A version 5 file cannot carry them: it holds the same household with
+ *       `id` and `role` only, and every one of the three fields is optional on both sides, so a
+ *       v5 household **imports unchanged** and is read through the same fallback — an absent
+ *       member age means "inherit the plan-level timeline value" (the primary's own), never an
+ *       error and never zero. Nothing is written back on import; the file keeps what it had.
  *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
@@ -83,7 +89,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 5;
+export const EXPORT_SCHEMA_VERSION = 6;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

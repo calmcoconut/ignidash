@@ -10,7 +10,16 @@
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import type { HistoricalBacktestMode } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 import { type TimelineInputs, type RetirementStrategyInputs, calculatePreciseAge } from '@/lib/schemas/inputs/timeline-form-schema';
-import { type Household, isCoupleHousehold } from '@/lib/schemas/inputs/household-schema';
+import {
+  type Household,
+  type HouseholdMemberRole,
+  type Owner,
+  type PropertyRegime,
+  isCoupleHousehold,
+  ownerOf,
+  propertyRegimeOf,
+  resolveHouseholdMembers,
+} from '@/lib/schemas/inputs/household-schema';
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
 import { type CalendarDate, type Clock, type ISODateString, addMonths, formatISODate, parseISODateString, toSimulationDate } from './clock';
@@ -20,7 +29,7 @@ import { StochasticReturnsProvider } from './returns-providers/stochastic-return
 import { LcgHistoricalBacktestReturnsProvider } from './returns-providers/lcg-historical-backtest-returns-provider';
 
 import { Portfolio, type PortfolioData, PortfolioProcessor } from './portfolio';
-import type { AccountDataWithFlows } from './account';
+import { type AccountDataWithFlows, TaxableBrokerageAccount } from './account';
 import { ContributionRules } from './contribution-rules';
 import { PhaseIdentifier, type PhaseData } from './phase';
 import { ReturnsProcessor, type ReturnsData } from './returns';
@@ -32,6 +41,7 @@ import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type 
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 import { TaxProcessor, type TaxesData } from './taxes';
 import { taxYearFor } from './tax-data';
+import type { TaxYear } from './tax-data/types';
 import { type AssetFlows, zeroAssetAmounts } from './asset';
 
 /**
@@ -55,6 +65,25 @@ function yearStartAfter(start: CalendarDate, years: number): CalendarDate {
   return monthStartAfter(start, years * 12);
 }
 
+/** Months in one settlement period: the engine closes a year every twelfth month. */
+const SETTLEMENT_PERIOD_MONTHS = 12;
+
+/**
+ * The tax year of the settlement period that begins `monthsElapsed` months into the run.
+ *
+ * A period is settled on the boundary that ends it, so its ruleset is the one in force on that
+ * date — the year the row's own `date` carries, which is `taxYearFor(start, monthsElapsed + 12)`.
+ * Payroll withholding inside the period uses this same year, so the payroll table and the
+ * income-tax table of a settlement can never disagree.
+ *
+ * Using the run's *start* year for payroll instead left the first settlement withholding 2026's
+ * SDI rate (1.3%) while its income tax already settled under 2027 (1.4%): a one-year lag that
+ * corrected itself only from the second settlement on.
+ */
+function settlementTaxYearForPeriod(start: CalendarDate, monthsElapsed: number): TaxYear {
+  return taxYearFor(start, monthsElapsed + SETTLEMENT_PERIOD_MONTHS);
+}
+
 /**
  * The filing status a run settles taxes under (P1-P3, piece 4: derived from the household).
  *
@@ -71,6 +100,63 @@ function yearStartAfter(start: CalendarDate, years: number): CalendarDate {
  */
 export function deriveFilingStatus(household: Household | undefined, storedFilingStatus: FilingStatus): FilingStatus {
   return isCoupleHousehold(household) ? 'marriedFilingJointly' : storedFilingStatus;
+}
+
+/**
+ * SECURE Act 2.0: RMD age is 75 for those born 1960 or later, otherwise 73.
+ *
+ * A member's *own* birth year decides this for that member's accounts (P1-P3 piece 1), so two
+ * members born on either side of 1960 start RMDs two years apart.
+ */
+export function secureActRmdAge(birthYear: number): number {
+  return birthYear >= 1960 ? 75 : 73;
+}
+
+/**
+ * The filing status the survivor settles under once the first member of a couple has died.
+ *
+ * `settlementYearEndAge` is the plan-axis age at which the settlement year ends, so the year
+ * *containing* the death is still a joint return — the decedent files jointly for the year of
+ * death — and the survivor files single from the next one. A null widow's exemption is not the
+ * point here: qualifying surviving spouse status needs a dependent child, which this plan does
+ * not model, so the survivor falls to single as soon as the year of death is closed.
+ *
+ * A single-member plan (no recorded first death) keeps its stored status, which is why this is
+ * a no-op for every plan that is not a couple.
+ */
+export function survivorFilingStatus(
+  baseFilingStatus: FilingStatus,
+  firstDeath: { readonly age: number } | undefined,
+  settlementYearEndAge: number
+): FilingStatus {
+  if (firstDeath === undefined) return baseFilingStatus;
+
+  return settlementYearEndAge - 1 >= firstDeath.age ? 'single' : baseFilingStatus;
+}
+
+/**
+ * The share of an account whose cost basis steps up at the first death (IRC §1014, P1-P3 piece 4).
+ *
+ * - Community property (a `joint` item with the California default regime) steps up **in full**:
+ *   §1014(b)(6) resets both halves of community property, not just the deceased's.
+ * - The deceased's half of anything else steps up: `jointTenancy` property, and the deceased's
+ *   separate property, which this model treats as half the deceased's own (the conservative
+ *   reading — it never overstates the step-up on a solely owned item).
+ * - The survivor's separate property does not step up at all: it was never inherited.
+ *
+ * A member's own accounts carry `owner: 'primary'` or `'partner'`; a couple's jointly held item
+ * is the only one that can be community property, because `propertyRegimeOf` only returns a
+ * regime for a `joint` item.
+ */
+export function basisStepUpFraction(
+  input: { owner?: Owner | undefined; propertyRegime?: PropertyRegime | undefined },
+  deceased: HouseholdMemberRole
+): number {
+  const regime = propertyRegimeOf(input);
+  if (regime === 'community') return 1;
+  if (regime === 'jointTenancy') return 0.5;
+
+  return ownerOf(input) === deceased ? 0.5 : 0;
 }
 
 /** A single year's output data from the simulation */
@@ -121,7 +207,25 @@ export interface SimulationContext {
   readonly startDate: Date;
   readonly endDate: Date;
   readonly retirementStrategy: RetirementStrategyInputs;
+  /**
+   * The plan-axis age at which RMDs begin for the household as a whole: the *earliest* member's,
+   * so it stays "from age 73/75" for one person and reports when the first RMD of a couple is due.
+   */
   readonly rmdAge: number;
+  /**
+   * The plan-axis age at which each owner's RMDs begin, from that member's own birth year
+   * (P1-P3 piece 1). Optional so a context built without a household (a unit test, say) falls
+   * back to `rmdAge` for every account, which is the pre-household behaviour.
+   */
+  readonly rmdAgeByOwner?: Record<Owner, number>;
+  /** `ownerOf` for every account, keyed by account id. Absent means every account is `primary`. */
+  readonly accountOwners?: Record<string, Owner>;
+  /**
+   * The first death of a two-member household, in plan-axis age, and only when a survivor
+   * outlives it. Absent for one member (the run simply ends) and for a couple whose expectancies
+   * are equal (no survivor window, so nothing to transition).
+   */
+  readonly firstDeath?: { readonly age: number; readonly owner: HouseholdMemberRole };
 }
 
 /** Mutable simulation state that evolves each month */
@@ -167,7 +271,9 @@ export class FinancialSimulationEngine {
 
     // Filing status follows the household, not the stored field alone (piece 4). Both tax
     // processors take it, so the Additional Medicare threshold and the income-tax brackets agree.
-    const filingStatus = deriveFilingStatus(timeline.household, this.inputs.taxSettings.filingStatus);
+    const baseFilingStatus = deriveFilingStatus(timeline.household, this.inputs.taxSettings.filingStatus);
+    // A survivor household starts single if the first death fell before the plan did.
+    let filingStatus = survivorFilingStatus(baseFilingStatus, simulationContext.firstDeath, simulationContext.startAge + 1);
 
     // Wage income that keeps a couple in accumulation (piece 3: the joint phase starts when the
     // last earner retires). Built from the raw inputs through the shared time binding, because
@@ -185,7 +291,13 @@ export class FinancialSimulationEngine {
           .map((income) => new TimeBinding(income.timeframe.start, income.timeframe.end, timeBindingContext))
       : [];
 
-    const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext);
+    // A deceased member's own income streams stop at their death (P1-P3 piece 4). A joint income
+    // keeps paying: it is community income, which the survivor keeps. The death arrives as a
+    // plan-axis age rather than a date so the comparison uses the same axis as the run itself.
+    const memberDeaths: Partial<Record<HouseholdMemberRole, number>> =
+      simulationContext.firstDeath === undefined ? {} : { [simulationContext.firstDeath.owner]: simulationContext.firstDeath.age };
+
+    const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext, memberDeaths);
     const expenses = new Expenses(Object.values(this.inputs.expenses), timeBindingContext);
     const debts = new Debts(Object.values(this.inputs.debts), timeBindingContext);
     const physicalAssets = new PhysicalAssets(Object.values(this.inputs.physicalAssets), timeBindingContext);
@@ -198,8 +310,10 @@ export class FinancialSimulationEngine {
     // Payroll withholding has its own state (year-to-date wages, so the OASDI wage base can stop
     // mid-year), so it is created once and shared: the incomes processor applies each paycheque's
     // withholding and the tax processor reports the same year's total.
-    const payrollTaxProcessor = new PayrollTaxProcessor(taxYearFor(startCalendarDate, simulationState.time.month), filingStatus);
-    const incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
+    // Its tax year is the *settlement* year of the period being accumulated, not the year the run
+    // starts in: see `settlementTaxYearForPeriod`. Both processors therefore price one year.
+    let payrollTaxProcessor = new PayrollTaxProcessor(settlementTaxYearForPeriod(startCalendarDate, 0), filingStatus);
+    let incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
     const expensesProcessor = new ExpensesProcessor(simulationState, expenses);
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
@@ -209,14 +323,26 @@ export class FinancialSimulationEngine {
     // timezone-free calendar arithmetic as the result dates, not from a Date getter (a locally built
     // Jan 1 is still Dec 31 in UTC, so `getUTCFullYear()` would pick the prior year's ruleset in a
     // UTC+ zone). It is re-resolved below for every year.
-    const taxProcessor = new TaxProcessor(simulationState, filingStatus, taxYearFor(startCalendarDate, simulationState.time.month));
+    let taxProcessor = new TaxProcessor(simulationState, filingStatus, settlementTaxYearForPeriod(startCalendarDate, 0));
 
     // Init phase identifier
     const phaseIdentifier = new PhaseIdentifier(simulationState, timeline, workingIncomeBindings);
     simulationState.phase = phaseIdentifier.getCurrentPhase();
 
+    // The basis step-up happens once, at the first death (P1-P3 piece 4).
+    let survivorBasisSteppedUp = false;
+
     while (simulationState.time.date < simulationContext.endDate) {
       this.incrementSimulationTime(simulationState, startCalendarDate, simulationContext.startAge);
+
+      if (
+        simulationContext.firstDeath !== undefined &&
+        !survivorBasisSteppedUp &&
+        simulationState.time.age >= simulationContext.firstDeath.age
+      ) {
+        this.applySurvivorBasisStepUp(simulationState, simulationContext.firstDeath.owner);
+        survivorBasisSteppedUp = true;
+      }
 
       // Process RMDs at the start of each year before other transactions
       if (simulationState.time.age >= simulationContext.rmdAge && simulationState.time.month % 12 === 1)
@@ -239,7 +365,18 @@ export class FinancialSimulationEngine {
 
       if (simulationState.time.month % 12 === 0) {
         // Settle the year that just closed under its own ruleset, not the run's first year's.
-        taxProcessor.setTaxYear(taxYearFor(startCalendarDate, simulationState.time.month));
+        const settlementYear = taxYearFor(startCalendarDate, simulationState.time.month);
+        taxProcessor.setTaxYear(settlementYear);
+
+        // The period withheld payroll under this same year (the period that began twelve months
+        // earlier resolves `settlementTaxYearForPeriod(start, month - 12)`, which is this one), so
+        // the two tables a settlement reports always agree. Guard the wiring, not the arithmetic:
+        // silently mixing years is the bug this replaced.
+        if (payrollTaxProcessor.getTaxYear() !== settlementYear) {
+          throw new Error(
+            `Payroll tax year ${payrollTaxProcessor.getTaxYear()} does not match the ${settlementYear} settlement it is reported in`
+          );
+        }
 
         // Get annual data from processors
         const annualPortfolioDataBeforeTaxes = portfolioProcessor.getAnnualData();
@@ -289,18 +426,39 @@ export class FinancialSimulationEngine {
           returns: annualReturnsData,
         });
 
-        // Reset monthly data for next iteration. The payroll year advances with the annual
-        // settlement boundary, which is the rolling 12-month year this engine settles taxes on, so
-        // the OASDI wage base and the SDI rate reset here rather than on January 1. A plan whose
-        // year straddles a calendar boundary therefore applies one year's payroll table to the
-        // whole settlement year, exactly as it applies one year's income-tax brackets.
+        // Reset monthly data for next iteration. The payroll year advances to the *next* period's
+        // settlement year, which is the rolling 12-month year this engine settles taxes on, so the
+        // OASDI wage base and the SDI rate reset here rather than on January 1. A plan whose year
+        // straddles a calendar boundary therefore applies one year's payroll table to the whole
+        // settlement year, exactly as it applies one year's income-tax brackets.
         returnsProcessor.resetMonthlyData();
         incomesProcessor.resetMonthlyData();
         expensesProcessor.resetMonthlyData();
         debtsProcessor.resetMonthlyData();
         physicalAssetsProcessor.resetMonthlyData();
         portfolioProcessor.resetMonthlyData();
-        payrollTaxProcessor.startNewYear(taxYearFor(startCalendarDate, simulationState.time.month));
+        payrollTaxProcessor.startNewYear(settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month));
+
+        // Survivor transition (P1-P3 piece 4): the joint return covers the year the death falls in,
+        // and the survivor files single from the next settlement year. Both processors take the
+        // status in their constructor, so a change means new ones — and the next period's payroll
+        // year is being reset here anyway, so the payroll swap costs nothing. The one thing the
+        // swap costs is the closing TaxProcessor's capital-loss carryover, which has no public
+        // accessor to carry across.
+        const nextPeriodFilingStatus = survivorFilingStatus(baseFilingStatus, simulationContext.firstDeath, simulationState.time.age + 1);
+        if (nextPeriodFilingStatus !== filingStatus) {
+          filingStatus = nextPeriodFilingStatus;
+          taxProcessor = new TaxProcessor(
+            simulationState,
+            filingStatus,
+            settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month)
+          );
+          payrollTaxProcessor = new PayrollTaxProcessor(
+            settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month),
+            filingStatus
+          );
+          incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
+        }
       }
     }
 
@@ -384,8 +542,29 @@ export class FinancialSimulationEngine {
   }
 
   private initSimulationContext(timeline: TimelineInputs, startCalendarDate: CalendarDate): SimulationContext {
-    const startAge = calculatePreciseAge(timeline.birthMonth, timeline.birthYear, this.clock.asOf);
-    const endAge = timeline.lifeExpectancy;
+    // The plan-level ages are the primary member's own; every member without stored ages inherits
+    // them (see `resolveHouseholdMember`), so a household of one holding no member ages resolves
+    // to exactly the plan's values and nothing about a single-member run moves.
+    const planAges = { birthMonth: timeline.birthMonth, birthYear: timeline.birthYear, lifeExpectancy: timeline.lifeExpectancy };
+    const startAge = calculatePreciseAge(planAges.birthMonth, planAges.birthYear, this.clock.asOf);
+
+    /**
+     * Every age below is expressed on the plan's axis: the primary's age, which is the axis
+     * `simulationState.time.age` runs on. A member who shares the plan's birth date is on that axis
+     * already (offset exactly 0, so no floating-point drift can move a single-member run); anyone
+     * else is offset by the age difference at the plan's start.
+     */
+    const memberFacts = resolveHouseholdMembers(timeline.household, planAges).map((member) => {
+      const sharesPlanBirthDate = member.birthMonth === planAges.birthMonth && member.birthYear === planAges.birthYear;
+      const offset = sharesPlanBirthDate ? 0 : startAge - calculatePreciseAge(member.birthMonth, member.birthYear, this.clock.asOf);
+
+      return { role: member.role, deathAge: offset + member.lifeExpectancy, rmdStartAge: offset + secureActRmdAge(member.birthYear) };
+    });
+
+    // The run lasts until the longest-lived member dies (P1-P3 piece 2). `Math.max` over one
+    // member returns that member's expectancy bit for bit, which is where single-member identity
+    // is won.
+    const endAge = Math.max(...memberFacts.map((member) => member.deathAge));
 
     const yearsToSimulate = Math.ceil(endAge - startAge);
 
@@ -394,10 +573,53 @@ export class FinancialSimulationEngine {
 
     const retirementStrategy = timeline.retirementStrategy;
 
-    // SECURE Act 2.0: RMD age is 75 for those born 1960+, otherwise 73
-    const rmdAge = timeline.birthYear >= 1960 ? 75 : 73;
+    // Each member's own birth year decides that member's RMD age (P1-P3 piece 1). A joint item is
+    // one balance the engine cannot split, so it starts distributions when the *first* of its
+    // owners is required to; for one person that is that person's own age, as before.
+    const rmdStartAgeByRole = new Map(memberFacts.map((member) => [member.role, member.rmdStartAge]));
+    const primaryRmdAge = rmdStartAgeByRole.get('primary') ?? secureActRmdAge(planAges.birthYear);
+    const partnerRmdAge = rmdStartAgeByRole.get('partner') ?? primaryRmdAge;
+    const rmdAgeByOwner: Record<Owner, number> = {
+      primary: primaryRmdAge,
+      partner: partnerRmdAge,
+      joint: Math.min(primaryRmdAge, partnerRmdAge),
+    };
+    const rmdAge = rmdAgeByOwner.joint;
 
-    return { startAge, endAge, yearsToSimulate, startDate, endDate, retirementStrategy, rmdAge };
+    const accountOwners: Record<string, Owner> = Object.fromEntries(
+      Object.values(this.inputs.accounts).map((account) => [account.id, ownerOf(account)])
+    );
+
+    // The survivor window exists only when a couple's two death ages differ: equal expectancies
+    // mean there is no survivor to transition, which is also what a couple with no stored member
+    // ages looks like (both resolve to the plan's values).
+    const [firstMember, secondMember] = memberFacts;
+    const firstDeath =
+      firstMember !== undefined && secondMember !== undefined && firstMember.deathAge !== secondMember.deathAge
+        ? firstMember.deathAge < secondMember.deathAge
+          ? { age: firstMember.deathAge, owner: firstMember.role }
+          : { age: secondMember.deathAge, owner: secondMember.role }
+        : undefined;
+
+    return { startAge, endAge, yearsToSimulate, startDate, endDate, retirementStrategy, rmdAge, rmdAgeByOwner, accountOwners, firstDeath };
+  }
+
+  /**
+   * Steps up the cost basis of every taxable account the deceased owned a share of (P1-P3 piece 4).
+   *
+   * The share comes from `basisStepUpFraction`: community property in full, the deceased's half of
+   * separate or joint-tenancy property, and nothing for the survivor's own separate property. Only
+   * taxable brokerage accounts carry a basis — retirement accounts are IRD, with no §1014 step-up,
+   * and savings accounts have no unrealized gain to reset.
+   */
+  private applySurvivorBasisStepUp(simulationState: SimulationState, deceased: HouseholdMemberRole): void {
+    for (const account of simulationState.portfolio.getAccounts()) {
+      if (!(account instanceof TaxableBrokerageAccount)) continue;
+
+      const input = Object.values(this.inputs.accounts).find((candidate) => candidate.id === account.getAccountID());
+      const fraction = basisStepUpFraction(input ?? {}, deceased);
+      if (fraction > 0) account.applyBasisStepUp(fraction);
+    }
   }
 
   private initSimulationState(simulationContext: SimulationContext): SimulationState {

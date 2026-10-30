@@ -429,6 +429,20 @@ export class PortfolioProcessor {
   }
 
   /**
+   * The plan-axis age at which this account's RMDs begin (P1-P3 piece 1).
+   *
+   * Each member's own birth year decides their own RMD age, so two accounts of a couple can start
+   * years apart. A context built without the per-owner map — a unit test, or a caller that
+   * predates households — falls back to the context's single `rmdAge` for every account, which is
+   * exactly the pre-household behaviour.
+   */
+  private rmdStartAgeFor(account: Account): number {
+    const owner = this.simulationContext.accountOwners?.[account.getAccountID()] ?? 'primary';
+
+    return this.simulationContext.rmdAgeByOwner?.[owner] ?? this.simulationContext.rmdAge;
+  }
+
+  /**
    * Processes Required Minimum Distributions for accounts subject to RMDs
    *
    * Calculates RMD amount using the IRS Uniform Lifetime Table, withdraws from
@@ -439,7 +453,6 @@ export class PortfolioProcessor {
     const age = this.simulationState.time.age;
     if (age < this.simulationContext.rmdAge)
       throw new Error(`RMDs should not be processed for ages under ${this.simulationContext.rmdAge}`);
-
     const withdrawalsByAccount: Record<string, AssetFlows> = {};
     const rmdsByAccount: Record<string, number> = {};
 
@@ -450,7 +463,9 @@ export class PortfolioProcessor {
     let realizedGains = 0;
     let earningsWithdrawn = 0;
 
-    const accountsWithRMDs = this.simulationState.portfolio.getAccounts().filter((account) => account.getHasRMDs());
+    const accountsWithRMDs = this.simulationState.portfolio
+      .getAccounts()
+      .filter((account) => account.getHasRMDs() && age >= this.rmdStartAgeFor(account));
     for (const account of accountsWithRMDs) {
       if (!(account.getBalance() > 0)) continue;
 

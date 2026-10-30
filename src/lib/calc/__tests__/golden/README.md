@@ -96,3 +96,30 @@ invariant, asserted in `taxes.test.ts`).
 A cross-check that ran before regenerating (and is cheap to repeat): at all 187 frozen annual data
 points, `incomes.totalFicaTax` equals `taxes.fica.wages.total`, `taxes.totalTaxLiability` equals the
 sum of its lines, and the year-end settlement moves by the income-tax difference alone.
+
+### Alignment fix: a settlement's payroll and income tax now use the same year
+
+Regenerated once, deliberately. The bug: the payroll processor was created with the run's **start**
+year, so the first settlement withheld 2026's SDI rate (1.3%) while the income tax for that same
+settlement already resolved 2027's ruleset (1.4%) — the 1.3% figures in the P3-P4 entry above are
+what this fix replaces. A settlement is one period closed on one date, so every table it applies
+comes from that date's year: the engine now derives that year once (`settlementTaxYearForPeriod`) and
+both processors use it, with a runtime guard that throws if they ever disagree.
+
+Only the **first** settlement changes, and only its **SDI** line: +0.1% of that year's wages
+(1.3% → 1.4%). OASDI, Medicare, the Additional Medicare Tax, gross income and income-tax withholding
+are byte-identical; every later settlement already withheld 1.4% and is unchanged at the source. The
+lifetime and portfolio deltas below are the first year's extra payroll and its compounding.
+
+| fixture              | row-1 SDI               | row-1 federal income tax | lifetime tax                   | final portfolio                | why                                                                                                                                           |
+| -------------------- | ----------------------- | ------------------------ | ------------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `steady-saver`       | $1,430 → $1,540 (+$110) | +$24.20                  | +$131.02 / +$125.31 / +$131.29 | −$326.90 / −$324.39 / −$212.50 | $110,000 × 0.1%. The extra payroll comes out of the 401(k) contribution, so AGI rises by $110 and the tax by 22% of it.                       |
+| `marginal-retiree`   | $780 → $840 (+$60)      | +$16.93                  | +$65.40                        | unchanged (0.00, bankrupt)     | $60,000 × 0.1%. Funded by a withdrawal rather than a contribution, so AGI rises by $60 plus the extra tax on it; the plan still ends at zero. |
+| `time-binding-mixed` | $1,235 → $1,330 (+$95)  | +$20.90                  | +$50.88                        | −$436.41                       | $95,000 × 0.1%.                                                                                                                               |
+| `shortfall-repaid`   | $0 → $0                 | $0                       | 0.00                           | 0.00                           | Pension only: no wages, so no payroll line and nothing to align.                                                                              |
+
+Cross-check run before regenerating: at every frozen row the SDI rate the settlement used equals the
+rate published for that row's own year; rows from the second settlement on kept the same rate before
+and after; take-home fell by exactly the SDI delta; and gross income and income-tax withholding were
+unchanged everywhere. `simulation-engine.test.ts` pins the invariant for the first two settlements:
+each settlement's payroll lines equal `computeWagePayrollTaxes({ …, taxYear: rowYear })`.
