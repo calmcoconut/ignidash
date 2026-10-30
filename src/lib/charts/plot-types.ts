@@ -226,3 +226,169 @@ export function toAreaSeriesProps(series: readonly ResolvedSeries[]): AreaSeries
 export function toPieSlices(series: readonly ResolvedSeries[]): PieSliceProps[] {
   return series.filter((entry) => entry.plot === 'slice').map((entry) => ({ dataKey: entry.key, name: entry.label, color: entry.color }));
 }
+
+// ================================
+// CATEGORICAL (SINGLE-AGE) BAR AND PIE ADAPTERS
+// ================================
+
+/**
+ * One bar/pie series: the field it reads, its colour, and the two labels the old single-age
+ * charts used (a desktop label and a short one for narrow screens).
+ */
+export interface ChartSeriesSpec {
+  readonly key: string;
+  readonly color: string;
+  readonly label: string;
+  readonly shortLabel?: string;
+  /** Display sign: an outflow drawn as a negative bar declares `-1`. */
+  readonly sign?: 1 | -1;
+}
+
+/**
+ * A single-age bar chart view: the bars it draws, how their segments group, whether zero-height
+ * bars are dropped, and the axis formatter.
+ */
+export interface BarChartDefinition {
+  readonly series: readonly ChartSeriesSpec[];
+  /**
+   * Group sizes, one bar per group in order. A group of two or more becomes one stacked bar
+   * (that is how the taxes chart draws a single "Taxable Income" bar out of two segments);
+   * omitted means one bar per series.
+   */
+  readonly segments?: readonly number[];
+  /** `false` for the views that deliberately keep zero-height bars (the old switch's flag). */
+  readonly filterZeroValues?: boolean;
+  readonly format?: MetricValueFormat;
+}
+
+/** A pie view: one slice per series. */
+export interface PieChartDefinition {
+  readonly series: readonly ChartSeriesSpec[];
+}
+
+export interface BarChartSegment {
+  amount: number;
+  color: string;
+}
+
+export interface CategoricalBar {
+  name: string;
+  segments: BarChartSegment[];
+}
+
+export interface BarChartDatum {
+  name: string;
+  amount: number;
+  color: string;
+}
+
+export interface PieChartDatum {
+  name: string;
+  value: number;
+  color: string;
+}
+
+/**
+ * Splits a definition's series into bar groups.
+ *
+ * @param definition - The bar chart definition
+ * @returns One array of series per bar, in drawing order
+ */
+function groupBarSeries(definition: BarChartDefinition): ChartSeriesSpec[][] {
+  if (!definition.segments) return definition.series.map((series) => [series]);
+
+  const groups: ChartSeriesSpec[][] = [];
+  let index = 0;
+
+  for (const size of definition.segments) {
+    groups.push(definition.series.slice(index, index + size));
+    index += size;
+  }
+
+  return groups;
+}
+
+/**
+ * Reads a series value out of the selected row, applying the declared sign.
+ *
+ * @param point - The single-age chart data point
+ * @param series - The series to read
+ * @returns The signed amount (0 when the field is missing)
+ */
+function readChartSeriesValue(point: MetricDataPoint, series: ChartSeriesSpec): number {
+  const raw = Number((point as unknown as Record<string, unknown>)[series.key]);
+  return Number.isFinite(raw) ? raw * (series.sign ?? 1) : 0;
+}
+
+/**
+ * Bar renderer adapter for the single-age charts: groups the definition's series into bars,
+ * naming each from its first series' label (short label on narrow screens).
+ *
+ * @param point - The chart data point for the selected age
+ * @param definition - The bar view definition
+ * @param options - Screen class, which picks the short labels
+ * @returns One categorical bar per group
+ */
+export function toCategoricalBars(
+  point: MetricDataPoint,
+  definition: BarChartDefinition,
+  options: { isSmallScreen: boolean }
+): CategoricalBar[] {
+  return groupBarSeries(definition).map((group) => {
+    const [first] = group;
+
+    return {
+      name: options.isSmallScreen ? (first.shortLabel ?? first.label) : first.label,
+      segments: group.map((series) => ({ amount: readChartSeriesValue(point, series), color: series.color })),
+    };
+  });
+}
+
+/**
+ * Flattens a bar view to the one-segment-per-bar shape most single-age charts render.
+ *
+ * @param point - The chart data point for the selected age
+ * @param definition - The bar view definition
+ * @param options - Screen class, which picks the short labels
+ * @returns `{ name, amount, color }` rows in declaration order
+ */
+export function toBarChartData(
+  point: MetricDataPoint,
+  definition: BarChartDefinition,
+  options: { isSmallScreen: boolean }
+): BarChartDatum[] {
+  return toCategoricalBars(point, definition, options).flatMap((bar) =>
+    bar.segments.map((segment) => ({ name: bar.name, amount: segment.amount, color: segment.color }))
+  );
+}
+
+/**
+ * Pie renderer adapter: one slice per series, named by its label and sized by its signed value.
+ *
+ * @param point - The chart data point for the selected age
+ * @param definition - The pie view definition
+ * @returns Slice rows for the pie chart and its legend
+ */
+export function toPieChartData(point: MetricDataPoint, definition: PieChartDefinition): PieChartDatum[] {
+  return definition.series.map((series) => ({
+    name: series.label,
+    value: readChartSeriesValue(point, series),
+    color: series.color,
+  }));
+}
+
+/** Stable text form of a bar view, so a test can freeze every key, colour, sign and label. */
+export function serializeBarChartDefinition(definition: BarChartDefinition): string {
+  const series = definition.series
+    .map((entry) => `${entry.key}|${entry.color}|${entry.sign ?? 1}|${entry.label}|${entry.shortLabel ?? entry.label}`)
+    .join(';');
+
+  return `${definition.format ?? 'currency'}#${series}#${(definition.segments ?? []).join(',')}#${
+    definition.filterZeroValues === false ? 'keep-zero' : 'filter-zero'
+  }`;
+}
+
+/** Stable text form of a pie view, so a test can freeze every key, colour, sign and label. */
+export function serializePieChartDefinition(definition: PieChartDefinition): string {
+  return definition.series.map((entry) => `${entry.key}|${entry.color}|${entry.sign ?? 1}|${entry.label}`).join(';');
+}

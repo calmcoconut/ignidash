@@ -17,7 +17,16 @@ import { formatChartString } from '@/lib/utils';
 import { formatCompactCurrency, formatPercentage } from '@/lib/utils/number-formatters';
 
 import { metricValue } from './plot-types';
-import type { ChartKind, MetricCategory, MetricDefinition, MetricSeriesDefinition, MetricValueFormat, PlotKind } from './plot-types';
+import type {
+  BarChartDefinition,
+  ChartKind,
+  MetricCategory,
+  MetricDefinition,
+  MetricSeriesDefinition,
+  MetricValueFormat,
+  PieChartDefinition,
+  PlotKind,
+} from './plot-types';
 
 // ================================
 // PERSISTED DATA VIEW IDS
@@ -1016,6 +1025,294 @@ export function chartKindsForDataView(category: MetricCategory, dataViewId: stri
 
 const CURRENCY_FORMATTER = (value: number) => formatCompactCurrency(value, 1);
 const PERCENT_FORMATTER = (value: number) => formatPercentage(value);
+
+// ================================
+// SINGLE-AGE BAR AND PIE VIEWS (P4-P6, second half)
+// ================================
+//
+// The single-age bar charts and the pie do not plot a series list over time: they render one
+// bar (or slice) per series at the selected age, with their own labels, a per-view segment
+// grouping (the taxes chart draws one "Taxable Income" bar out of two segments) and a per-view
+// zero filter. These views keep that shape declaratively here instead of in each chart, and the
+// frozen tests pin every key, colour, sign, label, grouping and formatter.
+
+/** One bar/pie row: `[key, colour, label, shortLabel?, sign?]`. */
+type BarRow = readonly [key: string, color: string, label: string, shortLabel?: string, sign?: 1 | -1];
+
+const barView = (
+  format: MetricValueFormat,
+  rows: readonly BarRow[],
+  options: { segments?: readonly number[]; keepZero?: boolean } = {}
+): BarChartDefinition => ({
+  format,
+  series: rows.map(([key, color, label, shortLabel, sign]) => ({
+    key,
+    color,
+    label,
+    ...(shortLabel === undefined ? {} : { shortLabel }),
+    ...(sign === -1 ? { sign: -1 as const } : {}),
+  })),
+  ...(options.segments === undefined ? {} : { segments: options.segments }),
+  ...(options.keepZero ? { filterZeroValues: false } : {}),
+});
+
+const pieView = (rows: ReadonlyArray<readonly [key: string, color: string, label: string, sign?: 1 | -1]>): PieChartDefinition => ({
+  series: rows.map(([key, color, label, sign]) => ({
+    key,
+    color,
+    label,
+    ...(sign === -1 ? { sign: -1 as const } : {}),
+  })),
+});
+
+/** Every single-age bar view the registry owns, keyed by `<category>.<dataViewId>`. */
+export const BAR_CHARTS: Readonly<Record<string, BarChartDefinition>> = {
+  // Taxes: the bracket reference lines stay in the chart; only the bars move here.
+  'taxes.marginalRates': barView(
+    'percent',
+    [
+      ['topMarginalFederalIncomeTaxRate', 'var(--chart-2)', 'Top Marginal Fed. Income Tax Rate', 'Fed. Income Rate'],
+      ['topMarginalCapitalGainsTaxRate', 'var(--chart-4)', 'Top Marginal Cap Gains Tax Rate', 'Cap Gains Rate'],
+    ],
+    { keepZero: true }
+  ),
+  'taxes.effectiveRates': barView(
+    'percent',
+    [
+      ['effectiveFederalIncomeTaxRate', 'var(--chart-2)', 'Effective Fed. Income Tax Rate', 'Fed. Income Rate'],
+      ['effectiveCapitalGainsTaxRate', 'var(--chart-4)', 'Effective Cap Gains Tax Rate', 'Cap Gains Rate'],
+    ],
+    { keepZero: true }
+  ),
+  'taxes.annualAmounts': barView('currency', [
+    ['annualFederalIncomeTax', 'var(--chart-1)', 'Annual Fed. Income Tax', 'Fed. Income Tax'],
+    ['annualFicaTax', 'var(--chart-2)', 'Annual FICA Tax', 'FICA Tax'],
+    ['annualCapitalGainsTax', 'var(--chart-3)', 'Annual Cap Gains Tax', 'Cap Gains Tax'],
+    ['annualNiit', 'var(--chart-4)', 'Annual NIIT', 'NIIT'],
+    ['annualEarlyWithdrawalPenalties', 'var(--chart-5)', 'Annual EW Penalties', 'EW Penalty'],
+  ]),
+  'taxes.cumulativeAmounts': barView('currency', [
+    ['cumulativeFederalIncomeTax', 'var(--chart-1)', 'Cumul. Fed. Income Tax', 'Cumul. Fed. Income Tax'],
+    ['cumulativeFicaTax', 'var(--chart-2)', 'Cumul. FICA Tax', 'Cumul. FICA Tax'],
+    ['cumulativeCapitalGainsTax', 'var(--chart-3)', 'Cumul. Cap Gains Tax', 'Cumul. CG Tax'],
+    ['cumulativeNiit', 'var(--chart-4)', 'Cumul. NIIT', 'Cumul. NIIT'],
+    ['cumulativeEarlyWithdrawalPenalties', 'var(--chart-5)', 'Cumul. EW Penalties', 'Cumul. EW Penalty'],
+  ]),
+  'taxes.taxableIncome': barView(
+    'currency',
+    [
+      ['taxableIncomeTaxedAsOrdinary', 'var(--chart-1)', 'Taxable Income', 'Taxable Income'],
+      ['taxableIncomeTaxedAsCapitalGains', 'var(--chart-2)', 'Taxable Income', 'Taxable Income'],
+    ],
+    { segments: [2] }
+  ),
+  'taxes.adjustedGrossIncome': barView(
+    'currency',
+    [
+      ['adjustedIncomeTaxedAsOrdinary', 'var(--chart-1)', 'Adjusted Gross Income', 'Adjusted Gross Income'],
+      ['adjustedIncomeTaxedAsCapitalGains', 'var(--chart-2)', 'Adjusted Gross Income', 'Adjusted Gross Income'],
+    ],
+    { segments: [2] }
+  ),
+  'taxes.investmentIncome': barView('currency', [
+    ['taxableInterestIncome', 'var(--chart-1)', 'Interest Income', 'Interest Income'],
+    ['taxableDividendIncome', 'var(--chart-2)', 'Dividend Income', 'Dividend Income'],
+    ['realizedGains', 'var(--chart-3)', 'Realized Gains', 'Realized Gains'],
+  ]),
+  'taxes.retirementDistributions': barView('currency', [
+    ['taxDeferredWithdrawals', 'var(--chart-1)', 'Tax-Deferred Withdrawals', 'Tax-Deferred'],
+    ['earlyRothEarningsWithdrawals', 'var(--chart-2)', 'Early Roth Earnings Withdrawals', 'Early Roth'],
+  ]),
+  'taxes.taxFreeIncome': barView('currency', [['taxFreeIncome', 'var(--chart-2)', 'Tax-Free Income', 'Tax-Free Income']]),
+  'taxes.ordinaryIncome': barView('currency', [
+    ['earnedIncome', 'var(--chart-1)', 'Earned Income', 'Earned Income'],
+    ['socialSecurityIncome', 'var(--chart-2)', 'Social Security', 'Soc. Sec.'],
+    ['taxableInterestIncome', 'var(--chart-3)', 'Interest Income', 'Interest Income'],
+    ['taxableRetirementDistributions', 'var(--chart-4)', 'Retirement Distributions', 'Retirement Dist.'],
+  ]),
+  'taxes.capitalGainsAndDividends': barView('currency', [
+    ['realizedGains', 'var(--chart-1)', 'Realized Gains', 'Realized Gains'],
+    ['taxableDividendIncome', 'var(--chart-2)', 'Dividend Income', 'Dividend Income'],
+  ]),
+  'taxes.earlyWithdrawalPenalties': barView(
+    'currency',
+    [
+      ['annualEarlyWithdrawalPenalties', 'var(--chart-2)', 'Annual EW Penalties', 'Annual EW Penalty'],
+      ['cumulativeEarlyWithdrawalPenalties', 'var(--chart-4)', 'Cumul. EW Penalties', 'Cumul. EW Penalty'],
+    ],
+    { keepZero: true }
+  ),
+  'taxes.adjustmentsAndDeductions': barView('currency', [
+    ['taxDeductibleContributions', 'var(--chart-1)', 'Tax-Deductible Contributions', 'Deductible Contrib.'],
+    ['capitalLossDeduction', 'var(--chart-2)', 'Capital Loss Deduction', 'CL Deduction'],
+    ['standardDeduction', 'var(--chart-3)', 'Standard Deduction', 'Std. Deduction'],
+  ]),
+  'taxes.socialSecurityIncome': barView(
+    'currency',
+    [
+      ['socialSecurityIncome', 'var(--chart-1)', 'Social Security', 'Soc. Sec.'],
+      ['taxableSocialSecurityIncome', 'var(--chart-2)', 'Taxable Social Security', 'Taxable Soc. Sec.'],
+    ],
+    { keepZero: true }
+  ),
+  'taxes.socialSecurityTaxablePercentage': barView(
+    'percent',
+    [
+      ['maxTaxablePercentage', 'var(--chart-2)', 'Max Taxable %', 'Max Taxable %'],
+      ['actualTaxablePercentage', 'var(--chart-4)', 'Actual Taxable %', 'Actual Taxable %'],
+    ],
+    { keepZero: true }
+  ),
+
+  // Returns.
+  'returns.rates': barView('percent', [
+    ['realStockReturnRate', 'var(--chart-2)', 'Real Stock Rate', 'Stock Rate'],
+    ['realBondReturnRate', 'var(--chart-3)', 'Real Bond Rate', 'Bond Rate'],
+    ['realCashReturnRate', 'var(--chart-4)', 'Real Cash Rate', 'Cash Rate'],
+    ['inflationRate', 'var(--chart-8)', 'Inflation Rate', 'Inflation Rate'],
+  ]),
+  'returns.cagr': barView('percent', [
+    ['realStockCagr', 'var(--chart-2)', 'Real Stock CAGR', 'Stock CAGR'],
+    ['realBondCagr', 'var(--chart-3)', 'Real Bond CAGR', 'Bond CAGR'],
+    ['realCashCagr', 'var(--chart-4)', 'Real Cash CAGR', 'Cash CAGR'],
+  ]),
+  'returns.annualAmounts': barView('currency', [
+    ['annualStockGain', 'var(--chart-2)', 'Annual Stock Gain', 'Stock Gain'],
+    ['annualBondGain', 'var(--chart-3)', 'Annual Bond Gain', 'Bond Gain'],
+    ['annualCashGain', 'var(--chart-4)', 'Annual Cash Gain', 'Cash Gain'],
+  ]),
+  'returns.cumulativeAmounts': barView('currency', [
+    ['cumulativeStockGain', 'var(--chart-2)', 'Cumul. Stock Gain', 'Cumul. Stock'],
+    ['cumulativeBondGain', 'var(--chart-3)', 'Cumul. Bond Gain', 'Cumul. Bond'],
+    ['cumulativeCashGain', 'var(--chart-4)', 'Cumul. Cash Gain', 'Cumul. Cash'],
+  ]),
+  'returns.taxCategory': barView('currency', [
+    ['taxableGains', 'var(--chart-1)', 'Taxable Gains', 'Taxable'],
+    ['taxDeferredGains', 'var(--chart-2)', 'Tax-Deferred Gains', 'Tax-Deferred'],
+    ['taxFreeGains', 'var(--chart-3)', 'Tax-Free Gains', 'Tax-Free'],
+    ['cashSavingsGains', 'var(--chart-4)', 'Cash Gains', 'Cash'],
+  ]),
+
+  // Contributions.
+  'contributions.annualAmounts': barView('currency', [
+    ['annualStockContributions', 'var(--chart-1)', 'Annual Stock Contrib.', 'Stock Contrib.'],
+    ['annualBondContributions', 'var(--chart-2)', 'Annual Bond Contrib.', 'Bond Contrib.'],
+    ['annualCashContributions', 'var(--chart-3)', 'Annual Cash Contrib.', 'Cash Contrib.'],
+  ]),
+  'contributions.cumulativeAmounts': barView('currency', [
+    ['cumulativeStockContributions', 'var(--chart-1)', 'Cumul. Stock Contrib.', 'Cumul. Stock'],
+    ['cumulativeBondContributions', 'var(--chart-2)', 'Cumul. Bond Contrib.', 'Cumul. Bond'],
+    ['cumulativeCashContributions', 'var(--chart-3)', 'Cumul. Cash Contrib.', 'Cumul. Cash'],
+  ]),
+  'contributions.taxCategory': barView('currency', [
+    ['taxableContributions', 'var(--chart-1)', 'Taxable Contrib.', 'Taxable'],
+    ['taxDeferredContributions', 'var(--chart-2)', 'Tax-Deferred Contrib.', 'Tax-Deferred'],
+    ['taxFreeContributions', 'var(--chart-3)', 'Tax-Free Contrib.', 'Tax-Free'],
+    ['cashSavingsContributions', 'var(--chart-4)', 'Cash Contrib.', 'Cash'],
+  ]),
+  'contributions.employerMatch': barView('currency', [
+    ['annualEmployerMatch', 'var(--chart-2)', 'Annual Employer Match', 'Annual Match'],
+    ['cumulativeEmployerMatch', 'var(--chart-4)', 'Cumul. Employer Match', 'Cumul. Match'],
+  ]),
+  'contributions.shortfall': barView('currency', [
+    ['annualShortfallRepaid', 'var(--chart-2)', 'Annual Shortfall Repaid', 'Shortfall Repaid'],
+    ['outstandingShortfall', 'var(--chart-4)', 'Outstanding Shortfall', 'Outstanding Shortfall'],
+  ]),
+
+  // Withdrawals.
+  'withdrawals.annualAmounts': barView('currency', [
+    ['annualStockWithdrawals', 'var(--chart-1)', 'Annual Stock Withdrawals', 'Stock Withdrawals'],
+    ['annualBondWithdrawals', 'var(--chart-2)', 'Annual Bond Withdrawals', 'Bond Withdrawals'],
+    ['annualCashWithdrawals', 'var(--chart-3)', 'Annual Cash Withdrawals', 'Cash Withdrawals'],
+  ]),
+  'withdrawals.cumulativeAmounts': barView('currency', [
+    ['cumulativeStockWithdrawals', 'var(--chart-1)', 'Cumul. Stock Withdrawals', 'Cumul. Stock'],
+    ['cumulativeBondWithdrawals', 'var(--chart-2)', 'Cumul. Bond Withdrawals', 'Cumul. Bond'],
+    ['cumulativeCashWithdrawals', 'var(--chart-3)', 'Cumul. Cash Withdrawals', 'Cumul. Cash'],
+  ]),
+  'withdrawals.taxCategory': barView('currency', [
+    ['taxableWithdrawals', 'var(--chart-1)', 'Taxable Withdrawals', 'Taxable'],
+    ['taxDeferredWithdrawals', 'var(--chart-2)', 'Tax-Deferred Withdrawals', 'Tax-Deferred'],
+    ['taxFreeWithdrawals', 'var(--chart-3)', 'Tax-Free Withdrawals', 'Tax-Free'],
+    ['cashSavingsWithdrawals', 'var(--chart-4)', 'Cash Withdrawals', 'Cash'],
+  ]),
+  'withdrawals.realizedGains': barView('currency', [
+    ['annualRealizedGains', 'var(--chart-2)', 'Annual Realized Gains', 'Annual Gains'],
+    ['cumulativeRealizedGains', 'var(--chart-4)', 'Cumul. Realized Gains', 'Cumul. Gains'],
+  ]),
+  'withdrawals.requiredMinimumDistributions': barView('currency', [
+    ['annualRequiredMinimumDistributions', 'var(--chart-2)', 'Annual RMDs', 'Annual RMDs'],
+    ['cumulativeRequiredMinimumDistributions', 'var(--chart-4)', 'Cumul. RMDs', 'Cumul. RMDs'],
+  ]),
+  'withdrawals.earlyWithdrawals': barView('currency', [
+    ['annualEarlyWithdrawals', 'var(--chart-2)', 'Annual Early Withdrawals', 'Annual EWs'],
+    ['cumulativeEarlyWithdrawals', 'var(--chart-4)', 'Cumul. Early Withdrawals', 'Cumul. EWs'],
+  ]),
+  'withdrawals.shortfall': barView('currency', [
+    ['annualShortfall', 'var(--chart-2)', 'Annual Shortfall', 'Annual Shortfall'],
+    ['outstandingShortfall', 'var(--chart-4)', 'Outstanding Shortfall', 'Outstanding Shortfall'],
+  ]),
+
+  // Net worth: the four change views the pie card delegates to its bar chart.
+  'netWorth.netPortfolioChange': barView('currency', [
+    ['annualReturns', 'var(--chart-1)', 'Annual Returns', 'Returns'],
+    ['annualContributions', 'var(--chart-2)', 'Annual Contributions', 'Contributions'],
+    ['annualWithdrawals', 'var(--chart-3)', 'Annual Withdrawals', 'Withdrawals', -1],
+  ]),
+  'netWorth.netAssetChange': barView('currency', [
+    ['annualAssetAppreciation', 'var(--chart-1)', 'Annual Asset Appreciation', 'Appreciation'],
+    ['annualPurchasedAssetValue', 'var(--chart-2)', 'Annual Purchased Asset Value', 'Purchased Value'],
+    ['annualSoldAssetValue', 'var(--chart-3)', 'Annual Sold Asset Value', 'Sold Value', -1],
+  ]),
+  'netWorth.netDebtReduction': barView('currency', [
+    ['annualDebtPaydown', 'var(--chart-1)', 'Annual Debt Paydown', 'Debt Paydown'],
+    ['annualDebtPayoff', 'var(--chart-2)', 'Annual Debt Payoff', 'Debt Payoff'],
+    ['annualDebtIncurred', 'var(--chart-3)', 'Annual Debt Incurred', 'Debt Incurred', -1],
+  ]),
+  'netWorth.netWorthChange': barView('currency', [
+    ['netPortfolioChange', 'var(--chart-1)', 'Net Portfolio Change', 'Portfolio Change'],
+    ['netAssetChange', 'var(--chart-2)', 'Net Asset Change', 'Asset Change'],
+    ['netDebtReduction', 'var(--chart-3)', 'Net Debt Reduction', 'Debt Reduction'],
+  ]),
+};
+
+/** Every pie view the registry owns, keyed by `<category>.<dataViewId>`. */
+export const PIE_CHARTS: Readonly<Record<string, PieChartDefinition>> = {
+  'netWorth.assetClass': pieView([
+    ['stockHoldings', 'var(--chart-1)', 'Stock Holdings'],
+    ['bondHoldings', 'var(--chart-2)', 'Bond Holdings'],
+    ['cashHoldings', 'var(--chart-3)', 'Cash Holdings'],
+  ]),
+  'netWorth.taxCategory': pieView([
+    ['taxableValue', 'var(--chart-1)', 'Taxable Value'],
+    ['taxDeferredValue', 'var(--chart-2)', 'Tax Deferred Value'],
+    ['taxFreeValue', 'var(--chart-3)', 'Tax Free Value'],
+    ['cashSavings', 'var(--chart-4)', 'Cash Savings'],
+  ]),
+  'netWorth.netWorth': pieView([
+    ['portfolioValue', 'var(--chart-1)', 'Portfolio Value'],
+    ['assetValue', 'var(--chart-2)', 'Asset Value'],
+    ['debtBalance', 'var(--chart-3)', 'Debt Balance', -1],
+  ]),
+  'netWorth.assetEquity': pieView([
+    ['assetEquity', 'var(--chart-1)', 'Asset Equity'],
+    ['securedDebtBalance', 'var(--chart-2)', 'Secured Debt'],
+  ]),
+  'netWorth.debts': pieView([
+    ['unsecuredDebtBalance', 'var(--chart-1)', 'Unsecured Debt'],
+    ['securedDebtBalance', 'var(--chart-2)', 'Secured Debt'],
+  ]),
+};
+
+/** The single-age bar definition for a data view, or `undefined` when it stays on its switch. */
+export function resolveBarChart(category: MetricCategory, dataViewId: string): BarChartDefinition | undefined {
+  return BAR_CHARTS[metricIdForDataView(category, dataViewId)];
+}
+
+/** The pie definition for a data view, or `undefined` when it stays on its switch. */
+export function resolvePieChart(category: MetricCategory, dataViewId: string): PieChartDefinition | undefined {
+  return PIE_CHARTS[metricIdForDataView(category, dataViewId)];
+}
 
 /** Value formatter for a metric's declared `format`. */
 export function getMetricValueFormatter(format: MetricValueFormat | undefined): (value: number) => string {
