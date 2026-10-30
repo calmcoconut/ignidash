@@ -20,6 +20,7 @@
     "test:once": "vitest run",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:coverage": "vitest run --coverage --coverage.reporter=text",
+    "bench": "node --expose-gc --import tsx scripts/bench.ts",
     "test:e2e": "playwright test",
     "test:golden:update": "tsx src/lib/calc/__tests__/golden/generate.ts",
     "test:e2e:ui": "playwright test --ui",

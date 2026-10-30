@@ -54,6 +54,9 @@ docker-compose.override.yml
 *.tsbuildinfo
 next-env.d.ts
 
+# benchmark artifacts (machine-specific numbers, never committed)
+/bench-results/
+
 # internal planning docs (repo is public; keep these local)
 /PLAN-*.md
 /PARITY-*.md
