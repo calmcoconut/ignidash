@@ -62,9 +62,12 @@ Options:
 AGE_IDENTITY_FILE may also live in the env file (relative paths there resolve
 against the env file's directory).
 
-Exit status is non-zero when the archive cannot be read or decrypted, when the
-confirmation guard fails, when the import fails, or when the post-import check
-finds fewer documents than the archive contains.
+Requires node, the Convex CLI in node_modules, unzip (the archive is inspected
+before a destructive import) and age for .age archives.
+
+Exit status is non-zero when the archive cannot be read, decrypted or inspected,
+when the confirmation guard fails, when the import fails, or when the post-import
+check finds fewer documents than the archive contains.
 EOF
 }
 
@@ -270,23 +273,19 @@ MAGIC=$(head -c 2 -- "$SOURCE" | od -An -tx1 | tr -d ' \n')
 
 # --- what is in the archive ----------------------------------------------
 
-TABLES=""
-UNZIP_OK=0
-if command -v unzip >/dev/null 2>&1; then
-  if TABLES=$(unzip -Z1 "$SOURCE" 2>/dev/null | awk -F/ 'NF == 2 && $2 == "documents.jsonl" { print $1 }' | LC_ALL=C sort -u); then
-    UNZIP_OK=1
-  fi
-fi
+# A destructive import must not run on an archive that cannot be inspected, so
+# unzip is required rather than optional.
+command -v unzip >/dev/null 2>&1 ||
+  die "unzip is required to inspect the archive before a destructive import (install it, e.g. via NerdTools on Unraid)"
+TABLES=$(unzip -Z1 "$SOURCE" 2>/dev/null | awk -F/ 'NF == 2 && $2 == "documents.jsonl" { print $1 }' | LC_ALL=C sort -u) ||
+  die "could not read the archive listing: $SOURCE"
+[ -n "$TABLES" ] || die "the archive contains no table data: it is not a Convex snapshot"
 
-if [ "$UNZIP_OK" = 1 ] && [ -n "$TABLES" ]; then
-  log "Archive contains:"
-  for table in $TABLES; do
-    count=$(unzip -p "$SOURCE" "$table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
-    log "  $table ($count document(s))"
-  done
-else
-  warn "cannot list the archive tables (unzip missing or unreadable listing); the import will still run"
-fi
+log "Archive contains:"
+for table in $TABLES; do
+  count=$(unzip -p "$SOURCE" "$table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+  log "  $table ($count document(s))"
+done
 
 # --- import ---------------------------------------------------------------
 
@@ -312,33 +311,22 @@ fi
 
 verify_table="$VERIFY_TABLE"
 if [ -z "$verify_table" ]; then
-  case " $(echo $TABLES) " in
-    *" plans "*) verify_table="plans" ;;
-    *)
-      verify_table=$(printf '%s\n' "$TABLES" | head -n 1)
-      ;;
-  esac
-fi
-
-if [ -z "$verify_table" ]; then
-  warn "no table to verify (pass --table NAME to check one); the import itself succeeded"
-  ok "Restore complete"
-  exit 0
+  if printf '%s\n' "$TABLES" | grep -qx 'plans'; then
+    verify_table="plans"
+  else
+    verify_table=$(printf '%s\n' "$TABLES" | head -n 1)
+  fi
 fi
 
 data_json=$("$CONVEX_BIN" data "$verify_table" --limit 1000000 --format jsonArray --env-file "$CLI_ENV" 2>/dev/null || true)
 actual=$(printf '%s\n' "$data_json" | grep -o '"_id"' | wc -l | tr -d ' ')
 [ -n "$actual" ] || actual=0
 
-if [ "$UNZIP_OK" = 1 ] && [ -n "$TABLES" ]; then
-  expected=$(unzip -p "$SOURCE" "$verify_table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
-  [ -n "$expected" ] || expected=0
-  log "Verified $verify_table: $actual document(s) in the deployment, $expected in the archive"
-  [ "$actual" -ge "$expected" ] ||
-    die "verification failed: $verify_table has $actual document(s) but the archive has $expected"
-else
-  log "Verified $verify_table: $actual document(s) in the deployment"
-fi
+expected=$(unzip -p "$SOURCE" "$verify_table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+[ -n "$expected" ] || expected=0
+log "Verified $verify_table: $actual document(s) in the deployment, $expected in the archive"
+[ "$actual" -ge "$expected" ] ||
+  die "verification failed: $verify_table has $actual document(s) but the archive has $expected"
 
 log ""
 ok "Restore complete"

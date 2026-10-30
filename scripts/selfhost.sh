@@ -242,6 +242,9 @@ export_before_migration() {
         echo "Configure backups first (see SELF_HOSTING.md, 'Backups and restore'):"
         echo "  bash scripts/backup.sh --help"
         echo "Encrypted backups need AGE_RECIPIENT, AGE_RECIPIENTS_FILE or AGE_IDENTITY_FILE."
+        echo ""
+        echo "If the container is stopped, start the CURRENT image first (npm run docker:up),"
+        echo "export, and only then upgrade: the backend applies migrations when it starts."
         exit 1
     fi
 
@@ -298,9 +301,6 @@ print_next_steps() {
 
     local APP_URL="${SITE_URL:-http://localhost:3030}"
     local CONVEX_URL="${NEXT_PUBLIC_CONVEX_URL:-http://localhost:3210}"
-    local HOST
-    HOST=$(echo "$APP_URL" | sed -E 's|(https?://[^:/]+).*|\1|')
-
 
     echo -e "${GREEN}Setup complete!${NC}"
     echo ""
@@ -327,7 +327,11 @@ show_help() {
     echo "Options:"
     echo "  --init         First-time setup: create .env.local from template"
     echo "  --sync-only    Only sync environment variables to Convex (skip setup)"
+    echo "  --deploy-only  Only deploy Convex functions (still exports a backup first)"
     echo "  --help         Show this help message"
+    echo ""
+    echo "Every path that deploys functions or runs migrations exports a backup"
+    echo "first and aborts if the export fails (see scripts/backup.sh)."
     echo ""
 }
 
@@ -341,10 +345,28 @@ require_env_file() {
     ensure_env_symlink
 }
 
+# True when a Convex backend answers at the URL in .env.local. Parsing the file
+# instead of sourcing it keeps this probe side-effect free.
+backend_reachable() {
+    local url=""
+    if [ -f ".env.local" ]; then
+        url=$(awk -F= '/^[[:space:]]*CONVEX_SELF_HOSTED_URL=/{ v = $2 } END { gsub(/["\047\r]/, "", v); print v }' .env.local)
+    fi
+    [ -n "$url" ] || url="http://127.0.0.1:3210"
+    if ! command -v curl > /dev/null 2>&1; then
+        return 1
+    fi
+    curl -sf --max-time 10 "$url/version" > /dev/null 2>&1
+}
+
 # Main (default - requires existing .env.local)
 main() {
     check_prerequisites
     require_env_file
+    # The rollback point has to be taken while the CURRENT image is still
+    # serving: the backend applies in-place migrations when it starts, so
+    # exporting after `docker compose up` would capture a post-migration state.
+    export_before_migration
     build_and_start_containers
     setup_convex_admin_key
     sync_convex_env
@@ -357,6 +379,16 @@ main() {
 main_init() {
     check_prerequisites
     setup_env_file
+    # Re-running --init on a live install must export before the container is
+    # rebuilt. A brand-new install has no backend to export from and no data to
+    # lose, so there the gate runs after startup, still before the first deploy.
+    if backend_reachable; then
+        export_before_migration
+    else
+        echo "No Convex backend is answering yet: treating this as a fresh install."
+        echo "The export gate runs after the container starts, before any deploy or migration."
+        echo ""
+    fi
     build_and_start_containers
     setup_convex_admin_key
     sync_convex_env
@@ -380,6 +412,14 @@ case "$1" in
             exit 1
         fi
         sync_convex_env
+        exit 0
+        ;;
+    --deploy-only)
+        # Same deploy path as npm run selfhost, minus the container rebuild,
+        # the admin-key rotation and the migrations. The export gate still
+        # runs, so this entry point cannot skip the backup.
+        require_env_file
+        deploy_convex
         exit 0
         ;;
     --help)

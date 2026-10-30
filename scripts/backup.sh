@@ -60,7 +60,8 @@ Options:
                          File of age recipients (default: $AGE_RECIPIENTS_FILE)
   -i, --identity FILE    age identity to encrypt to (default: $AGE_IDENTITY_FILE);
                          its recipient is derived with age-keygen -y
-  --allow-unencrypted    Write a plaintext ZIP. Refused by default.
+  --allow-unencrypted    Permit a plaintext ZIP, but only when no recipient is
+                         configured. A configured recipient always encrypts.
   --keep-nightly N       Newest N archives to keep (default: 30)
   --keep-monthly N       Newest archive of each of the N most recent months
                          to keep (default: 12)
@@ -71,8 +72,14 @@ Options:
 Backup settings can also live in the env file: AGE_RECIPIENT,
 AGE_RECIPIENTS_FILE, AGE_IDENTITY_FILE and IGNIDASH_BACKUP_DIR.
 
-Exit status is non-zero when the export, the encryption or the pruning fails;
-no partial archive is ever left behind under a normal filename.
+Pruning only ever considers archives this script wrote (ignidash-<timestamp>
+.zip[.age]); any other file in the directory is left alone. Requires node, the
+Convex CLI in node_modules, and unzip (to verify the export); age and
+age-keygen unless encryption is opted out of.
+
+Exit status is non-zero when the export, its verification, the encryption or
+the pruning fails; no partial archive is ever left behind under a normal
+filename.
 EOF
 }
 
@@ -261,8 +268,11 @@ if [ -n "$RECIPIENTS_FILE" ] || [ -n "$RECIPIENT" ] || [ -n "$IDENTITY_FILE" ]; 
 fi
 
 if [ "$ENCRYPT" = 1 ]; then
+  if [ "$ALLOW_UNENCRYPTED" = 1 ]; then
+    warn "--allow-unencrypted was passed but a recipient is configured: the archive is still encrypted"
+  fi
   command -v age >/dev/null 2>&1 ||
-    die "age is not installed but encryption is configured — install age or pass --allow-unencrypted"
+    die "age is not installed but encryption is configured — install age (e.g. NerdTools on Unraid) or pass --allow-unencrypted"
   if [ -n "$RECIPIENTS_FILE" ]; then
     [ -f "$RECIPIENTS_FILE" ] || die "recipients file not found: $RECIPIENTS_FILE"
   elif [ -z "$RECIPIENT" ]; then
@@ -277,12 +287,19 @@ fi
 
 # --- output directory and lock -------------------------------------------
 
+# Before creating anything: archives hold the whole database, so the directory
+# they land in must not be world-listable. An existing directory is left as is
+# (it may be a share with its own permissions).
+umask 077
 mkdir -p -- "$OUTPUT_DIR" || die "cannot create output directory: $OUTPUT_DIR"
 OUTPUT_DIR=$(cd -- "$OUTPUT_DIR" && pwd)
 
 LOCK_DIR="$OUTPUT_DIR/.ignidash-backup.lock"
 if ! mkdir -- "$LOCK_DIR" 2>/dev/null; then
-  # A crashed run must not block cron forever; steal the lock after 12 hours.
+  # A crashed run must not wedge cron forever, so the lock is stolen after 12
+  # hours. Two overlapping runs then both export into private temp files and
+  # publish with an atomic rename, so the loser cannot replace a good archive;
+  # only an export that legitimately runs longer than 12 hours can overlap.
   if [ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +720 2>/dev/null || true)" ]; then
     warn "removing stale lock: $LOCK_DIR"
     rm -rf -- "$LOCK_DIR"
@@ -337,6 +354,50 @@ fi
 MAGIC=$(head -c 2 -- "$RAW" | od -An -tx1 | tr -d ' \n')
 [ "$MAGIC" = "504b" ] || die "convex export did not produce a ZIP archive (magic: $MAGIC)"
 
+# The gate is only a rollback point if this file really is a snapshot of this
+# deployment's data, so inspect the contents instead of trusting the exit status.
+command -v unzip >/dev/null 2>&1 ||
+  die "unzip is required to verify the export (install it, e.g. via NerdTools on Unraid)"
+unzip_status=0
+SNAPSHOT_LISTING=$(unzip -Z1 "$RAW" 2>/dev/null) || unzip_status=$?
+case "$unzip_status" in
+  0) ;;
+  1)
+    # unzip's only benign non-zero case here is a valid but empty archive.
+    case "$SNAPSHOT_LISTING" in
+      '' | 'Empty zipfile.') SNAPSHOT_LISTING="" ;;
+      *) die "the export could not be listed cleanly (unzip exited 1)" ;;
+    esac
+    ;;
+  *) die "the export is not a readable ZIP archive (unzip exited $unzip_status)" ;;
+esac
+
+SNAPSHOT_TABLES=$(printf '%s\n' "$SNAPSHOT_LISTING" | awk -F/ 'NF == 2 && $2 == "documents.jsonl" { print $1 }' | LC_ALL=C sort -u)
+SNAPSHOT_DOCS=0
+if [ -n "$SNAPSHOT_TABLES" ]; then
+  printf '%s\n' "$SNAPSHOT_TABLES" | grep -qx 'plans' ||
+    die "the export has no plans table, so it is not a snapshot of this deployment's schema (tables: $(printf '%s ' $SNAPSHOT_TABLES))"
+  for table in $SNAPSHOT_TABLES; do
+    count=$(unzip -p "$RAW" "$table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+    [ -n "$count" ] || count=0
+    SNAPSHOT_DOCS=$((SNAPSHOT_DOCS + count))
+  done
+  if [ "$SNAPSHOT_DOCS" -eq 0 ]; then
+    warn "the export contains tables but no documents (a freshly deployed, still empty deployment)"
+  else
+    log "Snapshot: $SNAPSHOT_DOCS document(s) across $(printf '%s\n' "$SNAPSHOT_TABLES" | wc -l | tr -d ' ') table(s)"
+  fi
+else
+  # No <table>/documents.jsonl entries. That is legitimate only when the volume
+  # has no schema deployed yet (first install), where Convex writes either an
+  # empty archive or just the file-storage folder. Anything else is not a
+  # snapshot, and a rollback point that cannot be restored is worse than none.
+  unexpected=$(printf '%s\n' "$SNAPSHOT_LISTING" | grep -v '^_storage/' | grep -v '^$' | head -n 5 || true)
+  [ -z "$unexpected" ] ||
+    die "the export is not a Convex snapshot: unexpected entries ($(printf '%s ' $unexpected))"
+  warn "the export contains no tables: the deployment has no schema deployed yet (first install?)"
+fi
+
 # --- encrypt and publish --------------------------------------------------
 
 if [ "$ENCRYPT" = 1 ]; then
@@ -387,9 +448,17 @@ prune_backups() {
   : >"$keep_file"
   : >"$month_file"
 
+  # Only names this script writes are eligible for pruning, matched against the
+  # same pattern backup_month() parses. A hand-named archive such as
+  # ignidash-pre-migration.zip is never a candidate, whichever way it sorts.
   # Newest first: the timestamp in the name sorts lexicographically.
-  find "$OUTPUT_DIR" -maxdepth 1 -type f \( -name 'ignidash-*.zip' -o -name 'ignidash-*.zip.age' \) -print |
-    LC_ALL=C sort -r >"$list_file"
+  find "$OUTPUT_DIR" -maxdepth 1 -type f \
+    \( -name 'ignidash-????????T??????Z.zip' -o -name 'ignidash-????????T??????Z.zip.age' \) -print |
+    while IFS= read -r candidate; do
+      if [ -n "$(backup_month "$candidate")" ]; then
+        printf '%s\n' "$candidate"
+      fi
+    done | LC_ALL=C sort -r >"$list_file"
 
   local archive count=0
   while IFS= read -r archive; do
@@ -416,12 +485,15 @@ prune_backups() {
     rm -f -- "$archive" && pruned=$((pruned + 1))
   done <"$list_file"
 
-  # Leftovers from a killed run are not backups; clear them once they are old.
-  find "$OUTPUT_DIR" -maxdepth 1 -type f -name '.ignidash-*.partial' -mmin +1440 -delete 2>/dev/null || true
-
   local kept
   kept=$(wc -l <"$keep_file" | tr -d ' ')
   log "Retention: kept $kept archive(s), pruned $pruned (newest $KEEP_NIGHTLY plus the newest of $KEEP_MONTHLY month(s))"
+}
+
+# Leftovers from a killed run are not backups; clear them once they are old.
+# This runs even with --no-prune, which only disables deleting real archives.
+cleanup_stale_partials() {
+  find "$OUTPUT_DIR" -maxdepth 1 -type f -name '.ignidash-*.partial' -mmin +1440 -delete 2>/dev/null || true
 }
 
 if [ "$PRUNE" = 1 ]; then
@@ -429,5 +501,7 @@ if [ "$PRUNE" = 1 ]; then
 else
   log "Retention: skipped (--no-prune)"
 fi
+
+cleanup_stale_partials
 
 ok "Backup complete"

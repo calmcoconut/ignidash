@@ -23,6 +23,9 @@ e2e/.auth/
 # production
 /build
 
+# local backup archives (scripts/backup.sh default output directory)
+/backups/
+
 # misc
 .DS_Store
 #

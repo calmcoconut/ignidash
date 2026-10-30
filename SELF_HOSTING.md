@@ -51,16 +51,18 @@ into the Convex deployment, deploys functions, and runs migrations.
 
 Before it deploys anything it exports the deployment through `scripts/backup.sh`,
 and **aborts if that export fails** — deploy and migrations are one-way, so the
-export is the only rollback path. Configure where backups go and how they are
-encrypted first (see [Backups and restore](#backups-and-restore)), either in the
-environment or in `.env.local`:
+export is the only rollback path. `--init` writes an empty `.env.local` from
+`.env.selfhost.example`, which already carries the backup keys, so the first run
+stops at the export until at least one recipient source is filled in (see
+[Backups and restore](#backups-and-restore)):
 
 ```dotenv
 AGE_RECIPIENT=age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
 IGNIDASH_BACKUP_DIR=/mnt/user/backups/ignidash
 ```
 
-Then open `http://<host>:3030/signup` and create your account.
+Re-run `npm run selfhost` once those two lines are set. Then open
+`http://<host>:3030/signup` and create your account.
 
 ### Host port overrides
 
@@ -71,16 +73,16 @@ without editing `docker-compose.yml`.
 
 ## Commands
 
-| Command                             | Description                                                                   |
-| ----------------------------------- | ----------------------------------------------------------------------------- |
-| `npm run selfhost -- --init`        | First-time setup (creates `.env.local` from template)                         |
-| `npm run selfhost`                  | Rebuild, restart, regenerate the admin key, sync env, redeploy                |
-| `npm run selfhost -- --sync-only`   | Sync env vars to Convex without rebuilding                                    |
-| `npm run selfhost:convex-deploy`    | Deploy Convex functions only — no export, so run `scripts/backup.sh` yourself |
-| `bash scripts/backup.sh`            | Export the deployment to an age-encrypted, timestamped archive                |
-| `bash scripts/restore.sh ARCHIVE`   | Restore an archive into a deployment (destructive; guarded)                   |
-| `npm run docker:up` / `docker:down` | Start / stop the container                                                    |
-| `npm run docker:logs`               | Stream container logs                                                         |
+| Command                             | Description                                                    |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `npm run selfhost -- --init`        | First-time setup (creates `.env.local` from template)          |
+| `npm run selfhost`                  | Rebuild, restart, regenerate the admin key, sync env, redeploy |
+| `npm run selfhost -- --sync-only`   | Sync env vars to Convex without rebuilding                     |
+| `npm run selfhost:convex-deploy`    | Deploy Convex functions only (exports a backup first)          |
+| `bash scripts/backup.sh`            | Export the deployment to an age-encrypted, timestamped archive |
+| `bash scripts/restore.sh ARCHIVE`   | Restore an archive into a deployment (destructive; guarded)    |
+| `npm run docker:up` / `docker:down` | Start / stop the container                                     |
+| `npm run docker:logs`               | Stream container logs                                          |
 
 > **Note:** `npm run selfhost` generates a new Convex admin key on each run and saves
 > it to `.env.local`. The previous key stops working.
@@ -179,7 +181,12 @@ this automatically.
 ## Backups and restore
 
 Convex's deploy and migrations are one-way, so an export is the only rollback path.
-Two scripts cover it, and both are safe to run without a TTY.
+Two scripts cover it, and both are safe to run without a TTY. They need `node` (the
+Convex CLI runs from `node_modules`), `unzip` to inspect archives, and `age` unless
+encryption is opted out of.
+
+`npm run selfhost` runs the export **before** it recreates the container, so the
+rollback point always predates the backend's on-start migrations.
 
 | Script                        | What it does                                                                           |
 | ----------------------------- | -------------------------------------------------------------------------------------- |
@@ -206,21 +213,35 @@ export AGE_RECIPIENT=$(age-keygen -y ~/.keys/ignidash-backup.txt)
 fails, which is the point: the archives are unreadable without the key.
 
 The plaintext escape hatch is `--allow-unencrypted` (or
-`IGNIDASH_BACKUP_ALLOW_UNENCRYPTED=1`). Use it once if you truly must, never as a
-default.
+`IGNIDASH_BACKUP_ALLOW_UNENCRYPTED=1`), which permits a plain ZIP **when no recipient
+is configured**. A configured recipient always encrypts, so the flag cannot silently
+weaken a configured setup. Use it once if you truly must, never as a default.
+
+After every export the archive is inspected: it must be a readable Convex snapshot that
+contains the `plans` table. A stub, a ZIP of something else, or a snapshot of a
+different schema fails the backup, and with it the deploy gate. The one exception is
+a volume with no schema deployed yet (a fresh install), where there is nothing to
+roll back; that case warns instead of failing.
 
 ### Retention
 
 The script keeps the newest **30** archives plus the newest archive of each of the
-last **12** calendar months (UTC) — the nightly-plus-monthly policy. Nothing else in
-the output directory is touched, and an archive is never overwritten: re-running in
-the same second is a no-op. Tune it with `--keep-nightly`, `--keep-monthly` or
-`--no-prune`.
+last **12** calendar months (UTC) — the nightly-plus-monthly policy. Only archives
+named `ignidash-<8-digit date>T<6-digit time>Z.zip[.age]` are eligible: anything else
+in the directory, such as a hand-made `ignidash-pre-migration.zip`, is never pruned.
+An archive is never overwritten either — re-running in the same second is a no-op.
+Tune retention with `--keep-nightly`, `--keep-monthly` or `--no-prune`.
 
 ### Scheduling on Unraid
 
 Use the **User Scripts** plugin. It has a cron scheduler and no systemd, which is
 exactly the Unraid model.
+
+Prerequisites on the box (User Scripts cron runs with a minimal `PATH`):
+
+- `node` and `npm` — the Convex CLI runs from the repository's `node_modules`
+- `age` and `age-keygen` — install from **NerdTools** in Community Applications
+- `unzip` — the export is inspected before it is accepted
 
 Write the archives to a **normal array share**, for example
 `/mnt/user/backups/ignidash`, and **never** to the cache pool that holds the
@@ -233,16 +254,17 @@ An example User Script (schedule it nightly, e.g. `0 3 * * *`):
 
 ```bash
 #!/bin/bash
+# Cron runs with a minimal PATH; NerdTools installs into /usr/bin and /usr/local/bin.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 cd /mnt/user/appdata/ignidash || exit 1   # the cloned repository
-export AGE_RECIPIENT=age1...            # or AGE_IDENTITY_FILE=/root/.keys/ignidash-backup.txt
+export AGE_RECIPIENT=age1...              # or AGE_IDENTITY_FILE=/root/.keys/ignidash-backup.txt
 export IGNIDASH_BACKUP_DIR=/mnt/user/backups/ignidash
 exec bash scripts/backup.sh
 ```
 
-Cron details that matter: the script needs `node` and the repository's
-`node_modules` (run `npm install` in the repo first), and it reads
-`CONVEX_SELF_HOSTED_URL` / `CONVEX_SELF_HOSTED_ADMIN_KEY` from `.env.local`. It exits
-non-zero on any failure, so User Scripts shows a failed run instead of a silent one.
+The script reads `CONVEX_SELF_HOSTED_URL` / `CONVEX_SELF_HOSTED_ADMIN_KEY` from
+`.env.local`, and the repository needs `npm install` run once. It exits non-zero on
+any failure, so User Scripts shows a failed run instead of a silent one.
 
 ### Restore drill
 
@@ -270,8 +292,7 @@ bash scripts/restore.sh "$(ls -t /mnt/user/backups/ignidash/ignidash-*.zip.age |
 
 # 5. Verify. The script prints a per-table document count and fails when the
 #    deployment holds fewer documents than the archive does. Cross-check by hand:
-CONVEX_SELF_HOSTED_URL="$SCRATCH_URL" CONVEX_SELF_HOSTED_ADMIN_KEY="$SCRATCH_KEY" \
-  npx convex data plans --limit 1
+npx convex data plans --limit 1 --url "$SCRATCH_URL" --admin-key "$SCRATCH_KEY"
 ```
 
 A drill is green when the import succeeds and the plan you expect comes back. Then
@@ -296,8 +317,26 @@ image's deployment rather than downgrading a schema in place.
 
 ## Updating
 
+`npm run selfhost` is the whole upgrade once the digest is bumped: it exports the
+running deployment first, then rebuilds, restarts, syncs env, deploys functions and
+runs migrations. An abort at the export means nothing has been rebuilt or restarted
+yet.
+
 ```bash
-bash scripts/backup.sh               # the only rollback path: data export, age-encrypted
+# 1. Bump CONVEX_IMAGE in the Dockerfile to a newer digest
+npm run selfhost
+```
+
+The export happens **before** the container is recreated, because the backend
+applies in-place migrations when it starts — an export taken afterwards would
+already be post-migration. If the container is stopped there is nothing to export
+from: start the current image (`npm run docker:up`), then run `npm run selfhost`
+again.
+
+By hand, the same order applies — export first:
+
+```bash
+bash scripts/backup.sh
 # bump CONVEX_IMAGE in the Dockerfile to a newer digest
 docker compose build
 docker compose up -d
@@ -305,10 +344,11 @@ npm run selfhost -- --sync-only
 npm run selfhost:convex-deploy
 ```
 
-`npm run selfhost` and `npm run selfhost -- --init` run `scripts/backup.sh` on their
-own before `convex deploy` or `migrations:runAll`, and **abort if the export fails**.
-`npm run selfhost:convex-deploy` is a thin wrapper that does not, so export first when
-you use it directly.
+`npm run selfhost`, `npm run selfhost -- --init` (when a backend is already
+running) and `npm run selfhost:convex-deploy` all run `scripts/backup.sh` before
+they deploy functions or run migrations, and **abort if the export fails**. The last
+one is `bash scripts/selfhost.sh --deploy-only`: the same deploy and the same gate,
+without the container rebuild, the admin-key rotation or the migrations.
 
 The backend applies in-place migrations on start, so **rolling it back is unsafe**.
 That is why the image is pinned by digest rather than tracking `:latest`. Export
@@ -318,14 +358,24 @@ before every upgrade, and keep the restore drill green.
 
 ## No dashboard
 
-The Convex dashboard is not shipped. Everything it did has a CLI equivalent:
+The Convex dashboard is not shipped. Everything it did has a CLI equivalent. Two
+spellings work for every command below; this file uses `--env-file` for consistency
+with the scripts, not because the other form is broken.
 
 ```bash
-npx convex data <table> --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
-npx convex logs        --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
-npx convex env list    --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
-npx convex run <fn>    --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
+npx convex data <table> --env-file .env.local
+npx convex logs        --env-file .env.local
+npx convex env list    --env-file .env.local
+npx convex run <fn>    --env-file .env.local
 ```
+
+`--env-file .env.local` reads `CONVEX_SELF_HOSTED_URL` and
+`CONVEX_SELF_HOSTED_ADMIN_KEY` from the file. The equivalent explicit form is
+`npx convex data <table> --url "$CONVEX_SELF_HOSTED_URL" --admin-key
+"$CONVEX_SELF_HOSTED_ADMIN_KEY"`; those two flags are accepted (verified against
+CLI 1.32.0) but hidden from `--help`, so the `--env-file` form is the one to rely on
+in notes and scripts. Exporting both variables before the command is a third,
+equivalent form.
 
 ### "Failed to decrypt private key"
 
