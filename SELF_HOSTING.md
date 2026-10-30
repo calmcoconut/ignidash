@@ -49,6 +49,17 @@ The script creates `.env.local` from the template, builds the image, starts the
 container, waits for the backend, generates an admin key, syncs environment variables
 into the Convex deployment, deploys functions, and runs migrations.
 
+Before it deploys anything it exports the deployment through `scripts/backup.sh`,
+and **aborts if that export fails** — deploy and migrations are one-way, so the
+export is the only rollback path. Configure where backups go and how they are
+encrypted first (see [Backups and restore](#backups-and-restore)), either in the
+environment or in `.env.local`:
+
+```dotenv
+AGE_RECIPIENT=age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+IGNIDASH_BACKUP_DIR=/mnt/user/backups/ignidash
+```
+
 Then open `http://<host>:3030/signup` and create your account.
 
 ### Host port overrides
@@ -60,14 +71,16 @@ without editing `docker-compose.yml`.
 
 ## Commands
 
-| Command                             | Description                                                    |
-| ----------------------------------- | -------------------------------------------------------------- |
-| `npm run selfhost -- --init`        | First-time setup (creates `.env.local` from template)          |
-| `npm run selfhost`                  | Rebuild, restart, regenerate the admin key, sync env, redeploy |
-| `npm run selfhost -- --sync-only`   | Sync env vars to Convex without rebuilding                     |
-| `npm run selfhost:convex-deploy`    | Deploy Convex functions only                                   |
-| `npm run docker:up` / `docker:down` | Start / stop the container                                     |
-| `npm run docker:logs`               | Stream container logs                                          |
+| Command                             | Description                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| `npm run selfhost -- --init`        | First-time setup (creates `.env.local` from template)                         |
+| `npm run selfhost`                  | Rebuild, restart, regenerate the admin key, sync env, redeploy                |
+| `npm run selfhost -- --sync-only`   | Sync env vars to Convex without rebuilding                                    |
+| `npm run selfhost:convex-deploy`    | Deploy Convex functions only — no export, so run `scripts/backup.sh` yourself |
+| `bash scripts/backup.sh`            | Export the deployment to an age-encrypted, timestamped archive                |
+| `bash scripts/restore.sh ARCHIVE`   | Restore an archive into a deployment (destructive; guarded)                   |
+| `npm run docker:up` / `docker:down` | Start / stop the container                                                    |
+| `npm run docker:logs`               | Stream container logs                                                         |
 
 > **Note:** `npm run selfhost` generates a new Convex admin key on each run and saves
 > it to `.env.local`. The previous key stops working.
@@ -109,6 +122,22 @@ without editing `docker-compose.yml`.
 
 AI features stay hidden until `OPENAI_API_KEY` and one of the endpoints is set.
 
+### Backups
+
+Read by `scripts/backup.sh` (and by the export gate inside `npm run selfhost`).
+They work from the environment or from `.env.local`; relative paths in
+`.env.local` resolve against the repository root.
+
+| Variable                            | Description                                                                                                                                        |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGE_RECIPIENT`                     | age public key the archives are encrypted to. Encryption is on by default and the script refuses to write a plain ZIP without an explicit opt-out. |
+| `AGE_RECIPIENTS_FILE`               | File of age public keys (equivalent to `age -R`).                                                                                                  |
+| `AGE_IDENTITY_FILE`                 | age identity file; `scripts/backup.sh` derives its recipient, `scripts/restore.sh` decrypts with it.                                               |
+| `IGNIDASH_BACKUP_DIR`               | Where archives are written. Default: `./backups` inside the repository. Use an array share on Unraid, not the cache pool.                          |
+| `IGNIDASH_BACKUP_KEEP_NIGHTLY`      | Newest `N` archives kept. Default `30`.                                                                                                            |
+| `IGNIDASH_BACKUP_KEEP_MONTHLY`      | Newest archive of each of the `N` most recent months kept. Default `12`.                                                                           |
+| `IGNIDASH_BACKUP_ALLOW_UNENCRYPTED` | `1` writes a plaintext archive. Only for a deliberate, one-off decision — never leave it set in `.env.local`.                                      |
+
 ### Removed — these no longer do anything
 
 `STRIPE_*`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `RESEND_API_KEY`,
@@ -147,10 +176,128 @@ this automatically.
 
 ---
 
+## Backups and restore
+
+Convex's deploy and migrations are one-way, so an export is the only rollback path.
+Two scripts cover it, and both are safe to run without a TTY.
+
+| Script                        | What it does                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| `bash scripts/backup.sh`      | Exports the deployment to `ignidash-<UTC timestamp>.zip.age`, then prunes old archives |
+| `bash scripts/restore.sh ...` | Imports an archive into a deployment (destructive, guarded)                            |
+
+### Encrypting the archive
+
+Encryption with [age](https://github.com/FiloSottile/age) is **on by default**, and the
+script refuses to write a plain ZIP unless it is told to. One access method is enough:
+
+```bash
+# 1. Create a key once. Keep the identity somewhere you will still have it after
+#    the server dies — it is the only way to read the archives.
+age-keygen -o ~/.keys/ignidash-backup.txt
+
+# 2. Give the archive script the public half only.
+#    Put this in .env.local so npm run selfhost uses it too:
+export AGE_RECIPIENT=$(age-keygen -y ~/.keys/ignidash-backup.txt)
+```
+
+`AGE_RECIPIENTS_FILE=recipients.txt` (several recipients) and
+`AGE_IDENTITY_FILE=backup-key.txt` also work. A restore **without** the identity
+fails, which is the point: the archives are unreadable without the key.
+
+The plaintext escape hatch is `--allow-unencrypted` (or
+`IGNIDASH_BACKUP_ALLOW_UNENCRYPTED=1`). Use it once if you truly must, never as a
+default.
+
+### Retention
+
+The script keeps the newest **30** archives plus the newest archive of each of the
+last **12** calendar months (UTC) — the nightly-plus-monthly policy. Nothing else in
+the output directory is touched, and an archive is never overwritten: re-running in
+the same second is a no-op. Tune it with `--keep-nightly`, `--keep-monthly` or
+`--no-prune`.
+
+### Scheduling on Unraid
+
+Use the **User Scripts** plugin. It has a cron scheduler and no systemd, which is
+exactly the Unraid model.
+
+Write the archives to a **normal array share**, for example
+`/mnt/user/backups/ignidash`, and **never** to the cache pool that holds the
+`convex-data` appdata (`/mnt/cache/appdata/...`). A cache-only copy is lost when the
+pool is rebuilt or the cache drive fails, which is the situation the backup exists
+for. Because the array share is on the encrypted array, the archives are also
+encrypted at rest; the age layer protects the copy once it leaves the box.
+
+An example User Script (schedule it nightly, e.g. `0 3 * * *`):
+
+```bash
+#!/bin/bash
+cd /mnt/user/appdata/ignidash || exit 1   # the cloned repository
+export AGE_RECIPIENT=age1...            # or AGE_IDENTITY_FILE=/root/.keys/ignidash-backup.txt
+export IGNIDASH_BACKUP_DIR=/mnt/user/backups/ignidash
+exec bash scripts/backup.sh
+```
+
+Cron details that matter: the script needs `node` and the repository's
+`node_modules` (run `npm install` in the repo first), and it reads
+`CONVEX_SELF_HOSTED_URL` / `CONVEX_SELF_HOSTED_ADMIN_KEY` from `.env.local`. It exits
+non-zero on any failure, so User Scripts shows a failed run instead of a silent one.
+
+### Restore drill
+
+Run this before you need it, and after any upgrade that changed the schema. It proves
+the archive is readable, complete, and importable.
+
+```bash
+# 1. Export.
+bash scripts/backup.sh
+
+# 2. Start a scratch deployment to wipe. A second compose project on other ports is
+#    the least intrusive way, or use any throwaway Convex self-hosted backend.
+#    Point the CLI at it with its own URL and admin key.
+SCRATCH_URL=http://127.0.0.1:3212
+SCRATCH_KEY=<admin key of the scratch deployment>
+
+# 3. Wipe it: stop the scratch backend and delete its data directory, then start it
+#    again and deploy functions so the schema exists.
+
+# 4. Import the latest archive into the scratch deployment.
+bash scripts/restore.sh "$(ls -t /mnt/user/backups/ignidash/ignidash-*.zip.age | head -1)" \
+  --url "$SCRATCH_URL" --admin-key "$SCRATCH_KEY" \
+  --identity ~/.keys/ignidash-backup.txt \
+  --confirm "$SCRATCH_URL" --yes
+
+# 5. Verify. The script prints a per-table document count and fails when the
+#    deployment holds fewer documents than the archive does. Cross-check by hand:
+CONVEX_SELF_HOSTED_URL="$SCRATCH_URL" CONVEX_SELF_HOSTED_ADMIN_KEY="$SCRATCH_KEY" \
+  npx convex data plans --limit 1
+```
+
+A drill is green when the import succeeds and the plan you expect comes back. Then
+destroy the scratch deployment.
+
+### Restoring for real
+
+The same command, pointed at the live deployment, is the recovery procedure:
+
+```bash
+bash scripts/restore.sh /mnt/user/backups/ignidash/ignidash-<timestamp>.zip.age \
+  --identity ~/.keys/ignidash-backup.txt \
+  --confirm "$CONVEX_SELF_HOSTED_URL"
+```
+
+The guards are deliberate: `--confirm` must be the exact target URL, an interactive
+run also asks you to type `RESTORE`, a non-loopback target additionally needs
+`--allow-non-loopback`, and a non-TTY run needs `--yes`. Restore into the **previous**
+image's deployment rather than downgrading a schema in place.
+
+---
+
 ## Updating
 
 ```bash
-npx convex export --path backup.zip   # data backup — backend migrations are one-way
+bash scripts/backup.sh               # the only rollback path: data export, age-encrypted
 # bump CONVEX_IMAGE in the Dockerfile to a newer digest
 docker compose build
 docker compose up -d
@@ -158,9 +305,14 @@ npm run selfhost -- --sync-only
 npm run selfhost:convex-deploy
 ```
 
+`npm run selfhost` and `npm run selfhost -- --init` run `scripts/backup.sh` on their
+own before `convex deploy` or `migrations:runAll`, and **abort if the export fails**.
+`npm run selfhost:convex-deploy` is a thin wrapper that does not, so export first when
+you use it directly.
+
 The backend applies in-place migrations on start, so **rolling it back is unsafe**.
 That is why the image is pinned by digest rather than tracking `:latest`. Export
-before every upgrade.
+before every upgrade, and keep the restore drill green.
 
 ---
 
@@ -181,7 +333,9 @@ This means `BETTER_AUTH_SECRET` changed while encrypted JWKs remained in the
 database. Without a dashboard the supported fixes are:
 
 1. **Fresh deployment** — stop the container, delete `/convex/data`, start again.
-2. **Restore from a known-good export** — `npx convex import backup.zip --replace`.
+2. **Restore from a known-good export** —
+   `bash scripts/restore.sh <archive> --confirm "$CONVEX_SELF_HOSTED_URL"`
+   (see [Backups and restore](#backups-and-restore)).
 
 There is no self-service table editor. Treat `BETTER_AUTH_SECRET` as immutable.
 
@@ -225,7 +379,7 @@ npm run selfhost -- --sync-only
 
 - **No password recovery.** Email delivery is gone, so a forgotten password cannot be
   reset from the UI. Recovery is operator-assisted: create a new account, or restore
-  a backup. A CLI reset helper is still to be added.
+  a backup with `scripts/restore.sh`. A CLI reset helper is still to be added.
 - **No billing, analytics, or email.** Deliberate — see
   `PLAN-single-container-offline.md`.
 - **Single container means shared fate.** Restarting the container restarts both

@@ -4,6 +4,8 @@ set -e
 # Ignidash Self-Hosted Setup Script
 # This script automates the setup process for self-hosting Ignidash with Docker.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -219,6 +221,36 @@ sync_convex_env() {
     echo ""
 }
 
+# Export the deployment before anything irreversible.
+#
+# `convex deploy` and `migrations:runAll` are one-way: the only rollback path is
+# restoring an export into the previous image. So the export is not optional —
+# when it fails, this function aborts the run instead of continuing without a
+# rollback point. It runs at most once per invocation, however many irreversible
+# steps follow.
+#
+export_before_migration() {
+    if [ "${_IGNIDASH_EXPORT_DONE:-0}" = "1" ]; then
+        return 0
+    fi
+
+    echo "Exporting a backup before deploy/migrations (required)..."
+    if ! bash "$SCRIPT_DIR/backup.sh"; then
+        echo ""
+        echo -e "${RED}Error: the pre-migration export failed — aborting${NC}"
+        echo "Deploy and migrations are one-way; the export is the only rollback path."
+        echo "Configure backups first (see SELF_HOSTING.md, 'Backups and restore'):"
+        echo "  bash scripts/backup.sh --help"
+        echo "Encrypted backups need AGE_RECIPIENT, AGE_RECIPIENTS_FILE or AGE_IDENTITY_FILE."
+        exit 1
+    fi
+
+    _IGNIDASH_EXPORT_DONE=1
+    export _IGNIDASH_EXPORT_DONE
+    echo -e "${GREEN}Pre-migration export complete${NC}"
+    echo ""
+}
+
 # Deploy Convex functions
 deploy_convex() {
     echo "Deploying Convex functions..."
@@ -227,6 +259,8 @@ deploy_convex() {
     set -a
     source .env.local
     set +a
+
+    export_before_migration
 
     npx convex deploy \
         --url "$CONVEX_SELF_HOSTED_URL" \
@@ -244,6 +278,8 @@ run_migrations() {
     set -a
     source .env.local
     set +a
+
+    export_before_migration
 
     npx convex run migrations:runAll \
         --url "$CONVEX_SELF_HOSTED_URL" \
@@ -279,6 +315,8 @@ print_next_steps() {
     echo "1. Edit .env.local to add optional keys (Google OAuth, OpenAI, etc.)"
     echo "2. Re-run sync to push new keys to Convex:"
     echo "   npm run selfhost -- --sync-only"
+    echo "3. Schedule nightly backups on an array share (User Scripts plugin):"
+    echo "   see SELF_HOSTING.md, 'Backups and restore'"
     echo ""
 }
 
