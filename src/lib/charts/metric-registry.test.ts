@@ -84,86 +84,92 @@ const FROZEN_DATA_VIEW_IDS = {
   ],
 } as const;
 
-type SeriesFingerprint = readonly (readonly [key: string, color: string, sign: number])[];
+type SeriesFingerprint = readonly (readonly [key: string, color: string, sign: number, label: string, shortLabel: string])[];
 
 /**
- * The rendered series of every ported metric, per chart kind: key, colour, sign.
- * A refactor that recolours, renames or re-signs a series must fail this test and be
- * reviewed as a deliberate chart change.
+ * The rendered series of every ported metric, per chart kind: key, colour, sign, label
+ * and short label. A refactor that recolours, renames or re-labels a series must fail
+ * this test and be reviewed as a deliberate chart change.
+ *
+ * The labels are the OLD values. The pre-registry charts only had labels on the
+ * single-age bar card (its `labelConfig` desktop/mobile arrays, reproduced verbatim by
+ * `keeps the single-age bar labels identical to the old labelConfig arrays` below); the
+ * remaining labels are the ones the port introduced, pinned here so a typo cannot slip
+ * through. `shortLabel` falls back to `label` when no short form was ever specified.
  */
 const FROZEN_SERIES: Record<string, Partial<Record<ChartKind, SeriesFingerprint>>> = {
   'cashFlow.surplusDeficit': {
     line: [
-      ['surplusDeficit', 'var(--foreground)', 1],
-      ['income', 'var(--chart-1)', 1],
-      ['expenses', 'var(--chart-2)', -1],
-      ['taxesAndPenalties', 'var(--chart-3)', -1],
-      ['debtPayments', 'var(--chart-4)', -1],
+      ['surplusDeficit', 'var(--foreground)', 1, 'Surplus/Deficit', 'Surplus/Deficit'],
+      ['income', 'var(--chart-1)', 1, 'Income', 'Income'],
+      ['expenses', 'var(--chart-2)', -1, 'Expenses', 'Expenses'],
+      ['taxesAndPenalties', 'var(--chart-3)', -1, 'Taxes & Penalties', 'Taxes'],
+      ['debtPayments', 'var(--chart-4)', -1, 'Debt Payments', 'Debt'],
     ],
     bar: [
-      ['earnedIncome', 'var(--chart-1)', 1],
-      ['socialSecurityIncome', 'var(--chart-1)', 1],
-      ['taxFreeIncome', 'var(--chart-1)', 1],
-      ['expenses', 'var(--chart-2)', -1],
-      ['taxesAndPenalties', 'var(--chart-3)', -1],
-      ['debtPayments', 'var(--chart-4)', -1],
+      ['earnedIncome', 'var(--chart-1)', 1, 'Earned Income', 'Earned'],
+      ['socialSecurityIncome', 'var(--chart-1)', 1, 'Social Security', 'Soc. Sec.'],
+      ['taxFreeIncome', 'var(--chart-1)', 1, 'Tax-Free Income', 'Tax-Free'],
+      ['expenses', 'var(--chart-2)', -1, 'Expenses', 'Expenses'],
+      ['taxesAndPenalties', 'var(--chart-3)', -1, 'Taxes & Penalties', 'Taxes'],
+      ['debtPayments', 'var(--chart-4)', -1, 'Debt Payments', 'Debt'],
     ],
   },
   'cashFlow.cashFlow': {
     line: [
-      ['netCashFlow', 'var(--foreground)', 1],
-      ['income', 'var(--chart-1)', 1],
-      ['amountLiquidated', 'var(--chart-2)', 1],
-      ['assetSaleProceeds', 'var(--chart-3)', 1],
-      ['expenses', 'var(--chart-4)', -1],
-      ['taxesAndPenalties', 'var(--chart-5)', -1],
-      ['debtPayments', 'var(--chart-6)', -1],
-      ['amountInvested', 'var(--chart-7)', -1],
-      ['assetPurchaseOutlay', 'var(--chart-8)', -1],
+      ['netCashFlow', 'var(--foreground)', 1, 'Net Cash Flow', 'Net Cash Flow'],
+      ['income', 'var(--chart-1)', 1, 'Income', 'Income'],
+      ['amountLiquidated', 'var(--chart-2)', 1, 'Amount Liquidated', 'Liquidated'],
+      ['assetSaleProceeds', 'var(--chart-3)', 1, 'Asset Sale Proceeds', 'Proceeds'],
+      ['expenses', 'var(--chart-4)', -1, 'Expenses', 'Expenses'],
+      ['taxesAndPenalties', 'var(--chart-5)', -1, 'Taxes & Penalties', 'Taxes'],
+      ['debtPayments', 'var(--chart-6)', -1, 'Debt Payments', 'Debt'],
+      ['amountInvested', 'var(--chart-7)', -1, 'Amount Invested', 'Invested'],
+      ['assetPurchaseOutlay', 'var(--chart-8)', -1, 'Asset Purchase Outlay', 'Outlay'],
     ],
     bar: [
-      ['earnedIncome', 'var(--chart-1)', 1],
-      ['socialSecurityIncome', 'var(--chart-1)', 1],
-      ['taxFreeIncome', 'var(--chart-1)', 1],
-      ['amountLiquidated', 'var(--chart-2)', 1],
-      ['assetSaleProceeds', 'var(--chart-3)', 1],
-      ['expenses', 'var(--chart-4)', -1],
-      ['taxesAndPenalties', 'var(--chart-5)', -1],
-      ['debtPayments', 'var(--chart-6)', -1],
-      ['amountInvested', 'var(--chart-7)', -1],
-      ['assetPurchaseOutlay', 'var(--chart-8)', -1],
+      ['earnedIncome', 'var(--chart-1)', 1, 'Earned Income', 'Earned'],
+      ['socialSecurityIncome', 'var(--chart-1)', 1, 'Social Security', 'Soc. Sec.'],
+      ['taxFreeIncome', 'var(--chart-1)', 1, 'Tax-Free Income', 'Tax-Free'],
+      ['amountLiquidated', 'var(--chart-2)', 1, 'Amount Liquidated', 'Liquidated'],
+      ['assetSaleProceeds', 'var(--chart-3)', 1, 'Asset Sale Proceeds', 'Proceeds'],
+      ['expenses', 'var(--chart-4)', -1, 'Expenses', 'Expenses'],
+      ['taxesAndPenalties', 'var(--chart-5)', -1, 'Taxes & Penalties', 'Taxes'],
+      ['debtPayments', 'var(--chart-6)', -1, 'Debt Payments', 'Debt'],
+      ['amountInvested', 'var(--chart-7)', -1, 'Amount Invested', 'Invested'],
+      ['assetPurchaseOutlay', 'var(--chart-8)', -1, 'Asset Purchase Outlay', 'Outlay'],
     ],
   },
   'cashFlow.incomes': {
     line: [
-      ['earnedIncome', 'var(--chart-1)', 1],
-      ['socialSecurityIncome', 'var(--chart-2)', 1],
-      ['taxFreeIncome', 'var(--chart-3)', 1],
-      ['employerMatch', 'var(--chart-4)', 1],
+      ['earnedIncome', 'var(--chart-1)', 1, 'Earned Income', 'Earned'],
+      ['socialSecurityIncome', 'var(--chart-2)', 1, 'Social Security', 'Soc. Sec.'],
+      ['taxFreeIncome', 'var(--chart-3)', 1, 'Tax-Free Income', 'Tax-Free'],
+      ['employerMatch', 'var(--chart-4)', 1, 'Employer Match', 'Match'],
     ],
   },
   'cashFlow.expenses': {
     line: [
-      ['expenses', 'var(--chart-1)', 1],
-      ['taxesAndPenalties', 'var(--chart-2)', 1],
-      ['debtPayments', 'var(--chart-3)', 1],
+      ['expenses', 'var(--chart-1)', 1, 'Expenses', 'Expenses'],
+      ['taxesAndPenalties', 'var(--chart-2)', 1, 'Taxes & Penalties', 'Taxes'],
+      ['debtPayments', 'var(--chart-3)', 1, 'Debt Payments', 'Debt'],
     ],
   },
   'cashFlow.savingsRate': {
-    line: [['savingsRate', 'var(--chart-3)', 1]],
+    line: [['savingsRate', 'var(--chart-3)', 1, 'Savings Rate', 'Savings Rate']],
   },
   realNetWorth: {
-    line: [['realNetWorth', 'var(--chart-1)', 1]],
-    area: [['realNetWorth', 'var(--chart-1)', 1]],
-    bar: [['realNetWorth', 'var(--chart-1)', 1]],
-    pie: [['realNetWorth', 'var(--chart-1)', 1]],
+    line: [['realNetWorth', 'var(--chart-1)', 1, 'Net Worth (today\u2019s $)', 'Real NW']],
+    area: [['realNetWorth', 'var(--chart-1)', 1, 'Net Worth (today\u2019s $)', 'Real NW']],
+    bar: [['realNetWorth', 'var(--chart-1)', 1, 'Net Worth (today\u2019s $)', 'Real NW']],
+    pie: [['realNetWorth', 'var(--chart-1)', 1, 'Net Worth (today\u2019s $)', 'Real NW']],
   },
 };
 
-const fingerprint = (metricId: string, chartKind: ChartKind): Array<[string, string, number]> => {
+const fingerprint = (metricId: string, chartKind: ChartKind): Array<[string, string, number, string, string]> => {
   const metric = getMetric(metricId);
   if (!metric) throw new Error(`Metric ${metricId} is not registered`);
-  return resolveSeries(metric, chartKind).map((series) => [series.key, series.color, series.sign]);
+  return resolveSeries(metric, chartKind).map((series) => [series.key, series.color, series.sign, series.label, series.shortLabel]);
 };
 
 /** Test-only escape hatch: metric data points carry arbitrary numeric fields. */
@@ -296,14 +302,56 @@ describe('persisted data view resolution', () => {
 // KEY / COLOUR PARITY
 // ============================================================================
 
-describe('series key and colour parity', () => {
+describe('series key, colour and label parity', () => {
   for (const [metricId, byChartKind] of Object.entries(FROZEN_SERIES)) {
     for (const [chartKind, expected] of Object.entries(byChartKind) as Array<[ChartKind, SeriesFingerprint]>) {
-      it(`renders ${metricId} as ${chartKind} with frozen keys and colours`, () => {
-        expect(fingerprint(metricId, chartKind)).toEqual(expected.map(([key, color, sign]) => [key, color, sign]));
+      it(`renders ${metricId} as ${chartKind} with frozen keys, colours and labels`, () => {
+        expect(fingerprint(metricId, chartKind)).toEqual(expected.map((series) => [...series]));
       });
     }
   }
+
+  it('keeps the single-age bar labels identical to the old labelConfig arrays', () => {
+    // Verbatim from the pre-registry `single-simulation-cash-flow-bar-chart.tsx`
+    // `labelConfig`, which was the only place the old charts spelled out labels:
+    // desktop labels first, then the mobile short labels.
+    const OLD_LABEL_CONFIG = {
+      surplusDeficit: {
+        desktop: ['Earned Income', 'Social Security', 'Tax-Free Income', 'Expenses', 'Taxes & Penalties', 'Debt Payments'],
+        mobile: ['Earned', 'Soc. Sec.', 'Tax-Free', 'Expenses', 'Taxes', 'Debt'],
+      },
+      cashFlow: {
+        desktop: [
+          'Earned Income',
+          'Social Security',
+          'Tax-Free Income',
+          'Amount Liquidated',
+          'Asset Sale Proceeds',
+          'Expenses',
+          'Taxes & Penalties',
+          'Debt Payments',
+          'Amount Invested',
+          'Asset Purchase Outlay',
+        ],
+        mobile: ['Earned', 'Soc. Sec.', 'Tax-Free', 'Liquidated', 'Proceeds', 'Expenses', 'Taxes', 'Debt', 'Invested', 'Outlay'],
+      },
+    } as const;
+
+    for (const [dataViewId, expected] of Object.entries(OLD_LABEL_CONFIG)) {
+      const metric = getMetric(`cashFlow.${dataViewId}`);
+      if (!metric) throw new Error(`missing metric cashFlow.${dataViewId}`);
+      const series = resolveSeries(metric, 'bar');
+
+      expect(
+        series.map((entry) => entry.label),
+        dataViewId
+      ).toEqual([...expected.desktop]);
+      expect(
+        series.map((entry) => entry.shortLabel),
+        dataViewId
+      ).toEqual([...expected.mobile]);
+    }
+  });
 
   it('gives the line and bar cash-flow views their own series sets', () => {
     expect(fingerprint('cashFlow.cashFlow', 'line')[0][0]).toBe('netCashFlow');

@@ -14,6 +14,33 @@ import { sumFlows } from '@/lib/calc/asset';
 import type { SimulationDataPoint } from '@/lib/calc/simulation-engine';
 import { SimulationDataExtractor } from './simulation-data-extractor';
 
+/**
+ * WHY THE LEDGER CARRIES TWO NODES THE PLAN DOES NOT LIST.
+ *
+ * The plan's node list is incomes, asset-sale proceeds and portfolio withdrawals (in),
+ * and expenses, taxes/penalties, debt payments, purchases and contributions (out). This
+ * engine adds two more, and neither is optional:
+ *
+ * 1. `unfundedSpending` (inflow) copies `portfolio.shortfall`. The engine records a
+ *    shortfall as `remainingToWithdraw` *after every account has been drained*, so it is
+ *    spending the hub pays out without any cash arriving. Without this node a plan that
+ *    runs out of money draws more out of the hub than it puts in, and the Sankey shows an
+ *    unexplained gap.
+ * 2. `shortfallRepaid` (outflow) copies `portfolio.shortfallRepaid`, which is
+ *    `min(netCashFlow, outstandingShortfall)`: the surplus that went to repay an earlier
+ *    shortfall instead of being contributed. It is a real quantity, not a plug.
+ *
+ * WARNING TO THE NEXT IMPLEMENTER - IN A SHORTFALL YEAR THE CASH IDENTITY IS DEGENERATE.
+ * Because `unfundedSpending` is *defined* as the gap, `totalInflows - totalOutflows ~= 0`
+ * holds BY CONSTRUCTION, in exactly the years that matter. A green conservation test on a
+ * shortfall year therefore proves the plug works; it does NOT prove the ledger reconciles.
+ * Do not "simplify" the plug away, and do not read a passing test as evidence that cash
+ * balanced. `cash-flow-ledger.test.ts` pins the plug to the engine's own
+ * `portfolio.shortfall` value and asserts that the identity *with the plug excluded*
+ * equals `-shortfall`; that is the assertion that proves nothing else hides in the
+ * residual.
+ */
+
 /** Cash inflows of one year. */
 export interface CashFlowLedgerInflows {
   /** Gross income from every income source. */
@@ -24,7 +51,11 @@ export interface CashFlowLedgerInflows {
   portfolioWithdrawals: number;
   /** Proceeds from physical-asset sales. */
   assetSaleProceeds: number;
-  /** Spending the portfolio could not fund; it is an unfunded liability, not income. */
+  /**
+   * Spending the portfolio could not fund: the engine's `portfolio.shortfall`, copied
+   * verbatim. It is an unfunded liability, not income, and it is the plug that makes the
+   * cash identity degenerate in shortfall years (see the note above this interface).
+   */
   unfundedSpending: number;
 }
 
@@ -38,7 +69,11 @@ export interface CashFlowLedgerOutflows {
   assetPurchases: number;
   /** Amount contributed to the portfolio, including the employer-matched portion (which enters as an inflow). */
   contributions: number;
-  /** Surplus applied to repay a previously unfunded shortfall. */
+  /**
+   * Surplus applied to repay a previously unfunded shortfall: the engine's
+   * `portfolio.shortfallRepaid` (`min(netCashFlow, outstandingShortfall)`), copied
+   * verbatim. A real quantity, unlike `inflows.unfundedSpending`.
+   */
   shortfallRepaid: number;
 }
 
@@ -247,6 +282,9 @@ export function buildCashFlowSankey(entry: AnnualCashFlowLedger): CashFlowSankey
     { source: node('Portfolio withdrawals', NODE_COLORS.withdrawal, 'inflow'), target: hub, value: entry.inflows.portfolioWithdrawals },
     { source: node('Asset sale proceeds', NODE_COLORS.sale, 'inflow'), target: hub, value: entry.inflows.assetSaleProceeds },
     { source: node('Employer match', NODE_COLORS.match, 'inflow'), target: hub, value: entry.inflows.employerMatch },
+    // Not in the plan's node list: the plug for spending no account could fund. It is
+    // what makes the cash identity degenerate in shortfall years - see the note above
+    // `CashFlowLedgerInflows` before touching or removing it.
     { source: node('Unfunded spending', NODE_COLORS.unfunded, 'inflow'), target: hub, value: entry.inflows.unfundedSpending },
 
     { source: hub, target: node('Expenses', NODE_COLORS.expenses, 'outflow'), value: entry.outflows.expenses },
@@ -254,6 +292,8 @@ export function buildCashFlowSankey(entry: AnnualCashFlowLedger): CashFlowSankey
     { source: hub, target: node('Debt payments', NODE_COLORS.debt, 'outflow'), value: entry.outflows.debtPayments },
     { source: hub, target: node('Asset purchases', NODE_COLORS.purchases, 'outflow'), value: entry.outflows.assetPurchases },
     { source: hub, target: node('Contributions', NODE_COLORS.contributions, 'outflow'), value: entry.outflows.contributions },
+    // Not in the plan's node list: surplus that repaid an earlier shortfall instead of
+    // being contributed. A real quantity (`min(netCashFlow, outstandingShortfall)`).
     { source: hub, target: node('Shortfall repayment', NODE_COLORS.repayment, 'outflow'), value: entry.outflows.shortfallRepaid },
 
     {

@@ -7,6 +7,7 @@ import {
   netWorthOf,
   totalLedgerInflows,
   totalLedgerOutflows,
+  type AnnualCashFlowLedger,
 } from './cash-flow-ledger';
 import { ChartDataExtractor } from './chart-data-extractor';
 import { FinancialSimulationEngine } from '../simulation-engine';
@@ -78,6 +79,32 @@ function buildShortfallSimulation() {
       expenses: { living: createLivingExpense({ amount: 90000 }) },
       accounts: { savings: createSavingsAccount({ balance: 20000 }) },
       contributionRules: { rule: createContributionRule({ accountId: 'savings-1', contributionType: 'unlimited' }) },
+      debts: { card: createDebtInput({}) },
+    })
+  );
+}
+
+/**
+ * Runs a shortfall for years and then recovers with a windfall, so the real
+ * `shortfallRepaid` path (`min(netCashFlow, outstandingShortfall)`) is exercised at scale
+ * and not just left at zero by the never-recovers fixture.
+ */
+function buildRecoverThenRepaySimulation() {
+  return runSimulation(
+    createSimulatorInputs({
+      incomes: {
+        salary: createWageIncome({ amount: 20000 }),
+        windfall: createWageIncome({
+          id: 'income-2',
+          name: 'Windfall',
+          amount: 600000,
+          frequency: 'oneTime',
+          timeframe: { start: { type: 'customAge', age: 41 }, end: undefined },
+        }),
+      },
+      expenses: { living: createLivingExpense({ amount: 90000 }) },
+      accounts: { savings: createSavingsAccount({ balance: 10000 }), retirement: create401kAccount({ balance: 100000 }) },
+      contributionRules: { rule: createContributionRule({ accountId: '401k-1', contributionType: 'unlimited' }) },
       debts: { card: createDebtInput({}) },
     })
   );
@@ -168,6 +195,109 @@ describe('cash conservation', () => {
       expect(entry.outflows.assetPurchases).toBeCloseTo(point.assetPurchaseOutlay, 6);
       expect(entry.inflows.assetSaleProceeds).toBeCloseTo(point.assetSaleProceeds, 6);
       expect(entry.inflows.income).toBeCloseTo(point.income, 6);
+    }
+  });
+});
+
+// ============================================================================
+// THE UNFUNDED-SPENDING PLUG (test integrity, not behaviour)
+// ============================================================================
+
+/**
+ * Ledger totals with the emergency plugs left OUT, spelled out field by field.
+ *
+ * `inflows.unfundedSpending` is the engine's `portfolio.shortfall` — the gap itself — so
+ * including it makes `totalInflows - totalOutflows ~= 0` true BY CONSTRUCTION in every
+ * shortfall year. These helpers measure the ledger without that plug, which is the only
+ * way to show the plug absorbs the whole gap and nothing else hides in the residual.
+ * `outflows.shortfallRepaid` stays in: it is a real quantity, not a plug.
+ */
+const cashInflowsWithoutPlug = (entry: AnnualCashFlowLedger): number =>
+  entry.inflows.income + entry.inflows.employerMatch + entry.inflows.portfolioWithdrawals + entry.inflows.assetSaleProceeds;
+
+/** Net worth change with both plug terms (`+ unfunded - repaid`) left out. */
+const reconciliationWithoutPlugs = (entry: AnnualCashFlowLedger): number =>
+  entry.netWorthChange - (entry.cashNet + entry.returns + entry.appreciation - entry.debtInterest);
+
+describe('unfunded spending plug', () => {
+  // A plan that never recovers, plus one that recovers and repays, so both the plug and
+  // the real repayment path are exercised.
+  const fixtures = () => [buildShortfallSimulation(), buildRecoverThenRepaySimulation()];
+
+  it('copies the plug verbatim from the engine shortfall, in every year', () => {
+    for (const simulation of fixtures()) {
+      const ledger = extractAnnualCashFlowLedger(simulation.data);
+      expect(ledger).toHaveLength(simulation.data.length - 1);
+
+      for (const [index, entry] of ledger.entries()) {
+        const dataPoint = simulation.data[index + 1];
+        // Same quantity, not merely a similar one: the plug may not drift onto another field.
+        expect(entry.inflows.unfundedSpending, `age ${entry.age}`).toBe(dataPoint.portfolio.shortfall);
+        expect(entry.outflows.shortfallRepaid, `age ${entry.age}`).toBe(dataPoint.portfolio.shortfallRepaid);
+      }
+
+      expect(ledger.some((entry) => entry.inflows.unfundedSpending > 0)).toBe(true);
+      expect(ledger.some((entry) => entry.outflows.shortfallRepaid > 0)).toBe(true);
+    }
+  });
+
+  it('is the only thing absorbing the gap: without it the cash identity equals -shortfall', () => {
+    for (const simulation of fixtures()) {
+      const ledger = extractAnnualCashFlowLedger(simulation.data);
+      let shortfallYears = 0;
+
+      for (const entry of ledger) {
+        const residualWithoutPlug = cashInflowsWithoutPlug(entry) - totalLedgerOutflows(entry);
+
+        // residual_without_plug + shortfall === 0, i.e. residual_without_plug === -shortfall
+        expect(
+          Math.abs(residualWithoutPlug + entry.inflows.unfundedSpending),
+          `age ${entry.age}: unplugged residual ${residualWithoutPlug}, shortfall ${entry.inflows.unfundedSpending}`
+        ).toBeLessThanOrEqual(TOLERANCE);
+
+        if (entry.inflows.unfundedSpending > TOLERANCE) {
+          shortfallYears += 1;
+          // The plugged identity closes here; the unplugged one must genuinely fail. Both
+          // must hold at once, or a passing test would mean the plug is doing nothing.
+          expect(Math.abs(residualWithoutPlug), `age ${entry.age}`).toBeGreaterThan(TOLERANCE);
+          expect(Math.abs(entry.cashResidual), `age ${entry.age}`).toBeLessThanOrEqual(TOLERANCE);
+        }
+      }
+
+      expect(shortfallYears).toBeGreaterThan(0);
+    }
+  });
+
+  it('is the only thing absorbing the gap in the net-worth reconciliation too', () => {
+    for (const simulation of fixtures()) {
+      const ledger = extractAnnualCashFlowLedger(simulation.data);
+
+      for (const entry of ledger) {
+        const plugTerms = entry.inflows.unfundedSpending - entry.outflows.shortfallRepaid;
+
+        // Everything the reconciliation gains from the plug is exactly the plug: the
+        // unplugged reconciliation residual equals (+unfunded - repaid).
+        expect(
+          Math.abs(reconciliationWithoutPlugs(entry) - plugTerms),
+          `age ${entry.age}: unplugged reconciliation ${reconciliationWithoutPlugs(entry)}, plugs ${plugTerms}`
+        ).toBeLessThanOrEqual(TOLERANCE);
+
+        if (Math.abs(plugTerms) > TOLERANCE) {
+          expect(Math.abs(reconciliationWithoutPlugs(entry)), `age ${entry.age}`).toBeGreaterThan(TOLERANCE);
+          expect(Math.abs(entry.reconciliationResidual), `age ${entry.age}`).toBeLessThanOrEqual(TOLERANCE);
+        }
+      }
+    }
+  });
+
+  it('keeps the identity genuine when nothing is unfunded', () => {
+    // Contrast case: with no plug in play the unplugged identity is the real one, and it
+    // still closes on its own.
+    const ledger = extractAnnualCashFlowLedger(buildRichSimulation().data);
+    expect(ledger.every((entry) => entry.inflows.unfundedSpending === 0 && entry.outflows.shortfallRepaid === 0)).toBe(true);
+
+    for (const entry of ledger) {
+      expect(Math.abs(cashInflowsWithoutPlug(entry) - totalLedgerOutflows(entry)), `age ${entry.age}`).toBeLessThanOrEqual(TOLERANCE);
     }
   });
 });
