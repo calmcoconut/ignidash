@@ -8,8 +8,8 @@
  * turns those flags into the quiet explanation the results page shows, and into NOTHING when a
  * run neither wrapped nor truncated — a normal run must look exactly as it did before.
  *
- * Pure: no clock, no I/O, no React. The component that renders this is
- * `outputs/historical-backtest-notice.tsx`.
+ * Pure: no clock, no I/O, no React. The shared component that renders this is
+ * `outputs/quiet-notice.tsx`.
  */
 
 /** The subset of `SimulationResult['context']` this disclosure reads. */

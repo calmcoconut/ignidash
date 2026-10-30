@@ -3,18 +3,22 @@
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import { useSimulationResult, useKeyMetrics } from '@/lib/stores/simulator-store';
 import { buildHistoricalBacktestNotices } from '@/lib/utils/historical-backtest-disclosure';
+import type { NetWorthJournalEntry } from '@/lib/utils/net-worth-journal';
 import SectionContainer from '@/components/ui/section-container';
 
-import HistoricalBacktestNotice from '../historical-backtest-notice';
+import QuietNotice from '../quiet-notice';
+import NetWorthOverlaySection from '../sections/net-worth-overlay-section';
 import SimulationMetrics from '../simulation-metrics';
 import SingleSimulationResultsContent from './single-simulation-results-content';
 
 interface SingleSimulationResultsProps {
   inputs: SimulatorInputs;
   simulationMode: 'fixedReturns' | 'stochasticReturns' | 'historicalReturns';
+  /** Manual actuals for the net-worth overlay (P4-P7); empty until P5.1b supplies the journal. */
+  journalEntries?: NetWorthJournalEntry[];
 }
 
-export default function SingleSimulationResults({ inputs, simulationMode }: SingleSimulationResultsProps) {
+export default function SingleSimulationResults({ inputs, simulationMode, journalEntries = [] }: SingleSimulationResultsProps) {
   const simulationResult = useSimulationResult(inputs, simulationMode);
   const keyMetrics = useKeyMetrics(simulationResult);
 
@@ -30,9 +34,12 @@ export default function SingleSimulationResults({ inputs, simulationMode }: Sing
     <>
       <SectionContainer showBottomBorder className="mb-0">
         {/* Explains a historical run that wrapped or truncated; renders nothing otherwise. */}
-        <HistoricalBacktestNotice notices={buildHistoricalBacktestNotices(simulationResult.context)} />
+        <QuietNotice
+          notices={buildHistoricalBacktestNotices(simulationResult.context).map(({ kind, message }) => ({ id: kind, message }))}
+        />
         <SimulationMetrics keyMetrics={keyMetrics} simulationResult={simulationResult} />
       </SectionContainer>
+      <NetWorthOverlaySection data={simulationResult.data} entries={journalEntries} />
       <SingleSimulationResultsContent simulation={simulationResult} keyMetrics={keyMetrics} />
     </>
   );
