@@ -29,7 +29,6 @@ export default function SettingsForms({ preloadedUser }: SettingsFormsProps) {
     const isSignedInWithSocialProvider = accountsData?.some((account) => account.providerId !== 'credential') ?? false;
 
     return {
-      canChangeEmail: isAuthenticated && !isSignedInWithSocialProvider,
       canChangePassword: isAuthenticated && !isSignedInWithSocialProvider,
       canChangeName: isAuthenticated,
     };
@@ -46,16 +45,12 @@ export default function SettingsForms({ preloadedUser }: SettingsFormsProps) {
   }
 
   const fetchedName = authData?.name ?? '';
-  const fetchedEmail = authData?.email ?? '';
 
   return (
     <>
       <main className="mx-auto min-h-dvh max-w-prose px-2 pt-[4.25rem] pb-[2.125rem] sm:px-3 lg:px-4">
         <Authenticated>
-          <ProfileInfoForm
-            userData={{ fetchedName, fetchedEmail, ...settingsCapabilities }}
-            showSuccessNotification={showSuccessNotification}
-          />
+          <ProfileInfoForm userData={{ fetchedName, ...settingsCapabilities }} showSuccessNotification={showSuccessNotification} />
           <DataSettingsForm showSuccessNotification={showSuccessNotification} />
         </Authenticated>
       </main>

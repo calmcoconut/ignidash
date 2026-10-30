@@ -34,8 +34,6 @@ function useNameFieldHook(fetchedName: string, showSuccessNotification: (title: 
 
 type UserData = {
   fetchedName: string;
-  fetchedEmail: string;
-  canChangeEmail: boolean;
   canChangePassword: boolean;
   canChangeName: boolean;
 };

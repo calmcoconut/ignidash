@@ -50,6 +50,8 @@ demo-log.json
 .husky
 .convex
 .claude
+.pi
+.pi-subagents
 
 # Scripts (not needed at runtime)
 scripts/

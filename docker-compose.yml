@@ -41,7 +41,6 @@ services:
       # Opt out of the backend's hourly telemetry beacon.
       - DISABLE_BEACON=true
       - RUST_LOG=${RUST_LOG:-info}
-      - RUST_BACKTRACE=1
     healthcheck:
       # Both processes must be healthy; the app alone can serve a dead backend.
       test:

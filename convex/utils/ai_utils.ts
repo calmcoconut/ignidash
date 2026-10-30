@@ -13,7 +13,5 @@ export function isAIConfigured(): boolean {
 export async function getCanUseAIFeatures(
   ctx: QueryCtx
 ): Promise<{ canUseAIFeatures: boolean; isAdmin: boolean; isActiveSubscription: boolean }> {
-  if (process.env.SELF_HOSTED === 'true') return { canUseAIFeatures: true, isAdmin: true, isActiveSubscription: false };
-
   return await ctx.runQuery(api.auth.getCanUseAIFeatures, {});
 }

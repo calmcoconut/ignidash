@@ -91,7 +91,7 @@ setup_env_file() {
             echo "Configuring for host: $CUSTOM_HOST"
             portable_sed "s|^NEXT_PUBLIC_CONVEX_URL=.*|NEXT_PUBLIC_CONVEX_URL=http://$CUSTOM_HOST:3210|" .env.local
             portable_sed "s|^NEXT_PUBLIC_CONVEX_SITE_URL=.*|NEXT_PUBLIC_CONVEX_SITE_URL=http://$CUSTOM_HOST:3211|" .env.local
-            portable_sed "s|^SITE_URL=.*|SITE_URL=http://$CUSTOM_HOST:3000|" .env.local
+            portable_sed "s|^SITE_URL=.*|SITE_URL=http://$CUSTOM_HOST:3030|" .env.local
             ;;
         3)
             read -p "Domain (e.g., mydomain.com): " CUSTOM_DOMAIN
@@ -193,7 +193,6 @@ sync_convex_env() {
         "OPENAI_BASE_URL"
         "OPENAI_CHAT_MODEL"
         "OPENAI_INSIGHTS_MODEL"
-        "CONVEX_SITE_URL"
     )
 
     local synced=0

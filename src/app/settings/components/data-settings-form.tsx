@@ -5,6 +5,7 @@ import { api } from '@/convex/_generated/api';
 import { ConvexError } from 'convex/values';
 import { useState } from 'react';
 import { Trash2Icon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 import Card from '@/components/ui/card';
 import { Fieldset, FieldGroup, Field, Label, Legend, Description, ErrorMessage } from '@/components/catalyst/fieldset';
@@ -22,6 +23,7 @@ interface DataSettingsFormProps {
 
 export default function DataSettingsForm({ showSuccessNotification }: DataSettingsFormProps) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const router = useRouter();
 
   const [appDataAlertOpen, setAppDataAlertOpen] = useState(false);
   const [appDataDeleteError, setAppDataDeleteError] = useState<string | null>(null);
@@ -36,9 +38,15 @@ export default function DataSettingsForm({ showSuccessNotification }: DataSettin
 
   const { fieldState: deleteAccountState, createCallbacks: deleteAccountCallbacks } = useBetterAuthField();
   const handleDeleteAccount = async () => {
+    // Account deletion is immediate: the email-verification link that used to
+    // consume `callbackURL` is gone, so navigate explicitly. The local session
+    // is already dead, which is why /settings would otherwise just sit there.
     await authClient.deleteUser(
-      { callbackURL: '/signin?deleted=success' },
-      deleteAccountCallbacks(() => showSuccessNotification('Your account and all of its data have been deleted.'))
+      {},
+      deleteAccountCallbacks(() => {
+        router.push('/signin?deleted=success');
+        router.refresh();
+      })
     );
   };
 

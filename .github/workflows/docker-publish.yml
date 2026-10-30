@@ -174,6 +174,53 @@ jobs:
              test -f /app/server.js; echo "layout ok"'
           echo "Image test passed"
 
+          # A0: the checks above only prove files exist. Boot the image and
+          # prove the supervisor actually brings both processes up — that is
+          # the part nothing else exercises until a real deployment.
+          echo "Booting the container..."
+          CID=$(docker run -d --platform linux/amd64 -e SELF_HOSTED=true "$IMAGE")
+          READY=0
+          for i in $(seq 1 60); do
+            if ! docker inspect -f '{{.State.Running}}' "$CID" | grep -q true; then
+              echo "::error::container exited during boot"
+              docker logs "$CID"
+              docker rm -f "$CID"
+              exit 1
+            fi
+            if docker exec "$CID" curl -fsS --max-time 2 http://127.0.0.1:3210/version >/dev/null 2>&1; then
+              READY=1
+              echo "Convex backend answered /version after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          if [[ "$READY" != "1" ]]; then
+            echo "::error::Convex backend never answered /version within 60s"
+            docker logs "$CID"
+            docker rm -f "$CID"
+            exit 1
+          fi
+
+          APP_READY=0
+          for i in $(seq 1 30); do
+            if docker exec "$CID" curl -fsS --max-time 2 http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+              APP_READY=1
+              echo "Next.js app answered /api/health after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          docker logs "$CID"
+          docker rm -f "$CID"
+
+          if [[ "$APP_READY" != "1" ]]; then
+            echo "::error::Next.js app never answered /api/health within 30s"
+            exit 1
+          fi
+          echo "Boot test passed"
+
   summary:
     runs-on: ubuntu-latest
     needs: [merge, test]

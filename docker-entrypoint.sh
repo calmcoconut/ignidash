@@ -76,7 +76,9 @@ patch_bundles() {
 
     if ! grep -rqF --include='*.js' "$PUBLIC_CONVEX_URL" "$static_dir" 2>/dev/null; then
         log "ERROR: client bundles do not contain ${PUBLIC_CONVEX_URL}"
-        log "ERROR: the browser will not be able to reach Convex — check NEXT_PUBLIC_CONVEX_URL"
+        log "ERROR: if this container was started before with a different NEXT_PUBLIC_CONVEX_URL,"
+        log "ERROR: its bundles are already patched and cannot be re-patched — recreate the container."
+        log "ERROR: otherwise check NEXT_PUBLIC_CONVEX_URL matches your LAN address."
         return 1
     fi
 }
@@ -157,4 +159,4 @@ set -o errexit
 
 log "a child process exited with status ${EXIT_STATUS}; shutting down the container"
 shutdown
-exit 0
+exit "$EXIT_STATUS"
