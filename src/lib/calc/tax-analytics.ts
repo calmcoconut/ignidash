@@ -1,0 +1,940 @@
+/**
+ * Tax analytics over a completed simulation year (parity plan P3-P6).
+ *
+ * This module answers the questions a planner asks *after* the engine has settled a year — what
+ * the next dollar costs, which bracket the conversion is filling, how much room is left, and which
+ * cliff is close — without re-running the engine. It is a pure function of one year's
+ * `TaxesData` and the tax ruleset resolved for that year: no store, no clock, no model mutation.
+ * That is deliberate: §7-A3's agent needs a tool whose answer it can quote, and a pure function is
+ * the only kind of tool that can be re-derived and checked.
+ *
+ * ## Where the numbers come from
+ *
+ * The analytics does not restate tax law. Every rate and threshold is read from the ruleset
+ * (`getRules(taxYear)`) or from the payroll layer (`computeWagePayrollTaxes`,
+ * `computeSelfEmploymentTaxes`), which the engine itself uses. What lives here is only the
+ * *composition* — which line a dollar of a given kind touches — plus the two traversals the engine
+ * also performs: a progressive bracket walk (IRC §1) and capital-gains stacking on top of ordinary
+ * income (IRC §1(h)). `analyzeTaxYear` recomputes the year's federal lines this way, and the test
+ * suite pins the recomputation to the engine's own output (`reported` vs `baseline`) so the two
+ * cannot drift apart silently.
+ *
+ * ## What it does not compute (and why not)
+ *
+ * - **California income tax** — P3-P8. The state ruleset does not exist yet, so the combined view
+ *   reports the federal figure and marks the state side `pending`. The only California number the
+ *   engine has today is SDI, a payroll line, and that one is reported.
+ * - **ACA premium tax credit** — P3-P7b. The cliff depends on the SLCSP premium for the coverage
+ *   year, the federal poverty line for a household size, and the applicable-percentage table;
+ *   none of the three is in the result. It is reported as a prerequisite, never approximated.
+ * - **AMT, and the Part D half of IRMAA** — P3-P7a. The Part B IRMAA table is included below
+ *   *because analytics must be able to warn about the cliff*; it is a cost line, not a liability,
+ *   and P3-P7a will move it into the ruleset with the rest of the Surcharge machinery.
+ * - **Itemized deductions and the SALT cap** — P3-P3. The engine applies the standard deduction
+ *   only, so the analytics reads the taxable income it produced rather than assuming one.
+ * - **The §72(t) additional tax on an early withdrawal** — the engine charges it from the account's
+ *   age and type, not from a marginal rate, so a "next dollar of tax-deferred withdrawal" here is
+ *   the income tax only. The list is returned per year in `notComputed`, so a consumer can say so.
+ *
+ * ## Provenance of the IRMAA table
+ *
+ * CMS, "2026 Medicare Parts B premiums and deductibles" fact sheet (cms.gov newsroom), read
+ * 2026-10-30. Part B standard premium $202.90/month; income-related monthly adjustment amounts
+ * $0.00 / $81.20 / $202.90 / $324.60 / $446.30 / $487.00, on modified AGI tiers of
+ * ≤109,000 / 109,001–137,000 / 137,001–171,000 / 171,001–205,000 / 205,001–<500,000 / ≥500,000 for
+ * an individual return, doubled for a joint return. The thresholds are indexed annually; the
+ * table carries the same `indexing` + `source` shape as a ruleset table so it can be lifted into
+ * one unchanged.
+ *
+ * The two-year lookback is a *lookup* concern, not a rate concern: premiums for year Y+2 are set
+ * from year Y's MAGI. `analyzeTaxYear` reports both directions — the tier this year's MAGI will
+ * produce two years later (`projected`), and the tier implied by the MAGI from two years earlier
+ * (`charged`) — and reports `null` rather than guessing when the caller cannot supply that year.
+ */
+
+import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
+
+import { parseISODateString } from './clock';
+import { computeSelfEmploymentTaxes, computeWagePayrollTaxes } from './payroll-taxes';
+import type { SimulationDataPoint } from './simulation-engine';
+import { getRules } from './tax-data';
+import type { CapitalGainsTaxBracket, ProgressiveBracket, TaxYear } from './tax-data/types';
+import type { TaxesData } from './taxes';
+
+// ============================================================================
+// Public shapes
+// ============================================================================
+
+/**
+ * The kinds of income a marginal rate is reported for.
+ *
+ * These are not engines' income types: they are *marginal* categories, because two incomes of the
+ * same gross amount can cost different amounts at the margin. `ordinary` covers a pension, a
+ * traditional-IRA/401(k) distribution and a Roth conversion — all of which raise taxable ordinary
+ * income by a dollar per dollar and are not investment income for §1411 or earned income for
+ * payroll. `taxDeferredWithdrawal` is kept separate from `rothConversion` even though they
+ * coincide today: they differ once P3-P5 adds pro-rata basis (a conversion of after-tax basis is
+ * not taxable), and §7-A3 needs the two labelled in its explanations.
+ */
+export type MarginalIncomeType =
+  | 'ordinary'
+  | 'taxDeferredWithdrawal'
+  | 'rothConversion'
+  | 'wage'
+  | 'selfEmployment'
+  | 'longTermCapitalGain'
+  | 'qualifiedDividend'
+  | 'socialSecurity'
+  | 'taxExempt';
+
+export type TaxLineId =
+  | 'federalOrdinaryIncomeTax'
+  | 'federalCapitalGainsTax'
+  | 'niit'
+  | 'payrollSocialSecurity'
+  | 'payrollMedicare'
+  | 'payrollAdditionalMedicare'
+  | 'payrollStateDisability'
+  | 'selfEmploymentTax';
+
+/** One labelled amount, in the currency of the year being analysed (nominal dollars). */
+export interface TaxLine {
+  id: TaxLineId;
+  label: string;
+  /** `federal` for the internal-revenue lines; `CA` for the California payroll line. */
+  jurisdiction: 'federal' | 'CA';
+  amount: number;
+}
+
+/** One bracket of a progressive schedule, with how much of it this year fills. */
+export interface BracketRow {
+  min: number;
+  /** Exclusive upper bound; `null` for the unbounded top bracket. */
+  max: number | null;
+  rate: number;
+  /** Income taxed at this bracket's rate. */
+  taxableInBracket: number;
+  /** Room left in the bracket at this bracket's rate; `null` when unbounded. */
+  remainingInBracket: number | null;
+  /** `taxableInBracket / (max - min)`, or `null` when unbounded. */
+  shareFilled: number | null;
+}
+
+/** A forward-looking capacity: add this much income and the next rate applies. */
+export interface HeadroomTarget {
+  /** The rate that would apply to the last dollar of the additional income. */
+  rate: number;
+  /** How much more taxable income fits. `null` for the unbounded top bracket. */
+  headroom: number | null;
+  /** Taxable income reached at the end of the headroom. `null` when unbounded. */
+  upToTaxableIncome: number | null;
+}
+
+export interface BracketFill {
+  ordinary: {
+    brackets: BracketRow[];
+    /** Taxable ordinary income after adjustments and deductions (the engine's own figure). */
+    taxableIncome: number;
+    /** The rate the *next* marginal dollar of ordinary income pays. */
+    nextDollarRate: number;
+  };
+  /**
+   * Long-term gains and qualified dividends, stacked on ordinary income: the rows report the gain
+   * dollars inside each bracket, and the room for more gains before the next rate applies.
+   */
+  capitalGains: {
+    brackets: BracketRow[];
+    taxableIncome: number;
+    nextDollarRate: number;
+    /** Ordinary income the gains are stacked on top of. */
+    stackedOnOrdinaryIncome: number;
+  };
+}
+
+/**
+ * Bracket fill seen as capacity. Same computation as `bracketFill.ordinary`, exposed as the
+ * question a conversion actually asks: "how much can I convert before the rate steps up?"
+ */
+export interface ConversionHeadroom {
+  /** The implicit next bracket: the first rate above today's. `null` in the top bracket. */
+  nextBracket: HeadroomTarget | null;
+  /** Every higher rate and the income that reaches it, from the bracket table. */
+  targets: HeadroomTarget[];
+}
+
+/** A threshold where one more dollar changes a cost or a surcharge rather than a bracket. */
+export interface Cliff {
+  id: 'niit' | 'additionalMedicare';
+  label: string;
+  /** The amount the cliff is measured on: MAGI, or earned income for additional Medicare. */
+  measuredOn: 'magi' | 'earnedIncome';
+  /** The threshold in force. */
+  threshold: number;
+  /** The measured amount today. */
+  current: number;
+  /** Distance to the threshold; `0` when already at or above it. */
+  headroom: number;
+  /** Annual cost of the *first* dollar past the threshold, as the ruleset defines it. */
+  costOfCrossing: number;
+  supported: true;
+}
+
+/** The IRMAA tier a MAGI lands in, and what crossing the next threshold would cost per year. */
+export interface IrmaaTier {
+  /** 0 is "standard premium", 1-5 are the surcharge tiers. */
+  tier: number;
+  min: number;
+  /** `null` for the top tier. */
+  max: number | null;
+  monthlyAdjustment: number;
+  monthlyPremium: number;
+  annualSurcharge: number;
+}
+
+export interface IrmaaCliff {
+  taxYear: TaxYear;
+  filingStatus: FilingStatus;
+  /** The tax year the premium year follows from: premiums in `premiumYear` use this year's MAGI. */
+  magiTaxYear: TaxYear;
+  premiumYear: TaxYear;
+  magi: number;
+  tier: IrmaaTier;
+  /** Room before the next tier; `null` in the top tier. */
+  headroomToNextTier: number | null;
+  nextTier: (IrmaaTier & { /** Extra annual cost of crossing into it. */ stepUp: number }) | null;
+  /** Part B only. The Part D surcharge is a separate table P3-P7a owns. */
+  includes: 'partB';
+}
+
+export interface IrmaaLookback {
+  /** The premium year whose tier this year's MAGI sets. */
+  premiumYear: TaxYear;
+  /** The tier this year's MAGI projects, i.e. what two years later will charge. */
+  projected: IrmaaCliff;
+  /**
+   * The tier charged this year, from the MAGI of two years earlier. `null` when the caller could
+   * not supply that year — the plan starts later, or the year is within the first two of the run.
+   */
+  charged: (IrmaaTier & { magi: number; magiTaxYear: TaxYear }) | null;
+  /** Why `charged` is null, when it is. */
+  unavailable: string | null;
+}
+
+/** A next-dollar experiment: the line-by-line movement caused by one extra chunk of income. */
+export interface NextDollarDecomposition {
+  incomeType: MarginalIncomeType;
+  /** The amount added, in nominal dollars. */
+  amount: number;
+  /** Only the lines that moved; each entry sums into `totalDelta`. */
+  lines: Array<{ id: TaxLineId; label: string; jurisdiction: 'federal' | 'CA'; delta: number }>;
+  /** Sum of `lines[].delta`; the invariant the tests assert. */
+  totalDelta: number;
+  /** `totalDelta / amount`, i.e. the fully loaded marginal rate. */
+  marginalRate: number;
+  /** How much the year's taxable ordinary income moved (includes §86 phase-in effects). */
+  taxableOrdinaryIncomeDelta: number;
+  /** How much AGI moved. */
+  magiDelta: number;
+}
+
+/** A marginal rate, expressed as the lines that make it up. */
+export interface MarginalRate {
+  incomeType: MarginalIncomeType;
+  rate: number;
+  lines: Array<{ id: TaxLineId; label: string; jurisdiction: 'federal' | 'CA'; rate: number }>;
+}
+
+export interface TaxAnalyticsInput {
+  /** The year being settled; resolves the ruleset. */
+  taxYear: TaxYear;
+  filingStatus: FilingStatus;
+  /** That year's settled tax result, read-only. */
+  taxes: TaxesData;
+  /**
+   * Wages and net self-employment earnings for the same year, from `IncomesData` on the data
+   * point. Needed only to place a marginal wage or SE dollar against the OASDI base and the
+   * additional-Medicare threshold; the baseline payroll figures come from `taxes.fica`.
+   */
+  earnedIncome: { wages: number; selfEmployment: number };
+  /** MAGI from two tax years earlier, for the IRMAA lookback. Omit when unavailable. */
+  priorYearMagi?: { taxYear: TaxYear; magi: number };
+}
+
+export interface TaxAnalytics {
+  taxYear: TaxYear;
+  filingStatus: FilingStatus;
+  /** What the engine actually charged, copied from the result — the numbers to quote. */
+  reported: {
+    federalIncomeTax: number;
+    capitalGainsTax: number;
+    niit: number;
+    payrollTaxes: number;
+    totalTaxLiability: number;
+  };
+  /** What the ruleset produces for the same taxable income. Equal to `reported`; the test pins it. */
+  baseline: TaxLine[];
+  bracketFill: BracketFill;
+  conversionHeadroom: ConversionHeadroom;
+  marginalRates: Record<MarginalIncomeType, MarginalRate>;
+  cliffs: {
+    niit: Cliff;
+    additionalMedicare: Cliff;
+    irmaa: IrmaaLookback;
+    aca: { supported: false; prerequisites: string[] };
+  };
+  /** Federal now; California's income tax is P3-P8 and is marked pending rather than invented. */
+  jurisdictions: {
+    federal: { supported: true; totalTaxLiability: number };
+    california: {
+      supported: false;
+      pending: 'P3-P8';
+      /** The California lines the engine does have today: SDI, a payroll tax. */
+      available: { stateDisability: number };
+    };
+  };
+  /** What this analysis cannot answer for this year, with the reason. Empty is the goal, not the norm. */
+  notComputed: string[];
+}
+
+// ============================================================================
+// Bracket traversal (the same two walks `TaxProcessor` performs, over the same tables)
+// ============================================================================
+
+/** The bracket whose rate applies to the next dollar at `taxable`. The top bracket wins ties. */
+function bracketFor(taxable: number, brackets: readonly ProgressiveBracket[]): ProgressiveBracket {
+  let found = brackets[0];
+  for (const bracket of brackets) {
+    if (taxable >= bracket.min) found = bracket;
+  }
+  return found;
+}
+
+/** Total tax from a progressive schedule. A table walk, not a rule. */
+function progressiveTax(taxable: number, brackets: readonly ProgressiveBracket[]): number {
+  let tax = 0;
+  for (const bracket of brackets) {
+    if (taxable <= bracket.min) break;
+    tax += (Math.min(taxable, bracket.max) - bracket.min) * bracket.rate;
+  }
+  return tax;
+}
+
+/** Capital gains stacked on ordinary income (IRC §1(h)): the engine's own traversal. */
+function stackedCapitalGainsTax(taxableOrdinary: number, taxableGains: number, brackets: readonly CapitalGainsTaxBracket[]): number {
+  const totalTaxable = taxableOrdinary + taxableGains;
+  let tax = 0;
+  for (const bracket of brackets) {
+    if (totalTaxable <= bracket.min) break;
+    const incomeInBracket = Math.min(totalTaxable, bracket.max) - bracket.min;
+    const ordinaryInBracket = Math.max(0, Math.min(taxableOrdinary, bracket.max) - bracket.min);
+    tax += (incomeInBracket - ordinaryInBracket) * bracket.rate;
+  }
+  return tax;
+}
+
+function bracketRows(taxable: number, brackets: readonly ProgressiveBracket[]): BracketRow[] {
+  return brackets.map((bracket) => {
+    const taxableInBracket = Math.max(0, Math.min(taxable, bracket.max) - bracket.min);
+    const bounded = Number.isFinite(bracket.max);
+    const remainingInBracket = bounded ? bracket.max - Math.max(bracket.min, Math.min(taxable, bracket.max)) : null;
+    return {
+      min: bracket.min,
+      max: bounded ? bracket.max : null,
+      rate: bracket.rate,
+      taxableInBracket,
+      remainingInBracket,
+      shareFilled: bounded ? taxableInBracket / (bracket.max - bracket.min) : null,
+    };
+  });
+}
+
+/** Gain dollars inside each capital-gains bracket, plus the room for more gains in it. */
+function capitalGainsBracketRows(taxableOrdinary: number, taxableGains: number, brackets: readonly CapitalGainsTaxBracket[]): BracketRow[] {
+  const totalTaxable = taxableOrdinary + taxableGains;
+  return brackets.map((bracket) => {
+    const incomeInBracket = Math.max(0, Math.min(totalTaxable, bracket.max) - bracket.min);
+    const ordinaryInBracket = Math.max(0, Math.min(taxableOrdinary, bracket.max) - bracket.min);
+    const taxableInBracket = incomeInBracket - ordinaryInBracket;
+    const bounded = Number.isFinite(bracket.max);
+    return {
+      min: bracket.min,
+      max: bounded ? bracket.max : null,
+      rate: bracket.rate,
+      taxableInBracket,
+      remainingInBracket: bounded ? bracket.max - Math.max(bracket.min, Math.min(totalTaxable, bracket.max)) : null,
+      shareFilled: bounded ? incomeInBracket / (bracket.max - bracket.min) : null,
+    };
+  });
+}
+
+// ============================================================================
+// IRMAA (a cost cliff, not a tax line — P3-P7a owns the liability)
+// ============================================================================
+
+interface IrmaaRow {
+  min: number;
+  /** Exclusive for the tiers the CMS tables express as "greater than X and less than or equal to";
+   *  the top row is unbounded. */
+  max: number | null;
+  monthlyAdjustment: number;
+  monthlyPremium: number;
+}
+
+/**
+ * 2026 Part B income-related monthly adjustment amounts, keyed by filing status.
+ *
+ * CMS, "2026 Medicare Parts B premiums and deductibles" (cms.gov newsroom), read 2026-10-30:
+ * standard premium $202.90/month, and adjustments of $0.00 / $81.20 / $202.90 / $324.60 / $446.30 /
+ * $487.00. An individual return uses the single column; HOH does too (the CMS table has one
+ * "individual" column); MFJ doubles the thresholds. MFS is not modelled yet (P3-P1b) and is
+ * therefore absent from the union rather than guessed — adding it is a compile error here.
+ */
+const IRMAA_PART_B_2026: Record<FilingStatus, IrmaaRow[]> = {
+  single: [
+    { min: 0, max: 109000, monthlyAdjustment: 0, monthlyPremium: 202.9 },
+    { min: 109000, max: 137000, monthlyAdjustment: 81.2, monthlyPremium: 284.1 },
+    { min: 137000, max: 171000, monthlyAdjustment: 202.9, monthlyPremium: 405.8 },
+    { min: 171000, max: 205000, monthlyAdjustment: 324.6, monthlyPremium: 527.5 },
+    { min: 205000, max: 500000, monthlyAdjustment: 446.3, monthlyPremium: 649.2 },
+    { min: 500000, max: null, monthlyAdjustment: 487, monthlyPremium: 689.9 },
+  ],
+  marriedFilingJointly: [
+    { min: 0, max: 218000, monthlyAdjustment: 0, monthlyPremium: 202.9 },
+    { min: 218000, max: 274000, monthlyAdjustment: 81.2, monthlyPremium: 284.1 },
+    { min: 274000, max: 342000, monthlyAdjustment: 202.9, monthlyPremium: 405.8 },
+    { min: 342000, max: 410000, monthlyAdjustment: 324.6, monthlyPremium: 527.5 },
+    { min: 410000, max: 750000, monthlyAdjustment: 446.3, monthlyPremium: 649.2 },
+    { min: 750000, max: null, monthlyAdjustment: 487, monthlyPremium: 689.9 },
+  ],
+  headOfHousehold: [
+    { min: 0, max: 109000, monthlyAdjustment: 0, monthlyPremium: 202.9 },
+    { min: 109000, max: 137000, monthlyAdjustment: 81.2, monthlyPremium: 284.1 },
+    { min: 137000, max: 171000, monthlyAdjustment: 202.9, monthlyPremium: 405.8 },
+    { min: 171000, max: 205000, monthlyAdjustment: 324.6, monthlyPremium: 527.5 },
+    { min: 205000, max: 500000, monthlyAdjustment: 446.3, monthlyPremium: 649.2 },
+    { min: 500000, max: null, monthlyAdjustment: 487, monthlyPremium: 689.9 },
+  ],
+};
+
+/**
+ * The IRMAA tier a MAGI lands in, and what crossing the next threshold costs.
+ *
+ * These are the thresholds for `magiTaxYear` (the year whose MAGI is used); the premium is charged
+ * in `magiTaxYear + 2`. Hand check (single, MAGI $108,000): tier 0, standard $202.90/month, and
+ * $1,000 of room before the $109,000 threshold, where the premium would jump to $284.10/month —
+ * $974.40 more per year for one dollar of MAGI. At MAGI $110,000 the tier is 1 ($81.20/month
+ * adjustment, $974.40/year), with $27,000 of room before the $137,000 threshold and a $1,460.40
+ * annual step up to $405.80/month.
+ */
+export function irmaaCliff({ magi, taxYear, filingStatus }: { magi: number; taxYear: TaxYear; filingStatus: FilingStatus }): IrmaaCliff {
+  // Only the 2026 table is published in this repository; a year before it has no published
+  // thresholds and must not borrow 2026's as if they applied.
+  if (taxYear < 2026) {
+    throw new Error(`No IRMAA table for ${taxYear}: the published thresholds start at 2026 in this repository.`);
+  }
+
+  const rows = IRMAA_PART_B_2026[filingStatus];
+  const tierIndex = rows.reduce((found, row, index) => (magi > row.min ? index : found), 0);
+  const row = rows[tierIndex];
+  const nextRow = rows[tierIndex + 1] ?? null;
+
+  const tier: IrmaaTier = {
+    tier: tierIndex,
+    min: row.min,
+    max: row.max,
+    monthlyAdjustment: row.monthlyAdjustment,
+    monthlyPremium: row.monthlyPremium,
+    annualSurcharge: row.monthlyAdjustment * 12,
+  };
+
+  return {
+    taxYear,
+    filingStatus,
+    magiTaxYear: taxYear,
+    premiumYear: taxYear + 2,
+    magi,
+    tier,
+    headroomToNextTier: nextRow === null ? null : nextRow.min - magi,
+    nextTier:
+      nextRow === null
+        ? null
+        : {
+            tier: tierIndex + 1,
+            min: nextRow.min,
+            max: nextRow.max,
+            monthlyAdjustment: nextRow.monthlyAdjustment,
+            monthlyPremium: nextRow.monthlyPremium,
+            annualSurcharge: nextRow.monthlyAdjustment * 12,
+            stepUp: (nextRow.monthlyAdjustment - row.monthlyAdjustment) * 12,
+          },
+    includes: 'partB',
+  };
+}
+
+// ============================================================================
+// The year model
+// ============================================================================
+
+/**
+ * One year's tax base, normalised so a hypothetical chunk of income can be applied to it.
+ *
+ * Every field is read from the settled result except the two bracket schedules, the NIIT table and
+ * the §86 tier share, which are read from the ruleset. `taxableOrdinary` already includes taxable
+ * Social Security and is already net of adjustments and the standard deduction, which is why a
+ * hypothetical dollar can be added to it directly.
+ */
+interface YearModel {
+  taxYear: TaxYear;
+  filingStatus: FilingStatus;
+  ordinaryBrackets: readonly ProgressiveBracket[];
+  capitalGainsBrackets: readonly CapitalGainsTaxBracket[];
+  niitRate: number;
+  niitThreshold: number;
+
+  taxableOrdinary: number;
+  taxableCapitalGains: number;
+  magi: number;
+  /** Net investment income for §1411, as the engine computed it. */
+  netInvestmentIncome: number;
+
+  socialSecurityBenefits: number;
+  taxableSocialSecurity: number;
+  /** The share of the next provisional-income dollar that becomes taxable (IRC §86), from the tier. */
+  socialSecurityPhaseInShare: number;
+  /** How much Social Security can still become taxable; 0 once the 85% cap is reached. */
+  socialSecurityPhaseInCapacity: number;
+
+  wages: number;
+  selfEmploymentEarnings: number;
+  /** The year's own half-of-SE-tax deduction, already applied to `taxableOrdinary`. */
+  selfEmploymentDeduction: number;
+}
+
+function buildYearModel(input: TaxAnalyticsInput): YearModel {
+  const rules = getRules(input.taxYear);
+  const { taxes } = input;
+  const tiers = rules.tables.socialSecurityTaxation.values[input.filingStatus];
+  const maxShare = tiers[tiers.length - 1].taxablePercentage;
+
+  return {
+    taxYear: input.taxYear,
+    filingStatus: input.filingStatus,
+    ordinaryBrackets: rules.tables.incomeTaxBrackets.values[input.filingStatus],
+    capitalGainsBrackets: rules.tables.capitalGainsTaxBrackets.values[input.filingStatus],
+    niitRate: rules.tables.netInvestmentIncomeTax.values.rate,
+    niitThreshold: rules.tables.netInvestmentIncomeTax.values.thresholds[input.filingStatus],
+
+    taxableOrdinary: taxes.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary,
+    taxableCapitalGains: taxes.capitalGainsTaxes.taxableIncomeTaxedAsCapitalGains,
+    magi: taxes.incomeSources.adjustedGrossIncome,
+    netInvestmentIncome: taxes.niit.netInvestmentIncome,
+
+    socialSecurityBenefits: taxes.incomeSources.socialSecurityIncome,
+    taxableSocialSecurity: taxes.incomeSources.taxableSocialSecurityIncome,
+    // The engine resolves this tier from the ruleset; reusing it keeps §86 in one place.
+    socialSecurityPhaseInShare: taxes.socialSecurityTaxes.maxTaxablePercentage,
+    socialSecurityPhaseInCapacity: Math.max(
+      0,
+      taxes.incomeSources.socialSecurityIncome * maxShare - taxes.incomeSources.taxableSocialSecurityIncome
+    ),
+
+    wages: input.earnedIncome.wages,
+    selfEmploymentEarnings: input.earnedIncome.selfEmployment,
+    selfEmploymentDeduction: taxes.fica.selfEmployment.halfDeduction,
+  };
+}
+
+/**
+ * The effect of `amount` of one kind of income on the year's tax base.
+ *
+ * The rules each line encodes are the composition questions, not rates:
+ * - ordinary income (a pension, a distribution, a conversion) is not investment income and not
+ *   earned income, so it moves only taxable ordinary income and AGI;
+ * - wages are ordinary income *and* earned income, so payroll applies;
+ * - self-employment earnings are ordinary income, earned income, and the base of the SE tax, whose
+ *   half deduction lowers taxable income;
+ * - gains and qualified dividends are taxed at capital-gains rates and are net investment income;
+ * - a Social Security dollar raises provisional income by 50 cents (§86), so only the tier's share
+ *   of *that* becomes taxable;
+ * - exempt income moves nothing.
+ */
+function withDelta(model: YearModel, incomeType: MarginalIncomeType, amount: number): YearModel {
+  if (amount === 0 || incomeType === 'taxExempt') return model;
+
+  let ordinaryIncome = 0;
+  let capitalGains = 0;
+  let socialSecurity = 0;
+  let provisionalIncome = 0;
+  let wages = 0;
+  let selfEmployment = 0;
+
+  switch (incomeType) {
+    case 'ordinary':
+    case 'taxDeferredWithdrawal':
+    case 'rothConversion':
+      ordinaryIncome = amount;
+      provisionalIncome = amount;
+      break;
+    case 'wage':
+      ordinaryIncome = amount;
+      provisionalIncome = amount;
+      wages = amount;
+      break;
+    case 'selfEmployment':
+      ordinaryIncome = amount;
+      provisionalIncome = amount;
+      selfEmployment = amount;
+      break;
+    case 'longTermCapitalGain':
+    case 'qualifiedDividend':
+      capitalGains = amount;
+      provisionalIncome = amount;
+      break;
+    case 'socialSecurity':
+      socialSecurity = amount;
+      provisionalIncome = amount * 0.5;
+      break;
+  }
+
+  const newlyTaxableSocialSecurity = Math.min(model.socialSecurityPhaseInShare * provisionalIncome, model.socialSecurityPhaseInCapacity);
+
+  return {
+    ...model,
+    taxableOrdinary: model.taxableOrdinary + ordinaryIncome + newlyTaxableSocialSecurity,
+    taxableCapitalGains: model.taxableCapitalGains + capitalGains,
+    magi: model.magi + ordinaryIncome + capitalGains + newlyTaxableSocialSecurity,
+    netInvestmentIncome: model.netInvestmentIncome + capitalGains,
+    socialSecurityBenefits: model.socialSecurityBenefits + socialSecurity,
+    taxableSocialSecurity: model.taxableSocialSecurity + newlyTaxableSocialSecurity,
+    wages: model.wages + wages,
+    selfEmploymentEarnings: model.selfEmploymentEarnings + selfEmployment,
+  };
+}
+
+interface Evaluation {
+  lines: TaxLine[];
+  taxableOrdinary: number;
+  taxableCapitalGains: number;
+  magi: number;
+}
+
+/**
+ * Prices one year's tax base. `delta` is applied first, so calling it twice is a marginal
+ * experiment; calling it once is the baseline.
+ *
+ * The SE tax is computed before the income tax because its half is an above-the-line deduction and
+ * therefore changes the base: the deduction already inside `model.taxableOrdinary` is subtracted
+ * from the delta only, never twice.
+ */
+function evaluate(model: YearModel, delta?: { incomeType: MarginalIncomeType; amount: number }): Evaluation {
+  const base = delta ? withDelta(model, delta.incomeType, delta.amount) : model;
+
+  const wagePayroll = computeWagePayrollTaxes({ wages: base.wages, filingStatus: model.filingStatus, taxYear: model.taxYear });
+  const selfEmploymentTax = computeSelfEmploymentTaxes({
+    netEarnings: base.selfEmploymentEarnings,
+    wages: base.wages,
+    filingStatus: model.filingStatus,
+    taxYear: model.taxYear,
+  });
+
+  const addedSelfEmploymentDeduction = selfEmploymentTax.halfDeduction - model.selfEmploymentDeduction;
+  const taxableOrdinary = Math.max(0, base.taxableOrdinary - addedSelfEmploymentDeduction);
+  const magi = Math.max(0, base.magi - addedSelfEmploymentDeduction);
+
+  const ordinaryTax = progressiveTax(taxableOrdinary, model.ordinaryBrackets);
+  const capitalGainsTax = stackedCapitalGainsTax(taxableOrdinary, base.taxableCapitalGains, model.capitalGainsBrackets);
+  const magiOverThreshold = Math.max(0, magi - model.niitThreshold);
+  const niit = Math.min(base.netInvestmentIncome, magiOverThreshold) * model.niitRate;
+
+  const lines: TaxLine[] = [
+    { id: 'federalOrdinaryIncomeTax', label: 'Federal income tax on ordinary income', jurisdiction: 'federal', amount: ordinaryTax },
+    {
+      id: 'federalCapitalGainsTax',
+      label: 'Federal tax on long-term gains and qualified dividends',
+      jurisdiction: 'federal',
+      amount: capitalGainsTax,
+    },
+    { id: 'niit', label: 'Net investment income tax', jurisdiction: 'federal', amount: niit },
+    { id: 'payrollSocialSecurity', label: 'OASDI (employee share)', jurisdiction: 'federal', amount: wagePayroll.socialSecurity },
+    { id: 'payrollMedicare', label: 'Medicare (employee share)', jurisdiction: 'federal', amount: wagePayroll.medicare },
+    { id: 'payrollAdditionalMedicare', label: 'Additional Medicare Tax', jurisdiction: 'federal', amount: wagePayroll.additionalMedicare },
+    { id: 'payrollStateDisability', label: 'California SDI', jurisdiction: 'CA', amount: wagePayroll.stateDisability },
+    { id: 'selfEmploymentTax', label: 'Self-employment tax', jurisdiction: 'federal', amount: selfEmploymentTax.total },
+  ];
+
+  return { lines, taxableOrdinary, taxableCapitalGains: base.taxableCapitalGains, magi };
+}
+
+const sumLines = (lines: readonly TaxLine[]): number => lines.reduce((total, line) => total + line.amount, 0);
+
+function headroomTargets(taxable: number, brackets: readonly ProgressiveBracket[], nextDollarRate: number): HeadroomTarget[] {
+  // The headroom for a bracket is the distance to its *floor*: that is the amount of income it
+  // takes to reach the next rate. (The bracket's ceiling is where the rate after it begins, which
+  // is the next target's floor.) Every floor is finite, so `null` only appears for no target at
+  // all — the top bracket has no higher rate to reach.
+  return brackets
+    .filter((bracket) => bracket.rate > nextDollarRate && bracket.min > taxable)
+    .map((bracket) => ({ rate: bracket.rate, headroom: bracket.min - taxable, upToTaxableIncome: bracket.min }));
+}
+
+// ============================================================================
+// Entry points
+// ============================================================================
+
+/** The clause that keeps a consumer from claiming more than this module can support. */
+const NOT_COMPUTED = [
+  'California income tax — P3-P8 supplies the state ruleset; only the SDI payroll line is available today.',
+  'ACA premium tax credit and its cliff — P3-P7b. Needs the SLCSP premium, the federal poverty line for the household size and the applicable-percentage table; none is in the result.',
+  'AMT, and the Part D half of IRMAA — P3-P7a. The Part B IRMAA table here is a warning, not a liability line.',
+  'Itemized deductions and the SALT cap — P3-P3. The engine applies the standard deduction only.',
+  'The §72(t) 10% additional tax and the §223(f)(4) 20% HSA tax on a marginal early withdrawal — the engine charges those from the account type and age, not from a marginal rate.',
+  'Pro-rata basis on a Roth conversion (§408(d)(2)) — P3-P5. A conversion dollar here is fully taxable, so its rate is an upper bound.',
+] as const;
+
+/**
+ * The IRMAA tier *charged* this year, derived from the MAGI of two years earlier.
+ *
+ * The MAGI comes from the lookback return; the thresholds are the premium year's, which is how the
+ * programme works (each year's thresholds are published for that year's premiums). This is the half
+ * of the lookback a single year cannot answer on its own, which is why the input carries
+ * `priorYearMagi` and why this returns a reason instead of a number when it is missing.
+ */
+function resolveIrmaaLookback(input: TaxAnalyticsInput): {
+  charged: (IrmaaTier & { magi: number; magiTaxYear: TaxYear }) | null;
+  unavailable: string | null;
+} {
+  const prior = input.priorYearMagi;
+
+  if (!prior) {
+    return {
+      charged: null,
+      unavailable:
+        `The result carries no MAGI for ${input.taxYear - 2}, so the tier charged this year cannot be derived ` +
+        '(the plan starts later, or this is one of its first two years).',
+    };
+  }
+
+  if (prior.taxYear !== input.taxYear - 2) {
+    return {
+      charged: null,
+      unavailable:
+        `The lookback year is ${input.taxYear - 2}, but the caller supplied ${prior.taxYear}. ` +
+        'Premiums are set from the MAGI of exactly two years earlier.',
+    };
+  }
+
+  // The thresholds applied are the premium year's; only the MAGI comes from the lookback year.
+  const tier = irmaaCliff({ magi: prior.magi, taxYear: input.taxYear, filingStatus: input.filingStatus }).tier;
+  return { charged: { ...tier, magi: prior.magi, magiTaxYear: prior.taxYear }, unavailable: null };
+}
+
+/**
+ * Answers the P3-P6 questions for one settled year.
+ *
+ * @example
+ * const analytics = analyzeTaxYear({ taxYear: 2026, filingStatus: 'single', taxes, earnedIncome });
+ * analytics.marginalRates.wage.rate;                            // e.g. 0.3095
+ * analytics.conversionHeadroom.nextBracket?.headroom;           // room before the next rate
+ * analytics.cliffs.irmaa.projected.headroomToNextTier;          // MAGI before the next Part B tier
+ */
+export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
+  const model = buildYearModel(input);
+  const baseline = evaluate(model);
+
+  const ordinaryRate = bracketFor(model.taxableOrdinary, model.ordinaryBrackets).rate;
+  const capitalGainsNextDollarRate = bracketFor(model.taxableOrdinary + model.taxableCapitalGains, model.capitalGainsBrackets).rate;
+
+  const ordinaryRows = bracketRows(model.taxableOrdinary, model.ordinaryBrackets);
+  const capitalGainsRows = capitalGainsBracketRows(model.taxableOrdinary, model.taxableCapitalGains, model.capitalGainsBrackets);
+
+  const marginalRates = Object.fromEntries(
+    (
+      [
+        'ordinary',
+        'taxDeferredWithdrawal',
+        'rothConversion',
+        'wage',
+        'selfEmployment',
+        'longTermCapitalGain',
+        'qualifiedDividend',
+        'socialSecurity',
+        'taxExempt',
+      ] as const
+    ).map((incomeType) => {
+      const decomposition = decompose(model, incomeType, 1);
+      return [
+        incomeType,
+        {
+          incomeType,
+          rate: decomposition.marginalRate,
+          lines: decomposition.lines.map((line) => ({
+            id: line.id,
+            label: line.label,
+            jurisdiction: line.jurisdiction,
+            rate: line.delta,
+          })),
+        },
+      ];
+    })
+  ) as Record<MarginalIncomeType, MarginalRate>;
+
+  const rules = getRules(input.taxYear);
+  const niitHeadroom = Math.max(0, model.niitThreshold - model.magi);
+  const additionalMedicareThreshold = rules.tables.additionalMedicareThreshold.values[input.filingStatus];
+  const additionalMedicareHeadroom = Math.max(0, additionalMedicareThreshold - model.wages);
+
+  const projectedIrmaa = irmaaCliff({ magi: model.magi, taxYear: input.taxYear, filingStatus: input.filingStatus });
+  const lookback = resolveIrmaaLookback(input);
+
+  return {
+    taxYear: input.taxYear,
+    filingStatus: input.filingStatus,
+    reported: {
+      federalIncomeTax: input.taxes.federalIncomeTaxes.federalIncomeTaxAmount,
+      capitalGainsTax: input.taxes.capitalGainsTaxes.capitalGainsTaxAmount,
+      niit: input.taxes.niit.niitAmount,
+      payrollTaxes: input.taxes.fica.total,
+      totalTaxLiability: input.taxes.totalTaxLiability,
+    },
+    baseline: baseline.lines,
+    bracketFill: {
+      ordinary: { brackets: ordinaryRows, taxableIncome: model.taxableOrdinary, nextDollarRate: ordinaryRate },
+      capitalGains: {
+        brackets: capitalGainsRows,
+        taxableIncome: model.taxableCapitalGains,
+        nextDollarRate: capitalGainsNextDollarRate,
+        stackedOnOrdinaryIncome: model.taxableOrdinary,
+      },
+    },
+    conversionHeadroom: {
+      nextBracket: headroomTargets(model.taxableOrdinary, model.ordinaryBrackets, ordinaryRate)[0] ?? null,
+      targets: headroomTargets(model.taxableOrdinary, model.ordinaryBrackets, ordinaryRate),
+    },
+    marginalRates,
+    cliffs: {
+      niit: {
+        id: 'niit',
+        label: 'Net investment income tax (§1411)',
+        measuredOn: 'magi',
+        threshold: model.niitThreshold,
+        current: model.magi,
+        headroom: niitHeadroom,
+        costOfCrossing: model.niitRate,
+        supported: true,
+      },
+      additionalMedicare: {
+        id: 'additionalMedicare',
+        label: 'Additional Medicare Tax',
+        measuredOn: 'earnedIncome',
+        threshold: additionalMedicareThreshold,
+        current: model.wages,
+        headroom: additionalMedicareHeadroom,
+        costOfCrossing: rules.tables.payrollTaxRates.values.additionalMedicare,
+        supported: true,
+      },
+      irmaa: {
+        premiumYear: input.taxYear + 2,
+        projected: projectedIrmaa,
+        ...lookback,
+      },
+      aca: {
+        supported: false,
+        prerequisites: [
+          'the marketplace second-lowest-cost silver premium (SLCSP) for the coverage year — a plan input that does not exist yet',
+          'the federal poverty line for the household size — the simulation result carries no household size',
+          'the applicable-percentage table for the coverage year — P3-P7b adds it to the ruleset',
+          'whether the enhanced subsidies are in force, which decides whether the 400% FPL cliff exists at all',
+        ],
+      },
+    },
+    jurisdictions: {
+      federal: { supported: true, totalTaxLiability: sumLines(baseline.lines.filter((line) => line.jurisdiction === 'federal')) },
+      california: {
+        supported: false,
+        pending: 'P3-P8',
+        available: {
+          stateDisability: baseline.lines.find((line) => line.id === 'payrollStateDisability')?.amount ?? 0,
+        },
+      },
+    },
+    notComputed: [...NOT_COMPUTED],
+  };
+}
+
+function decompose(model: YearModel, incomeType: MarginalIncomeType, amount: number): NextDollarDecomposition {
+  const before = evaluate(model);
+  const after = evaluate(model, { incomeType, amount });
+
+  const lines = after.lines
+    .map((line, index) => ({ ...line, delta: line.amount - before.lines[index].amount }))
+    .filter((line) => Math.abs(line.delta) > 1e-9);
+
+  const totalDelta = lines.reduce((total, line) => total + line.delta, 0);
+
+  return {
+    incomeType,
+    amount,
+    lines: lines.map(({ id, label, jurisdiction, delta }) => ({ id, label, jurisdiction, delta })),
+    totalDelta,
+    marginalRate: amount === 0 ? 0 : totalDelta / amount,
+    taxableOrdinaryIncomeDelta: after.taxableOrdinary - before.taxableOrdinary,
+    magiDelta: after.magi - before.magi,
+  };
+}
+
+/**
+ * What one more chunk of income of a given kind would cost, line by line.
+ *
+ * The lines are the difference between two priced years, so they always sum to `totalDelta`: there
+ * is no separate "total" formula that could disagree with its parts. A consumer that needs to
+ * explain a number (§7-A3) can name each line and its contribution.
+ *
+ * @example decomposeNextDollar(input, { incomeType: 'ordinary', amount: 1000 })
+ */
+export function decomposeNextDollar(
+  input: TaxAnalyticsInput,
+  request: { incomeType: MarginalIncomeType; amount: number }
+): NextDollarDecomposition {
+  if (!Number.isFinite(request.amount) || request.amount < 0) {
+    throw new Error(`Amount must be a finite, non-negative number, received ${request.amount}`);
+  }
+  return decompose(buildYearModel(input), request.incomeType, request.amount);
+}
+
+/**
+ * The same analysis, wired from a completed simulation: it finds the year, resolves its tax year
+ * from the row's own date (never from a clock), and hands the analytics the MAGI from two rows
+ * earlier so the IRMAA lookback is answered rather than guessed.
+ *
+ * @param params.data - `result.data` from `simulate()`, unchanged.
+ * @param params.index - Which row to analyse. Row 0 is the initial state and has no tax result.
+ */
+export function analyzeSimulationTaxYear(params: {
+  data: readonly SimulationDataPoint[];
+  index: number;
+  filingStatus: FilingStatus;
+}): TaxAnalytics {
+  const dataPoint = params.data[params.index];
+  if (!dataPoint) throw new Error(`No simulation data point at index ${params.index}`);
+  if (!dataPoint.taxes) {
+    throw new Error(`The data point at index ${params.index} has no settled tax result (row 0 is the initial state).`);
+  }
+
+  const taxYear = parseISODateString(dataPoint.date).year;
+  const lookbackPoint = params.index >= 2 ? params.data[params.index - 2] : undefined;
+  const priorYearMagi =
+    lookbackPoint?.taxes !== null && lookbackPoint?.taxes !== undefined
+      ? { taxYear: parseISODateString(lookbackPoint.date).year, magi: lookbackPoint.taxes.incomeSources.adjustedGrossIncome }
+      : undefined;
+
+  return analyzeTaxYear({
+    taxYear,
+    filingStatus: params.filingStatus,
+    taxes: dataPoint.taxes,
+    earnedIncome: {
+      wages: dataPoint.incomes?.totalWageIncome ?? 0,
+      selfEmployment: dataPoint.incomes?.totalSelfEmploymentIncome ?? 0,
+    },
+    priorYearMagi,
+  });
+}
