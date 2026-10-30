@@ -795,13 +795,14 @@ describe('malformed files report the exact field paths', () => {
     expect(taxSettingsFromConvex(taxSettings as never).stateResidency).toBeUndefined();
   });
 
-  it('warns about a plan that states no state residency, and still imports it', () => {
-    // A pre-v8 file (or any plan written before the flag) carries no `stateResidency`. The tax
+  it('warns about a v7 file that states no state residency, and still imports it', () => {
+    // A v7 file predates the flag, so its absence is a statement the user never made. The tax
     // layer reads absent as California (`taxes.ts:350`), so the value is not wrong — but the
     // operator must be told, because the difference is California income tax, not a formatting
     // preference. `warningsFor` fails the test if the file is refused, so this also pins that the
     // disclosure stays a warning.
     const warnings = warningsFor((envelope) => {
+      envelope.schemaVersion = 7;
       delete ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency;
     });
 
@@ -813,22 +814,39 @@ describe('malformed files report the exact field paths', () => {
     ]);
   });
 
-  it('stays silent when the plan states California explicitly', () => {
+  it('says nothing about a v8 file with no state residency: that is this build’s own output', () => {
+    // `taxSettingsToConvex` stores only the explicit opt-out, so a current California plan has no
+    // flag. Warning about the reader's own output would teach the operator to ignore warnings, so
+    // from v8 on the absence is read as California silently.
     const warnings = warningsFor((envelope) => {
-      ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency = 'CA';
+      delete ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency;
     });
 
-    expect(warnings.filter((issue) => issue.path === 'plan.taxSettings.stateResidency')).toStrictEqual([]);
+    expect(warnings).toStrictEqual([]);
   });
 
-  it('stays silent when the plan opts out of state tax', () => {
+  it('stays silent when the plan states California explicitly, whatever the version', () => {
+    for (const schemaVersion of [7, 8]) {
+      const warnings = warningsFor((envelope) => {
+        envelope.schemaVersion = schemaVersion;
+        ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency = 'CA';
+      });
+
+      expect(warnings.filter((issue) => issue.path === 'plan.taxSettings.stateResidency')).toStrictEqual([]);
+    }
+  });
+
+  it('stays silent when the plan opts out of state tax, whatever the version', () => {
     // The fixture states `'none'`; assert it explicitly so the case cannot pass by accident of
     // the fixture changing.
-    const warnings = warningsFor((envelope) => {
-      ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency = 'none';
-    });
+    for (const schemaVersion of [7, 8]) {
+      const warnings = warningsFor((envelope) => {
+        envelope.schemaVersion = schemaVersion;
+        ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency = 'none';
+      });
 
-    expect(warnings.filter((issue) => issue.path === 'plan.taxSettings.stateResidency')).toStrictEqual([]);
+      expect(warnings.filter((issue) => issue.path === 'plan.taxSettings.stateResidency')).toStrictEqual([]);
+    }
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {

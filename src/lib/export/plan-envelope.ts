@@ -100,7 +100,14 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       P3-P4, and defaulting the other way would let an existing plan silently drop a tax it has
  *       been paying all along. A plan that is not a California resident says `'none'` explicitly.
  *       Nothing is written back on import, so re-exporting a v7 plan unchanged writes a v8 file with
- *       the flag still absent, which reads the same way.
+ *       the flag still absent.
+ *
+ *       What absence means therefore depends on the version, and the importer says so: **before v8**
+ *       it is a statement the user never made, so it is disclosed as a warning
+ *       (`No state residency is stated, …`) while still importing; **at v8 and later** it is this
+ *       build's own normal output — `taxSettingsToConvex` stores only the explicit opt-out, so every
+ *       California plan has no flag — and it is read as California silently, because warning about
+ *       correct input would train the operator to dismiss warnings.
  *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
@@ -424,8 +431,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * a self-employment income (the engine path is alive; the form gate is policy — PLAN-parity
  * R8), `stockYield > stockReturn`, a loan whose down payment plus balance is not the
  * purchase price, short names, out-of-policy percentages/seeds/growth limits, and a plan that
- * states no state residency (read as California — `stateResidencyWarnings`). Those are reported
- * with their field paths and the operator decides whether to import anyway.
+ * states no state residency in a file older than v8 (read as California — `stateResidencyWarnings`).
+ * Those are reported with their field paths and the operator decides whether to import anyway.
  *
  * Not covered, by design:
  *   - the plan document's own `name`/`isDefault`, which are not plan data and have no
@@ -460,7 +467,7 @@ function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
 
   plans.forEach((plan, index) => {
     const prefix: PropertyKey[] = single ? ['plan'] : ['plans', index];
-    warnings.push(...stateResidencyWarnings(plan, prefix));
+    warnings.push(...stateResidencyWarnings(plan, prefix, envelope.schemaVersion));
     pushDomainIssues(warnings, prefix, () => planDomainChecks(plan, prefix));
   });
 
@@ -483,18 +490,25 @@ function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
   return { blocking, warnings: warnings.filter((issue) => !blockedPaths.has(issue.path)) };
 }
 
+/** The version that introduced `taxSettings.stateResidency`; see the version history above. */
+const STATE_RESIDENCY_SCHEMA_VERSION = 8;
+
 /**
  * A plan that states no state residency is read as California (D2).
  *
- * `TaxProcessor` defaults the flag to `'CA'` (`taxes.ts:350`), and `taxSettingsToConvex` stores
- * only the explicit opt-out (`'none'`), so absent is how a California plan is written — including
- * every file exported before the field existed. That default is this instance's intended
- * behaviour and the plan runs correctly under it, so it is a WARNING, not a block: refusing the
- * file would make a pre-v8 export — or any California plan exported today — unimportable for a
- * value the engine already answers. It must not be silent, though: the difference is real money
- * (California income tax, plus SDI that is withheld whatever the flag says).
+ * Only files older than v8 are told about it. At v8 and later, absence is this build's normal
+ * output — `taxSettingsToConvex` stores only the explicit opt-out (`'none'`), so every California
+ * plan has no flag — and warning about correct input would teach the operator to dismiss warnings.
+ * A pre-v8 file never had the chance to state it, so the absence is a statement the user never
+ * made, and `TaxProcessor`'s default (`'CA'`, `taxes.ts:350`) is then what the reader assumes.
+ *
+ * It stays a WARNING, not a block: the plan runs correctly under the default, the instance is a
+ * California one, and refusing the file would make every pre-v8 export unimportable for a value the
+ * engine already answers. The difference is real money, though (California income tax, plus SDI
+ * that is withheld whatever the flag says), which is why it is disclosed rather than kept silent.
  */
-function stateResidencyWarnings(plan: PlanExport, prefix: PropertyKey[]): ImportIssue[] {
+function stateResidencyWarnings(plan: PlanExport, prefix: PropertyKey[], schemaVersion: number): ImportIssue[] {
+  if (schemaVersion >= STATE_RESIDENCY_SCHEMA_VERSION) return [];
   if (plan.taxSettings.stateResidency !== undefined) return [];
 
   return [
