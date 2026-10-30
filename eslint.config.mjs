@@ -19,34 +19,12 @@ const eslintConfig = [
   {
     // Determinism: a simulation run must be a pure function of its inputs plus an explicit
     // clock (see src/lib/calc/clock.ts). Wall-clock reads are banned under src/lib/calc and
-    // src/lib/schemas; resolve a Clock at the store boundary instead
-    // (src/lib/utils/system-clock.ts is the app's single wall-clock read).
+    // src/lib/schemas; resolve a Clock at the store boundary or pass today's date from a UI
+    // call site instead (src/lib/utils/system-clock.ts is the app's single wall-clock read).
     // `new Date(year, month, day)` and other argument-taking constructions stay legal.
+    // The import ban closes the loophole of reaching that module directly: patterns cover the
+    // `@/` alias and relative paths from any nested subdirectory.
     files: ['src/lib/calc/**/*.{ts,tsx}', 'src/lib/schemas/**/*.{ts,tsx}'],
-    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**'],
-    rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
-          message:
-            'Do not read the wall clock with new Date() under src/lib/calc or src/lib/schemas. Take an explicit Clock (src/lib/calc/clock.ts) instead; resolve it at the store boundary.',
-        },
-        {
-          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
-          message:
-            'Do not read the wall clock with Date.now() under src/lib/calc or src/lib/schemas. Take an explicit Clock (src/lib/calc/clock.ts) instead; resolve it at the store boundary.',
-        },
-      ],
-    },
-  },
-  {
-    // Same determinism rule, closing the import loophole: code under src/lib/calc must not
-    // reach the app-boundary wall-clock module (src/lib/utils/system-clock.ts) instead of
-    // taking an injected Clock from src/lib/calc/clock.ts. Patterns cover the `@/` alias and
-    // relative paths from any src/lib/calc subdirectory. src/lib/schemas is deliberately not
-    // covered: `calculateAge`'s UI-facing default there legitimately reads that module.
-    files: ['src/lib/calc/**/*.{ts,tsx}'],
     ignores: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**'],
     rules: {
       'no-restricted-imports': [
@@ -62,9 +40,22 @@ const eslintConfig = [
                 '../../utils/system-clock',
               ],
               message:
-                'Do not import the wall clock into src/lib/calc. Take an explicit Clock (src/lib/calc/clock.ts) and let the store resolve it in src/lib/stores/simulator-store.ts.',
+                'Do not import the wall clock into src/lib/calc or src/lib/schemas. Take an explicit Clock (src/lib/calc/clock.ts), or pass an explicit date in from the UI/store boundary (src/lib/utils/system-clock.ts).',
             },
           ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+          message:
+            'Do not read the wall clock with new Date() under src/lib/calc or src/lib/schemas. Take an explicit Clock (src/lib/calc/clock.ts) instead; resolve it at the store boundary.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
+          message:
+            'Do not read the wall clock with Date.now() under src/lib/calc or src/lib/schemas. Take an explicit Clock (src/lib/calc/clock.ts) instead; resolve it at the store boundary.',
         },
       ],
     },

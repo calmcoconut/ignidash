@@ -8,7 +8,6 @@
 import { z } from 'zod';
 
 import { type ISODateString, parseISODateString } from '@/lib/calc/clock';
-import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { ageField, percentageField } from '@/lib/utils/zod-utils';
 
 export const retirementStrategySchema = z.discriminatedUnion('type', [
@@ -25,50 +24,69 @@ export const retirementStrategySchema = z.discriminatedUnion('type', [
   }),
 ]);
 
-export const timelineFormSchema = z
-  .object({
-    birthMonth: z.number().int().min(1).max(12),
-    birthYear: z.number().int().min(1925).max(2025),
-    lifeExpectancy: ageField(50, 110, {
-      min: 'Life expectancy must be at least 50 years',
-      max: 'Life expectancy must be at most 110 years',
-    }),
-    retirementStrategy: retirementStrategySchema,
-  })
-  .refine(
-    (data) => {
-      const currentAge = calculateAge(data.birthMonth, data.birthYear);
-      return currentAge >= 18 && currentAge <= 100;
-    },
-    {
-      message: 'You must be between 18 and 100 years old',
-      path: ['birthYear'],
-    }
-  )
-  .refine(
-    (data) => {
-      const currentAge = calculateAge(data.birthMonth, data.birthYear);
-      return currentAge < data.lifeExpectancy;
-    },
-    {
-      message: 'Life expectancy must be greater than current age',
-      path: ['lifeExpectancy'],
-    }
-  )
-  .refine(
-    (data) => {
-      if (data.retirementStrategy.type !== 'fixedAge') return true;
-      const currentAge = calculateAge(data.birthMonth, data.birthYear);
-      return currentAge <= data.retirementStrategy.retirementAge && data.retirementStrategy.retirementAge < data.lifeExpectancy;
-    },
-    {
-      message: 'Retirement age must be between current age and life expectancy',
-      path: ['retirementStrategy', 'retirementAge'],
-    }
-  );
+/**
+ * Structural timeline schema: field shapes and per-field bounds only.
+ *
+ * It carries no rule that compares against "today" (see `createTimelineFormSchema`), so it
+ * is safe to compose into a plan-level schema without a clock — `simulator-schema.ts` does
+ * so. This module never reads the wall clock; the date is always passed in by the caller.
+ */
+export const timelineBaseSchema = z.object({
+  birthMonth: z.number().int().min(1).max(12),
+  birthYear: z.number().int().min(1925).max(2025),
+  lifeExpectancy: ageField(50, 110, {
+    min: 'Life expectancy must be at least 50 years',
+    max: 'Life expectancy must be at most 110 years',
+  }),
+  retirementStrategy: retirementStrategySchema,
+});
 
 export type RetirementStrategyInputs = z.infer<typeof retirementStrategySchema>;
-export type TimelineInputs = z.infer<typeof timelineFormSchema>;
+export type TimelineInputs = z.infer<typeof timelineBaseSchema>;
+
+/**
+ * Timeline schema including the cross-field rules that compare the plan against "today":
+ * current age 18-100, life expectancy above current age, and retirement age between current
+ * age and life expectancy.
+ *
+ * `now` is explicit — supplied by the UI boundary with `currentLocalISODate()` — because this
+ * module is forbidden to read the wall clock (see the determinism rules in
+ * `eslint.config.mjs`).
+ */
+export function createTimelineFormSchema(now: ISODateString | Date) {
+  return timelineBaseSchema
+    .refine(
+      (data) => {
+        const currentAge = calculateAge(data.birthMonth, data.birthYear, now);
+        return currentAge >= 18 && currentAge <= 100;
+      },
+      {
+        message: 'You must be between 18 and 100 years old',
+        path: ['birthYear'],
+      }
+    )
+    .refine(
+      (data) => {
+        const currentAge = calculateAge(data.birthMonth, data.birthYear, now);
+        return currentAge < data.lifeExpectancy;
+      },
+      {
+        message: 'Life expectancy must be greater than current age',
+        path: ['lifeExpectancy'],
+      }
+    )
+    .refine(
+      (data) => {
+        if (data.retirementStrategy.type !== 'fixedAge') return true;
+        const currentAge = calculateAge(data.birthMonth, data.birthYear, now);
+        return currentAge <= data.retirementStrategy.retirementAge && data.retirementStrategy.retirementAge < data.lifeExpectancy;
+      },
+      {
+        message: 'Retirement age must be between current age and life expectancy',
+        path: ['retirementStrategy', 'retirementAge'],
+      }
+    );
+}
 
 /**
  * Calendar year and month of `now`, read without depending on the host timezone.
@@ -82,11 +100,8 @@ function calendarYearAndMonth(now: ISODateString | Date): { year: number; month:
   return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
 }
 
-/**
- * Whole years since birth as of `now` (defaults to today's local calendar date, read once
- * at the boundary in `@/lib/utils/system-clock`).
- */
-export function calculateAge(birthMonth: number, birthYear: number, now: ISODateString | Date = currentLocalISODate()): number {
+/** Whole years since birth as of `now`. `now` is explicit so this stays a pure function. */
+export function calculateAge(birthMonth: number, birthYear: number, now: ISODateString | Date): number {
   const { year: currentYear, month: currentMonth } = calendarYearAndMonth(now);
 
   let age = currentYear - birthYear;

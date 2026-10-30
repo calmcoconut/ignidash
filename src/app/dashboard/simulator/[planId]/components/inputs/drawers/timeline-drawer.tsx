@@ -8,7 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, type FieldErrors, Controller } from 'react-hook-form';
 
 import { timelineToConvex } from '@/lib/utils/data-transformers';
-import { timelineFormSchema, type TimelineInputs, type RetirementStrategyInputs } from '@/lib/schemas/inputs/timeline-form-schema';
+import { currentLocalISODate } from '@/lib/utils/system-clock';
+import { createTimelineFormSchema, type TimelineInputs, type RetirementStrategyInputs } from '@/lib/schemas/inputs/timeline-form-schema';
 import NumberInput from '@/components/ui/number-input';
 import SectionHeader from '@/components/ui/section-header';
 import SectionContainer from '@/components/ui/section-container';
@@ -61,6 +62,10 @@ interface TimelineDrawerProps {
 export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProps) {
   const planId = useSelectedPlanId();
 
+  // The timeline rules compare the plan against "today", so this UI boundary supplies the
+  // date explicitly and the schema module itself stays clock-free.
+  const timelineFormResolver = useMemo(() => zodResolver(createTimelineFormSchema(currentLocalISODate())), []);
+
   const timelineDefaultValues = useMemo(
     () =>
       ({
@@ -82,7 +87,7 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
     reset,
     formState: { errors, isSubmitting },
   } = useForm({
-    resolver: zodResolver(timelineFormSchema),
+    resolver: timelineFormResolver,
     defaultValues,
   });
 

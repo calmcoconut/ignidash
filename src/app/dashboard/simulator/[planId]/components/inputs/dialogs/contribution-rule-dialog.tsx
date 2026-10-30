@@ -25,6 +25,7 @@ import {
 } from '@/lib/schemas/inputs/contribution-form-schema';
 import { accountTypeForDisplay } from '@/lib/schemas/inputs/account-form-schema';
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
+import { currentLocalISODate } from '@/lib/utils/system-clock';
 import NumberInput from '@/components/ui/number-input';
 import { Fieldset, FieldGroup, Field, Label, ErrorMessage, Description } from '@/components/catalyst/fieldset';
 import { Switch, SwitchField } from '@/components/catalyst/switch';
@@ -106,7 +107,7 @@ export default function ContributionRuleDialog({
   const selectedAccount = accountId ? accounts[accountId] : null;
 
   const timeline = useTimelineData();
-  const currentAge = timeline ? calculateAge(timeline.birthMonth, timeline.birthYear) : 18;
+  const currentAge = timeline ? calculateAge(timeline.birthMonth, timeline.birthYear, currentLocalISODate()) : 18;
   const selectedAccountAnnualContributionLimit = selectedAccount
     ? enableMegaBackdoorRoth
       ? getAnnualSection415cLimit(currentAge)

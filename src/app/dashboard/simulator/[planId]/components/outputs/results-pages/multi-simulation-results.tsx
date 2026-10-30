@@ -15,6 +15,7 @@ import SectionContainer from '@/components/ui/section-container';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 import type { MultiSimulationTableRow, YearlyAggregateTableRow } from '@/lib/schemas/tables/multi-simulation-table-schema';
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
+import { currentLocalISODate } from '@/lib/utils/system-clock';
 import type { MultiSimulationChartData } from '@/lib/types/chart-data-points';
 import { useResultsState } from '@/hooks/use-results-state';
 import { useActiveSeed, useRemoveActiveSeed } from '@/hooks/use-active-seed';
@@ -85,7 +86,7 @@ interface MultiSimulationResultsProps {
 
 export default function MultiSimulationResults({ inputs, simulationMode }: MultiSimulationResultsProps) {
   const { birthMonth, birthYear } = inputs.timeline!;
-  const startAge = calculateAge(birthMonth, birthYear);
+  const startAge = calculateAge(birthMonth, birthYear, currentLocalISODate());
   const { selectedAge, onAgeSelect } = useResultsState(startAge);
 
   const { analysis, tableData, yearlyTableData, chartData, keyMetrics, isLoadingOrValidating, completedSimulations } =

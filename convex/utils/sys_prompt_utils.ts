@@ -16,8 +16,7 @@ export const formatNumber = (num: number, fractionDigits: number = 2, prefix: st
   return sign + prefix + absNum.toFixed(fractionDigits);
 };
 
-const calculateAge = (birthMonth: number, birthYear: number): number => {
-  const today = new Date();
+const calculateAge = (birthMonth: number, birthYear: number, today: Date): number => {
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
 
@@ -351,7 +350,10 @@ export const formatPlanData = (plan: Doc<'plans'>): string => {
         ? `Retirement Age: ${retirementStrategy.retirementAge}`
         : `SWR Target: ${retirementStrategy.safeWithdrawalRate}%`;
 
-    lines.push(`  - Timeline: Age: ${calculateAge(birthMonth, birthYear)}, Life Expectancy: ${lifeExpectancy}, ${retirementInfo}`);
+    // The prompt describes the plan as of today, so the date is read here and passed in.
+    const today = new Date();
+
+    lines.push(`  - Timeline: Age: ${calculateAge(birthMonth, birthYear, today)}, Life Expectancy: ${lifeExpectancy}, ${retirementInfo}`);
   }
 
   if (plan.incomes.length > 0) {

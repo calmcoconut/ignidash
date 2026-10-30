@@ -16,6 +16,7 @@ import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/di
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import { glidePathFormSchema, type GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
+import { currentLocalISODate } from '@/lib/utils/system-clock';
 import NumberInput from '@/components/ui/number-input';
 import { Fieldset, FieldGroup, Field, Label, ErrorMessage, Description } from '@/components/catalyst/fieldset';
 import ErrorMessageCard from '@/components/ui/error-message-card';
@@ -139,7 +140,7 @@ export default function GlidePathDialog({ onClose, glidePath: _glidePath, accoun
   const years = Array.from({ length: 2100 - currentYear + 1 }, (_, i) => currentYear + i);
 
   const timeline = useTimelineData();
-  const currentAge = timeline ? calculateAge(timeline.birthMonth, timeline.birthYear) : 18;
+  const currentAge = timeline ? calculateAge(timeline.birthMonth, timeline.birthYear, currentLocalISODate()) : 18;
   const lifeExpectancy = timeline?.lifeExpectancy ?? 110;
 
   const ages = Array.from({ length: lifeExpectancy - currentAge + 1 }, (_, i) => currentAge + i);

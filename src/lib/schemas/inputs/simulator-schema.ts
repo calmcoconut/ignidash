@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 
-import { timelineFormSchema } from './timeline-form-schema';
+import { timelineBaseSchema } from './timeline-form-schema';
 import { incomeFormSchema } from './income-form-schema';
 import { accountFormSchema } from './account-form-schema';
 import { glidePathFormSchema } from './glide-path-form-schema';
@@ -22,7 +22,9 @@ import { privacySettingsFormSchema } from './privacy-settings-form-schema';
 import { simulationSettingsSchema } from './simulation-settings-form-schema';
 
 export const simulatorSchema = z.object({
-  timeline: timelineFormSchema.nullable(),
+  // Shape-only timeline rules: the "as of today" cross-field rules need an explicit date,
+  // so they live in `createTimelineFormSchema(now)` and are applied at the form boundary.
+  timeline: timelineBaseSchema.nullable(),
   incomes: z.record(z.string(), incomeFormSchema),
   accounts: z.record(z.string(), accountFormSchema),
   glidePath: glidePathFormSchema.optional(),

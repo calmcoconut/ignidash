@@ -21,6 +21,7 @@ import { physicalAssetFormSchema, type PhysicalAssetInputs } from '@/lib/schemas
 import { assetTypeForDisplay, type AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
 import { liabilityTypeForDisplay, type LiabilityInputs } from '@/lib/schemas/finances/liability-form-schema';
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
+import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { physicalAssetTimeFrameForDisplay } from '@/lib/utils/display-formatters';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
@@ -260,7 +261,7 @@ export default function PhysicalAssetDialog({
   const years = Array.from({ length: 2100 - currentYear + 1 }, (_, i) => currentYear + i);
 
   const timeline = useTimelineData();
-  const currentAge = timeline ? calculateAge(timeline.birthMonth, timeline.birthYear) : 18;
+  const currentAge = timeline ? calculateAge(timeline.birthMonth, timeline.birthYear, currentLocalISODate()) : 18;
   const lifeExpectancy = timeline?.lifeExpectancy ?? 110;
 
   const ages = Array.from({ length: lifeExpectancy - currentAge + 1 }, (_, i) => currentAge + i);
