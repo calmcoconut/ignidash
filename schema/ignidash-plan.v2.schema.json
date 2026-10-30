@@ -1265,7 +1265,8 @@
           "maximum": 2024
         },
         "asOfDate": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         }
       },
       "required": [
@@ -1289,6 +1290,6 @@
     "simulationSettings"
   ],
   "title": "Ignidash simulator input",
-  "description": "A complete financial plan as the Ignidash engine reads it: the object passed to simulate() (the simulator input), not the export envelope. Generated from simulatorSchema; do not edit by hand.",
-  "$comment": "Shape-only. The three clock-relative timeline rules (current age 18-100, life expectancy above current age, retirement age between the two) need a run date and are applied by the app and by scripts/headless-simulate.ts --as-of, not by this document. See docs/HEADLESS.md."
+  "description": "A complete financial plan as the Ignidash engine reads it: the object passed to simulate() (the simulator input), not the export envelope. Shape and per-field bounds only; generated from simulatorSchema, do not edit by hand.",
+  "$comment": "Publishes SHAPE and PER-FIELD BOUNDS only: z.toJSONSchema() drops every .refine()/.superRefine(), so this document ACCEPTS files the app refuses. Rule classes it does not carry: cross-field refinements; enum-policy gates; clock-relative timeline rules; unknown-key strictness. Two differences run the other way: debts/physicalAssets are required here (simulate() throws on undefined) but optional to import, and timeline:null is accepted here but simulate() refuses it. Narrowed where JSON Schema can: asOfDate must match ^\\d{4}-\\d{2}-\\d{2}$ — shape only, so it still accepts a rollover date like 2026-02-30. See docs/HEADLESS.md for one example per class."
 }

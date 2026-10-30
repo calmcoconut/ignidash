@@ -2,7 +2,15 @@ import { readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
-import { createLivingExpense, createSavingsAccount, createSimulatorInputs, createWageIncome } from '@/lib/calc/__tests__/test-utils';
+import {
+  create401kAccount,
+  createContributionRule,
+  createFinancedAssetInput,
+  createLivingExpense,
+  createSavingsAccount,
+  createSimulatorInputs,
+  createWageIncome,
+} from '@/lib/calc/__tests__/test-utils';
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 
 import { planJsonSchemaFileName } from './plan-json-schema';
@@ -95,7 +103,74 @@ describe('headless:simulate', () => {
     const run = runCli([PLAN_PATH, '--as-of', AS_OF], planFile({ ...makePlan(), incomeTypo: {} }));
 
     expect(run.code).toBe(HEADLESS_EXIT.ok);
-    expect(run.stderr).toContain('ignoring unknown top-level field(s): incomeTypo');
+    expect(run.stderr).toContain('ignoring unknown field(s): incomeTypo');
+  });
+
+  it('warns about a mistyped nested field, which would otherwise change the answer', () => {
+    const plan = makePlan();
+    const active = makePlan();
+    const stopped = makePlan({ incomes: { 'income-1': { ...plan.incomes['income-1'], disabled: true } } });
+    // SAFETY: the test deliberately writes a key the types reject — that typo is the case under test.
+    const typoIncome = { ...plan.incomes['income-1'], disabeld: true } as unknown as (typeof plan.incomes)['income-1'];
+    const typo = makePlan({ incomes: { 'income-1': typoIncome } });
+
+    const activeRun = runCli([PLAN_PATH, '--as-of', AS_OF], planFile(active));
+    const stoppedRun = runCli([PLAN_PATH, '--as-of', AS_OF], planFile(stopped));
+    const typoRun = runCli([PLAN_PATH, '--as-of', AS_OF], planFile(typo));
+
+    // The typo is not silent: the path is named, at the depth it occurs.
+    expect(typoRun.code).toBe(HEADLESS_EXIT.ok);
+    expect(typoRun.stderr).toContain('warning: ignoring unknown field(s): incomes.income-1.disabeld');
+
+    // And it matters: the correctly spelled key stops the income, the typo runs it.
+    const finalValue = (run: CliRun) =>
+      (JSON.parse(run.stdout) as { result: { data: { portfolio: { totalValue: number } }[] } }).result.data.at(-1)!.portfolio.totalValue;
+    expect(finalValue(stoppedRun)).not.toBe(finalValue(activeRun));
+    expect(finalValue(typoRun)).toBe(finalValue(activeRun));
+    expect(stoppedRun.stderr).not.toContain('unknown field');
+  });
+
+  it('reports unknown fields at any depth, including inside record entries and nested objects', () => {
+    const plan = makePlan();
+    const mistyped = {
+      ...plan,
+      marketAssumptions: { ...plan.marketAssumptions, stockYld: 2 },
+      incomes: {
+        'income-1': {
+          ...plan.incomes['income-1'],
+          taxes: { ...plan.incomes['income-1'].taxes, withholdng: 20 },
+        },
+      },
+    };
+
+    const run = runCli([PLAN_PATH, '--as-of', AS_OF], planFile(mistyped));
+
+    expect(run.code).toBe(HEADLESS_EXIT.ok);
+    expect(run.stderr).toContain('marketAssumptions.stockYld');
+    expect(run.stderr).toContain('incomes.income-1.taxes.withholdng');
+  });
+
+  it('does not warn about any field of a plan that exercises the union variants', () => {
+    const plan = createSimulatorInputs({
+      timeline: {
+        birthMonth: 1,
+        birthYear: 1990,
+        lifeExpectancy: 87,
+        retirementStrategy: { type: 'swrTarget', safeWithdrawalRate: 4 },
+      },
+      incomes: { 'income-1': createWageIncome() },
+      expenses: { 'expense-1': createLivingExpense() },
+      accounts: { 'savings-1': createSavingsAccount(), '401k-1': create401kAccount() },
+      physicalAssets: { 'asset-1': createFinancedAssetInput() },
+      contributionRules: {
+        'contribution-1': createContributionRule({ contributionType: 'dollarAmount', accountId: '401k-1', dollarAmount: 500 }),
+      },
+    });
+
+    const run = runCli([PLAN_PATH, '--as-of', AS_OF], planFile(plan));
+
+    expect(run.code).toBe(HEADLESS_EXIT.ok);
+    expect(run.stderr).not.toContain('unknown field');
   });
 
   it('refuses to invent an as-of date, and says which flag to pass', () => {

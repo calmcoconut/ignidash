@@ -54,9 +54,17 @@ headless:simulate: plan.json is not a valid plan
   taxSettings.filingStatus: Invalid option: expected one of "single"|"marriedFilingJointly"|"headOfHousehold"
 ```
 
-Unknown **top-level** fields are reported as a warning and ignored. Unknown nested fields are
-ignored silently, because `simulatorSchema` is a plain Zod object: the JSON Schema below is the
-contract to check a file against.
+Unknown fields are reported as a **warning** and ignored, at any depth: the command walks the
+file against `simulatorSchema`'s shapes and names every key the schema does not define, e.g.
+`incomes.income-1.disabeld`. That matters because a typo can change the answer — `disabeld`
+leaves an income running that `disabled: true` stops — so the warning is there to catch it.
+
+It stays a warning rather than a refusal because `simulatorSchema` strips unknown keys rather
+than rejecting them: the app itself would run such a file, and the imported-file path (which uses
+strict Convex-derived schemas) is the one that refuses. For a union the walk blames the variant
+that fits best, so a `fixedAge` frame is not reported for lacking `safeWithdrawalRate`. It does
+not walk inside a schema it does not recognise (leaf kinds hold no keys), and it stops after 32
+levels of nesting.
 
 ## Input: the simulator input, not the export envelope
 
@@ -101,9 +109,10 @@ npm run schema:plan
 ```
 
 It is produced by Zod 4's `z.toJSONSchema(simulatorSchema, { io: 'input' })` — the same
-`simulatorSchema` the app uses, so the document cannot describe a shape the engine does not
-read. `io: 'input'` describes what a _file_ may contain; output mode would add
-`additionalProperties: false` to every object and reject files the app accepts. The result is
+`simulatorSchema` the app uses, so its _shape_ comes from the same source the engine reads. Its
+_rules_ are a strict subset of the app's; the next section lists what is missing. `io: 'input'`
+describes what a _file_ may contain; output mode would add `additionalProperties: false` to every
+object and reject files the app accepts. The result is
 JSON Schema **draft 2020-12**, fully inlined (no `$ref`/`$defs`), with no remote `$id`, so a
 validator never fetches anything: the whole contract is in the one file.
 
@@ -114,11 +123,21 @@ in the same release — so a single number keeps them from drifting apart. `plan
 fails if the committed file differs from what the generator produces, or if an older
 `ignidash-plan.v*.schema.json` is left behind.
 
-### Shape-only, and the three rules it cannot carry
+### What it validates — and the four classes of rule it does not
 
-`simulatorSchema` uses `timelineBaseSchema`, which holds the timeline's field shapes and
-per-field bounds (`birthMonth` 1–12, `birthYear` 1925–2025, `lifeExpectancy` 50–110,
-`retirementAge` 19–73, …) but none of the three rules that compare the plan against _today_:
+`z.toJSONSchema()` emits **shape and per-field bounds only**: types, required keys, enum values
+and numeric limits. It **silently drops every `.refine()` / `.superRefine()`**, so this document
+is _looser_ than the app, not equal to it: it accepts files the app refuses. Four classes of rule
+do not reach the file.
+
+| Class of rule                 | One example                                                                                                            | Document | Import                                  | `headless:simulate`      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------- | ------------------------ |
+| cross-field refinements       | `marketAssumptions.stockYield` above `stockReturn`; wage income with no `withholding`; `customDate` with no month/year | accepts  | rejects                                 | rejects                  |
+| enum-policy gates             | `taxes.incomeType: "selfEmployment"` — in the enum the document publishes, refused by the app until SE tax ships       | accepts  | rejects                                 | rejects                  |
+| clock-relative timeline rules | `timeline.birthYear` giving an age outside 18–100 as of the run date                                                   | accepts  | accepts (a file must import on any day) | rejects, using `--as-of` |
+| unknown-key strictness        | an unknown nested key, e.g. `incomes.income-1.disabeld`                                                                | accepts  | rejects                                 | warns, then runs         |
+
+Exactly which clock rules are meant:
 
 1. `timeline.birthYear` — current age must be between 18 and 100;
 2. `timeline.lifeExpectancy` — life expectancy must be greater than the current age;
@@ -127,25 +146,33 @@ per-field bounds (`birthMonth` 1–12, `birthYear` 1925–2025, `lifeExpectancy`
 
 They live in `createTimelineFormSchema(now)` because a static schema cannot consult a clock, and
 JSON Schema could only express them by hard-coding a reference date — a document that would
-silently go stale and then lie about what is valid. The schema therefore publishes exactly what
-the app's own file import validates (`src/lib/export/plan-envelope.ts` checks the same
-`timelineBaseSchema`), and the document says so in its own `$comment`.
+silently go stale and then lie about what is valid.
 
-Where each caller stands:
+The document says all of this in its own `$comment`, so a consumer that only has the JSON file
+still reads the caveat. `plan-json-schema.test.ts` asserts that each class above is named both in
+the file and in this document, so the two cannot drift apart.
 
-| Caller                                            | Enforces the three rules?                                                                           |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Simulator forms                                   | Yes, with `now` from the UI boundary                                                                |
-| Export/import (`src/lib/export/plan-envelope.ts`) | No, on purpose: a file must stay importable on any day                                              |
-| `npm run headless:simulate`                       | **Yes**, with its explicit `--as-of` — a run is pinned to a date, so the same date decides validity |
+### Two shape differences that run the other way
 
-This command runs `createTimelineFormSchema(asOf)` after the structural check, so a plan the app
-would reject for its age is rejected here too — with the same field paths:
+These are the only places the document is _stricter_ than import, and both are deliberate:
 
-```
-headless:simulate: plan.json is not a valid plan as of 2030-01-01
-  timeline.birthYear: You must be between 18 and 100 years old
-```
+- `debts` and `physicalAssets` are `required` in the document but optional to import (Convex marks
+  them optional and the transformer fills `{}`). The document keeps them required because
+  `simulate()` throws on `undefined` — a file without them cannot run.
+- `timeline: null` passes the document (inherited from `simulatorSchema`) but `simulate()` refuses
+  it: `simulate(): inputs.timeline is required; a plan without a timeline has no projection.` Do
+  not treat `null` as runnable.
+
+### One rule narrowed in shape form: `asOfDate`
+
+JSON Schema cannot express a refine, but it can express a pattern, so
+`simulationSettings.asOfDate` carries `pattern: ^\d{4}-\d{2}-\d{2}$`, which rejects
+`"not-a-date"`. The caveat travels with it, in `SHAPE_PATTERNS` and in the file: **shape only: it
+accepts a rollover date such as 2026-02-30, which the app refuses**. The real check is the app's
+`isISODateString`. This is the only narrowing the generator adds, and `plan-json-schema.test.ts`
+pins it, so no undocumented rule can appear in the published file.
+
+Nothing in the app is weakened to match the document.
 
 ## Output
 

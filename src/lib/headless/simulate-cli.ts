@@ -303,14 +303,164 @@ function resolveRunOptions(args: HeadlessArgs, plan: SimulatorInputs, io: Headle
   };
 }
 
-/** A top-level typo would otherwise vanish: `z.object` strips unknown keys silently. */
+/**
+ * A typo would otherwise vanish: `z.object` strips unknown keys silently, and a mistyped
+ * optional field changes the answer (a `disabeld` income runs as active).
+ *
+ * So the walk recurses through the schema at every depth and reports the paths. It is a
+ * warning, not a refusal, in line with top-level fields: `simulatorSchema` is not strict, the
+ * published JSON Schema is the contract for shape, and refusing here would reject files the
+ * app itself runs.
+ */
 function warnAboutUnknownFields(raw: unknown, io: HeadlessIo): void {
-  if (typeof raw !== 'object' || raw === null) return;
-  const known = new Set(Object.keys(simulatorSchema.shape));
-  const unknown = Object.keys(raw).filter((key) => !known.has(key));
-  if (unknown.length > 0) {
-    io.writeStderr(`headless:simulate: warning: ignoring unknown top-level field(s): ${unknown.join(', ')}\n`);
+  const found: string[] = [];
+  collectUnknownFields(simulatorSchema, raw, '', found, 0);
+
+  const unique = [...new Set(found)].sort();
+  if (unique.length === 0) return;
+
+  const shown = unique.slice(0, MAX_REPORTED_UNKNOWN_FIELDS);
+  const rest = unique.length - shown.length;
+  io.writeStderr(`headless:simulate: warning: ignoring unknown field(s): ${shown.join(', ')}${rest > 0 ? `, and ${rest} more` : ''}\n`);
+}
+
+const MAX_REPORTED_UNKNOWN_FIELDS = 10;
+/** Plan data is shallow; the cap only stops a pathological file from recursing forever. */
+const MAX_UNKNOWN_FIELD_DEPTH = 32;
+
+/** The slice of Zod's internal definition this walk reads. */
+interface ZodDefinition {
+  type?: string;
+  shape?: Record<string, z.ZodType>;
+  valueType?: z.ZodType;
+  element?: z.ZodType;
+  options?: z.ZodType[];
+  innerType?: z.ZodType;
+  getter?: () => z.ZodType;
+  in?: z.ZodType;
+}
+
+function definitionOf(schema: z.ZodType): ZodDefinition | undefined {
+  // SAFETY: Zod 4 keeps the definition on `_zod.def`; only the fields listed above are read,
+  // and every read is guarded, so an unexpected node kind degrades to "no keys to check".
+  return (schema as unknown as { _zod?: { def?: ZodDefinition } })._zod?.def;
+}
+
+/** Collects dotted/indexed paths of keys the schema at that position does not define. */
+function collectUnknownFields(schema: z.ZodType, value: unknown, path: string, out: string[], depth: number): void {
+  if (depth > MAX_UNKNOWN_FIELD_DEPTH) return;
+  const def = definitionOf(schema);
+  if (!def) return;
+
+  switch (def.type) {
+    case 'object': {
+      if (!isPlainObject(value) || !def.shape) return;
+      for (const [key, child] of Object.entries(value)) {
+        const childSchema = def.shape[key];
+        if (childSchema) collectUnknownFields(childSchema, child, joinPath(path, key), out, depth + 1);
+        else out.push(joinPath(path, key));
+      }
+      return;
+    }
+
+    case 'record': {
+      if (!isPlainObject(value) || !def.valueType) return;
+      // Record keys are free-form by design; only their values have a schema.
+      for (const [key, child] of Object.entries(value)) {
+        collectUnknownFields(def.valueType, child, joinPath(path, key), out, depth + 1);
+      }
+      return;
+    }
+
+    case 'array': {
+      if (!Array.isArray(value) || !def.element) return;
+      value.forEach((item, index) => collectUnknownFields(def.element!, item, `${path}[${index}]`, out, depth + 1));
+      return;
+    }
+
+    case 'union': {
+      // A union's variants have different field sets. Report the variant that fits the value
+      // best (fewest unknown keys), so a `fixedAge` frame is not blamed for lacking
+      // `safeWithdrawalRate`. Members whose runtime kind cannot match are not candidates.
+      const options = (def.options ?? []).filter((option) => couldAccept(option, value));
+      const candidates = options.length > 0 ? options : (def.options ?? []);
+      let best: string[] | null = null;
+      for (const option of candidates) {
+        const branch: string[] = [];
+        collectUnknownFields(option, value, path, branch, depth + 1);
+        if (best === null || branch.length < best.length) best = branch;
+      }
+      if (best) out.push(...best);
+      return;
+    }
+
+    case 'optional':
+    case 'nullable':
+    case 'default':
+    case 'readonly':
+    case 'catch':
+    case 'nonoptional':
+    case 'prefault':
+      if (def.innerType) collectUnknownFields(def.innerType, value, path, out, depth + 1);
+      return;
+
+    case 'pipe':
+      // The input side is what a file is checked against.
+      if (def.in) collectUnknownFields(def.in, value, path, out, depth + 1);
+      return;
+
+    case 'lazy': {
+      const inner = def.getter?.();
+      if (inner) collectUnknownFields(inner, value, path, out, depth + 1);
+      return;
+    }
+
+    default:
+      // Leaf kinds (string, number, boolean, enum, literal, ...) hold no keys.
+      return;
   }
+}
+
+/** Whether a schema node could accept a value of this runtime kind, used to pick a union member. */
+function couldAccept(schema: z.ZodType, value: unknown): boolean {
+  const def = definitionOf(schema);
+  if (!def) return false;
+
+  switch (def.type) {
+    case 'object':
+    case 'record':
+      return isPlainObject(value);
+    case 'array':
+      return Array.isArray(value);
+    case 'null':
+      return value === null;
+    case 'optional':
+    case 'nullable':
+    case 'default':
+    case 'readonly':
+    case 'catch':
+    case 'nonoptional':
+    case 'prefault':
+      return def.innerType ? couldAccept(def.innerType, value) : false;
+    case 'pipe':
+      return def.in ? couldAccept(def.in, value) : false;
+    case 'lazy': {
+      const inner = def.getter?.();
+      return inner ? couldAccept(inner, value) : false;
+    }
+    case 'union':
+      return (def.options ?? []).some((option) => couldAccept(option, value));
+    default:
+      return !isPlainObject(value) && !Array.isArray(value);
+  }
+}
+
+function joinPath(path: string, key: string): string {
+  return path === '' ? key : `${path}.${key}`;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isExportEnvelope(value: unknown): boolean {
