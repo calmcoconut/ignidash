@@ -334,7 +334,7 @@ export function toCategoricalBars(
   definition: BarChartDefinition,
   options: { isSmallScreen: boolean }
 ): CategoricalBar[] {
-  return groupBarSeries(definition).map((group) => {
+  const bars = groupBarSeries(definition).map((group) => {
     const [first] = group;
 
     return {
@@ -342,6 +342,21 @@ export function toCategoricalBars(
       segments: group.map((series) => ({ amount: readChartSeriesValue(point, series), color: series.color })),
     };
   });
+
+  return filterCategoricalBars(bars, definition);
+}
+
+/**
+ * Drops bars whose segments are all zero, unless the view asked to keep them (the old
+ * charts' per-view `filterZeroValues` flag).
+ *
+ * @param bars - Bars in drawing order
+ * @param definition - The view definition that carries the flag
+ * @returns The bars to render
+ */
+export function filterCategoricalBars(bars: readonly CategoricalBar[], definition: BarChartDefinition): CategoricalBar[] {
+  if (definition.filterZeroValues === false) return [...bars];
+  return bars.filter((bar) => bar.segments.some((segment) => segment.amount !== 0));
 }
 
 /**

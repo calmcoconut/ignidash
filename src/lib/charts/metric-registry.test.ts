@@ -28,8 +28,10 @@ import {
   toLineSeriesProps,
   toPieSlices,
 } from './plot-types';
-import type { ChartKind, MetricDataPoint } from './plot-types';
+import type { ChartKind, MetricCategory, MetricDataPoint } from './plot-types';
 import { formatChartString } from '@/lib/utils';
+import { BAR_CHARTS, PIE_CHARTS } from './metric-registry';
+import { serializeBarChartDefinition, serializePieChartDefinition } from './plot-types';
 
 // ============================================================================
 // FROZEN CONTRACTS
@@ -586,6 +588,101 @@ const FROZEN_LINE_METRICS: Record<string, { format: 'currency' | 'percent'; stac
   },
 };
 
+/**
+ * Frozen single-age bar and pie views (P4-P6, second half).
+ *
+ * Each value is `serializeBarChartDefinition`/`serializePieChartDefinition` output for the
+ * view: `format#key|colour|sign|label|shortLabel;…#segments#zero-filter` for bars and
+ * `key|colour|sign|label;…` for pies. The values were transcribed from the deleted
+ * switches (keys, colours, signs, desktop/short labels, segment grouping and the
+ * zero-filter flag), so a colour, sign, label or grouping change fails here first.
+ */
+const FROZEN_BAR_CHARTS: Record<string, string> = {
+  'contributions.annualAmounts':
+    'currency#annualStockContributions|var(--chart-1)|1|Annual Stock Contrib.|Stock Contrib.;annualBondContributions|var(--chart-2)|1|Annual Bond Contrib.|Bond Contrib.;annualCashContributions|var(--chart-3)|1|Annual Cash Contrib.|Cash Contrib.##filter-zero',
+  'contributions.cumulativeAmounts':
+    'currency#cumulativeStockContributions|var(--chart-1)|1|Cumul. Stock Contrib.|Cumul. Stock;cumulativeBondContributions|var(--chart-2)|1|Cumul. Bond Contrib.|Cumul. Bond;cumulativeCashContributions|var(--chart-3)|1|Cumul. Cash Contrib.|Cumul. Cash##filter-zero',
+  'contributions.employerMatch':
+    'currency#annualEmployerMatch|var(--chart-2)|1|Annual Employer Match|Annual Match;cumulativeEmployerMatch|var(--chart-4)|1|Cumul. Employer Match|Cumul. Match##filter-zero',
+  'contributions.shortfall':
+    'currency#annualShortfallRepaid|var(--chart-2)|1|Annual Shortfall Repaid|Shortfall Repaid;outstandingShortfall|var(--chart-4)|1|Outstanding Shortfall|Outstanding Shortfall##filter-zero',
+  'contributions.taxCategory':
+    'currency#taxableContributions|var(--chart-1)|1|Taxable Contrib.|Taxable;taxDeferredContributions|var(--chart-2)|1|Tax-Deferred Contrib.|Tax-Deferred;taxFreeContributions|var(--chart-3)|1|Tax-Free Contrib.|Tax-Free;cashSavingsContributions|var(--chart-4)|1|Cash Contrib.|Cash##filter-zero',
+  'netWorth.netAssetChange':
+    'currency#annualAssetAppreciation|var(--chart-1)|1|Annual Asset Appreciation|Appreciation;annualPurchasedAssetValue|var(--chart-2)|1|Annual Purchased Asset Value|Purchased Value;annualSoldAssetValue|var(--chart-3)|-1|Annual Sold Asset Value|Sold Value##filter-zero',
+  'netWorth.netDebtReduction':
+    'currency#annualDebtPaydown|var(--chart-1)|1|Annual Debt Paydown|Debt Paydown;annualDebtPayoff|var(--chart-2)|1|Annual Debt Payoff|Debt Payoff;annualDebtIncurred|var(--chart-3)|-1|Annual Debt Incurred|Debt Incurred##filter-zero',
+  'netWorth.netPortfolioChange':
+    'currency#annualReturns|var(--chart-1)|1|Annual Returns|Returns;annualContributions|var(--chart-2)|1|Annual Contributions|Contributions;annualWithdrawals|var(--chart-3)|-1|Annual Withdrawals|Withdrawals##filter-zero',
+  'netWorth.netWorthChange':
+    'currency#netPortfolioChange|var(--chart-1)|1|Net Portfolio Change|Portfolio Change;netAssetChange|var(--chart-2)|1|Net Asset Change|Asset Change;netDebtReduction|var(--chart-3)|1|Net Debt Reduction|Debt Reduction##filter-zero',
+  'returns.annualAmounts':
+    'currency#annualStockGain|var(--chart-2)|1|Annual Stock Gain|Stock Gain;annualBondGain|var(--chart-3)|1|Annual Bond Gain|Bond Gain;annualCashGain|var(--chart-4)|1|Annual Cash Gain|Cash Gain##filter-zero',
+  'returns.appreciation':
+    'currency#annualAssetAppreciation|var(--chart-2)|1|Annual Appreciation|Annual Appreciation;cumulativeAssetAppreciation|var(--chart-4)|1|Cumul. Appreciation|Cumul. Appreciation##filter-zero',
+  'returns.cagr':
+    'percent#realStockCagr|var(--chart-2)|1|Real Stock CAGR|Stock CAGR;realBondCagr|var(--chart-3)|1|Real Bond CAGR|Bond CAGR;realCashCagr|var(--chart-4)|1|Real Cash CAGR|Cash CAGR##filter-zero',
+  'returns.cumulativeAmounts':
+    'currency#cumulativeStockGain|var(--chart-2)|1|Cumul. Stock Gain|Cumul. Stock;cumulativeBondGain|var(--chart-3)|1|Cumul. Bond Gain|Cumul. Bond;cumulativeCashGain|var(--chart-4)|1|Cumul. Cash Gain|Cumul. Cash##filter-zero',
+  'returns.rates':
+    'percent#realStockReturnRate|var(--chart-2)|1|Real Stock Rate|Stock Rate;realBondReturnRate|var(--chart-3)|1|Real Bond Rate|Bond Rate;realCashReturnRate|var(--chart-4)|1|Real Cash Rate|Cash Rate;inflationRate|var(--chart-8)|1|Inflation Rate|Inflation Rate##filter-zero',
+  'returns.taxCategory':
+    'currency#taxableGains|var(--chart-1)|1|Taxable Gains|Taxable;taxDeferredGains|var(--chart-2)|1|Tax-Deferred Gains|Tax-Deferred;taxFreeGains|var(--chart-3)|1|Tax-Free Gains|Tax-Free;cashSavingsGains|var(--chart-4)|1|Cash Gains|Cash##filter-zero',
+  'taxes.adjustedGrossIncome':
+    'currency#adjustedIncomeTaxedAsOrdinary|var(--chart-1)|1|Adjusted Gross Income|Adjusted Gross Income;adjustedIncomeTaxedAsCapitalGains|var(--chart-2)|1|Adjusted Gross Income|Adjusted Gross Income#2#filter-zero',
+  'taxes.adjustmentsAndDeductions':
+    'currency#taxDeductibleContributions|var(--chart-1)|1|Tax-Deductible Contributions|Deductible Contrib.;capitalLossDeduction|var(--chart-2)|1|Capital Loss Deduction|CL Deduction;standardDeduction|var(--chart-3)|1|Standard Deduction|Std. Deduction##filter-zero',
+  'taxes.annualAmounts':
+    'currency#annualFederalIncomeTax|var(--chart-1)|1|Annual Fed. Income Tax|Fed. Income Tax;annualFicaTax|var(--chart-2)|1|Annual FICA Tax|FICA Tax;annualCapitalGainsTax|var(--chart-3)|1|Annual Cap Gains Tax|Cap Gains Tax;annualNiit|var(--chart-4)|1|Annual NIIT|NIIT;annualEarlyWithdrawalPenalties|var(--chart-5)|1|Annual EW Penalties|EW Penalty##filter-zero',
+  'taxes.capitalGainsAndDividends':
+    'currency#realizedGains|var(--chart-1)|1|Realized Gains|Realized Gains;taxableDividendIncome|var(--chart-2)|1|Dividend Income|Dividend Income##filter-zero',
+  'taxes.cumulativeAmounts':
+    'currency#cumulativeFederalIncomeTax|var(--chart-1)|1|Cumul. Fed. Income Tax|Cumul. Fed. Income Tax;cumulativeFicaTax|var(--chart-2)|1|Cumul. FICA Tax|Cumul. FICA Tax;cumulativeCapitalGainsTax|var(--chart-3)|1|Cumul. Cap Gains Tax|Cumul. CG Tax;cumulativeNiit|var(--chart-4)|1|Cumul. NIIT|Cumul. NIIT;cumulativeEarlyWithdrawalPenalties|var(--chart-5)|1|Cumul. EW Penalties|Cumul. EW Penalty##filter-zero',
+  'taxes.earlyWithdrawalPenalties':
+    'currency#annualEarlyWithdrawalPenalties|var(--chart-2)|1|Annual EW Penalties|Annual EW Penalty;cumulativeEarlyWithdrawalPenalties|var(--chart-4)|1|Cumul. EW Penalties|Cumul. EW Penalty##keep-zero',
+  'taxes.effectiveRates':
+    'percent#effectiveFederalIncomeTaxRate|var(--chart-2)|1|Effective Fed. Income Tax Rate|Fed. Income Rate;effectiveCapitalGainsTaxRate|var(--chart-4)|1|Effective Cap Gains Tax Rate|Cap Gains Rate##keep-zero',
+  'taxes.investmentIncome':
+    'currency#taxableInterestIncome|var(--chart-1)|1|Interest Income|Interest Income;taxableDividendIncome|var(--chart-2)|1|Dividend Income|Dividend Income;realizedGains|var(--chart-3)|1|Realized Gains|Realized Gains##filter-zero',
+  'taxes.marginalRates':
+    'percent#topMarginalFederalIncomeTaxRate|var(--chart-2)|1|Top Marginal Fed. Income Tax Rate|Fed. Income Rate;topMarginalCapitalGainsTaxRate|var(--chart-4)|1|Top Marginal Cap Gains Tax Rate|Cap Gains Rate##keep-zero',
+  'taxes.ordinaryIncome':
+    'currency#earnedIncome|var(--chart-1)|1|Earned Income|Earned Income;socialSecurityIncome|var(--chart-2)|1|Social Security|Soc. Sec.;taxableInterestIncome|var(--chart-3)|1|Interest Income|Interest Income;taxableRetirementDistributions|var(--chart-4)|1|Retirement Distributions|Retirement Dist.##filter-zero',
+  'taxes.retirementDistributions':
+    'currency#taxDeferredWithdrawals|var(--chart-1)|1|Tax-Deferred Withdrawals|Tax-Deferred;earlyRothEarningsWithdrawals|var(--chart-2)|1|Early Roth Earnings Withdrawals|Early Roth##filter-zero',
+  'taxes.socialSecurityIncome':
+    'currency#socialSecurityIncome|var(--chart-1)|1|Social Security|Soc. Sec.;taxableSocialSecurityIncome|var(--chart-2)|1|Taxable Social Security|Taxable Soc. Sec.##keep-zero',
+  'taxes.socialSecurityTaxablePercentage':
+    'percent#maxTaxablePercentage|var(--chart-2)|1|Max Taxable %|Max Taxable %;actualTaxablePercentage|var(--chart-4)|1|Actual Taxable %|Actual Taxable %##keep-zero',
+  'taxes.taxFreeIncome': 'currency#taxFreeIncome|var(--chart-2)|1|Tax-Free Income|Tax-Free Income##filter-zero',
+  'taxes.taxableIncome':
+    'currency#taxableIncomeTaxedAsOrdinary|var(--chart-1)|1|Taxable Income|Taxable Income;taxableIncomeTaxedAsCapitalGains|var(--chart-2)|1|Taxable Income|Taxable Income#2#filter-zero',
+  'withdrawals.annualAmounts':
+    'currency#annualStockWithdrawals|var(--chart-1)|1|Annual Stock Withdrawals|Stock Withdrawals;annualBondWithdrawals|var(--chart-2)|1|Annual Bond Withdrawals|Bond Withdrawals;annualCashWithdrawals|var(--chart-3)|1|Annual Cash Withdrawals|Cash Withdrawals##filter-zero',
+  'withdrawals.cumulativeAmounts':
+    'currency#cumulativeStockWithdrawals|var(--chart-1)|1|Cumul. Stock Withdrawals|Cumul. Stock;cumulativeBondWithdrawals|var(--chart-2)|1|Cumul. Bond Withdrawals|Cumul. Bond;cumulativeCashWithdrawals|var(--chart-3)|1|Cumul. Cash Withdrawals|Cumul. Cash##filter-zero',
+  'withdrawals.earlyWithdrawals':
+    'currency#annualEarlyWithdrawals|var(--chart-2)|1|Annual Early Withdrawals|Annual EWs;cumulativeEarlyWithdrawals|var(--chart-4)|1|Cumul. Early Withdrawals|Cumul. EWs##filter-zero',
+  'withdrawals.realizedGains':
+    'currency#annualRealizedGains|var(--chart-2)|1|Annual Realized Gains|Annual Gains;cumulativeRealizedGains|var(--chart-4)|1|Cumul. Realized Gains|Cumul. Gains##filter-zero',
+  'withdrawals.requiredMinimumDistributions':
+    'currency#annualRequiredMinimumDistributions|var(--chart-2)|1|Annual RMDs|Annual RMDs;cumulativeRequiredMinimumDistributions|var(--chart-4)|1|Cumul. RMDs|Cumul. RMDs##filter-zero',
+  'withdrawals.shortfall':
+    'currency#annualShortfall|var(--chart-2)|1|Annual Shortfall|Annual Shortfall;outstandingShortfall|var(--chart-4)|1|Outstanding Shortfall|Outstanding Shortfall##filter-zero',
+  'withdrawals.taxCategory':
+    'currency#taxableWithdrawals|var(--chart-1)|1|Taxable Withdrawals|Taxable;taxDeferredWithdrawals|var(--chart-2)|1|Tax-Deferred Withdrawals|Tax-Deferred;taxFreeWithdrawals|var(--chart-3)|1|Tax-Free Withdrawals|Tax-Free;cashSavingsWithdrawals|var(--chart-4)|1|Cash Withdrawals|Cash##filter-zero',
+};
+
+const FROZEN_PIE_CHARTS: Record<string, string> = {
+  'netWorth.assetClass':
+    'stockHoldings|var(--chart-1)|1|Stock Holdings;bondHoldings|var(--chart-2)|1|Bond Holdings;cashHoldings|var(--chart-3)|1|Cash Holdings',
+  'netWorth.assetEquity': 'assetEquity|var(--chart-1)|1|Asset Equity;securedDebtBalance|var(--chart-2)|1|Secured Debt',
+  'netWorth.debts': 'unsecuredDebtBalance|var(--chart-1)|1|Unsecured Debt;securedDebtBalance|var(--chart-2)|1|Secured Debt',
+  'netWorth.netWorth':
+    'portfolioValue|var(--chart-1)|1|Portfolio Value;assetValue|var(--chart-2)|1|Asset Value;debtBalance|var(--chart-3)|-1|Debt Balance',
+  'netWorth.taxCategory':
+    'taxableValue|var(--chart-1)|1|Taxable Value;taxDeferredValue|var(--chart-2)|1|Tax Deferred Value;taxFreeValue|var(--chart-3)|1|Tax Free Value;cashSavings|var(--chart-4)|1|Cash Savings',
+};
 // ============================================================================
 // PERSISTED DATA VIEWS
 // ============================================================================
@@ -1021,4 +1118,49 @@ describe('metric value formatting', () => {
   it('defaults to currency', () => {
     expect(getMetricValueFormatter(undefined)(2000)).toBe('$2.0k');
   });
+});
+
+describe('migrated bar and pie views: frozen parity', () => {
+  it('freezes every bar view the registry owns, and nothing it does not', () => {
+    expect(Object.keys(FROZEN_BAR_CHARTS).sort()).toEqual(Object.keys(BAR_CHARTS).sort());
+  });
+
+  it('freezes every pie view the registry owns, and nothing it does not', () => {
+    expect(Object.keys(FROZEN_PIE_CHARTS).sort()).toEqual(Object.keys(PIE_CHARTS).sort());
+  });
+
+  it('freezes no view that does not exist', () => {
+    // A frozen id must still be a persisted data-view id of its category, or the freeze is stale.
+    for (const frozenId of [...Object.keys(FROZEN_BAR_CHARTS), ...Object.keys(FROZEN_PIE_CHARTS)]) {
+      const [category, dataViewId] = frozenId.split('.') as [MetricCategory, string];
+      expect(DATA_VIEW_CATEGORIES, frozenId).toContain(category);
+      expect(dataViewIdsForCategory(category), frozenId).toContain(dataViewId);
+    }
+  });
+
+  for (const [dataViewId, expected] of Object.entries(FROZEN_BAR_CHARTS)) {
+    it(`freezes the bar view ${dataViewId}`, () => {
+      const definition = BAR_CHARTS[dataViewId];
+      if (!definition) throw new Error(`bar view ${dataViewId} is not registered`);
+
+      expect(serializeBarChartDefinition(definition)).toBe(expected);
+      expect(definition.series.length).toBeGreaterThan(0);
+      for (const series of definition.series) {
+        expect(series.key.length).toBeGreaterThan(0);
+        expect(series.label.length).toBeGreaterThan(0);
+        // Segment groups must describe exactly the series they cover.
+        expect(definition.segments?.reduce((sum, size) => sum + size, 0) ?? definition.series.length).toBe(definition.series.length);
+      }
+    });
+  }
+
+  for (const [dataViewId, expected] of Object.entries(FROZEN_PIE_CHARTS)) {
+    it(`freezes the pie view ${dataViewId}`, () => {
+      const definition = PIE_CHARTS[dataViewId];
+      if (!definition) throw new Error(`pie view ${dataViewId} is not registered`);
+
+      expect(serializePieChartDefinition(definition)).toBe(expected);
+      expect(definition.series.length).toBeGreaterThan(0);
+    });
+  }
 });

@@ -10,6 +10,8 @@ import { formatCompactCurrency, formatPercentage } from '@/lib/utils/number-form
 import { useAccountData, usePhysicalAssetData, useDebtData } from '@/hooks/use-convex-data';
 import { taxCategoryFromAccountTypeForDisplay } from '@/lib/schemas/inputs/account-form-schema';
 import { zeroAssetAmounts, type AssetAllocation } from '@/lib/calc/asset';
+import { resolveBarChart, resolvePieChart } from '@/lib/charts/metric-registry';
+import { toPieChartData } from '@/lib/charts/plot-types';
 
 import SingleSimulationNetWorthPieChart from '../../charts/single-simulation/single-simulation-net-worth-pie-chart';
 import SingleSimulationNetWorthBarChart from '../../charts/single-simulation/single-simulation-net-worth-bar-chart';
@@ -40,158 +42,114 @@ export default function SingleSimulationNetWorthPieChartCard({
   let totalValue = 0;
   let totalAbsoluteValue = 0;
 
-  switch (dataView) {
-    case 'netPortfolioChange':
-      title = 'Net Portfolio Change';
-      chartType = 'bar';
-      break;
-    case 'netAssetChange':
-      title = 'Net Asset Change';
-      chartType = 'bar';
-      break;
-    case 'netDebtReduction':
-      title = 'Net Debt Reduction';
-      chartType = 'bar';
-      break;
-    case 'netWorthChange':
-      title = 'Net Worth Change';
-      chartType = 'bar';
-      break;
-    case 'assetClass':
-      title = 'By Asset Class';
+  // P4-P6: the pie slices come from the registry; the four change views still delegate to the
+  // single-age bar chart (which is itself registry-driven), and `custom` keeps its own
+  // per-account/per-asset/per-debt slices below. Titles and total labels are chart furniture.
+  const PIE_TITLES: Readonly<Record<string, string>> = {
+    assetClass: 'By Asset Class',
+    taxCategory: 'By Tax Category',
+    netWorth: 'Net Worth',
+    assetEquity: 'Asset Equity',
+    debts: 'Debt Balance',
+  };
+  const PIE_TOTAL_LABELS: Readonly<Record<string, string>> = {
+    assetClass: 'Total Portfolio Value',
+    taxCategory: 'Total Portfolio Value',
+    netWorth: 'Net Worth',
+    assetEquity: 'Total Market Value',
+    debts: 'Total Debt Balance',
+  };
+  const BAR_TITLES: Readonly<Record<string, string>> = {
+    netPortfolioChange: 'Net Portfolio Change',
+    netAssetChange: 'Net Asset Change',
+    netDebtReduction: 'Net Debt Reduction',
+    netWorthChange: 'Net Worth Change',
+  };
 
-      chartData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ stockHoldings, bondHoldings, cashHoldings }) => [
-          { name: 'stockHoldings', value: stockHoldings },
-          { name: 'bondHoldings', value: bondHoldings },
-          { name: 'cashHoldings', value: cashHoldings },
-        ]);
+  const pieDefinition = resolvePieChart('netWorth', dataView);
+  const barDefinition = resolveBarChart('netWorth', dataView);
 
-      nameForTotalValue = 'Total Portfolio Value';
-      totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-      totalAbsoluteValue = totalValue;
-      break;
-    case 'taxCategory':
-      title = 'By Tax Category';
+  if (pieDefinition) {
+    const point = rawChartData.find((data) => data.age === selectedAge);
 
-      chartData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ taxableValue, taxDeferredValue, taxFreeValue, cashSavings }) => [
-          { name: 'taxableValue', value: taxableValue },
-          { name: 'taxDeferredValue', value: taxDeferredValue },
-          { name: 'taxFreeValue', value: taxFreeValue },
-          { name: 'cashSavings', value: cashSavings },
-        ]);
+    title = PIE_TITLES[dataView] ?? '';
+    nameForTotalValue = PIE_TOTAL_LABELS[dataView] ?? 'Total Value';
+    chartData = point ? toPieChartData(point, pieDefinition) : [];
 
-      nameForTotalValue = 'Total Portfolio Value';
-      totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-      totalAbsoluteValue = totalValue;
-      break;
-    case 'netWorth':
-      title = 'Net Worth';
+    // The signed net-worth view nets the debt slice out of the total; the pie itself draws
+    // magnitudes, exactly as the old slices did.
+    totalValue = chartData.reduce((sum, slice) => sum + slice.value, 0);
+  } else if (barDefinition) {
+    title = BAR_TITLES[dataView] ?? '';
+    chartType = 'bar';
+  } else {
+    switch (dataView) {
+      case 'custom':
+        const perAccountData = rawChartData
+          .filter((data) => data.age === selectedAge)
+          .flatMap(({ perAccountData }) => perAccountData.filter((account) => account.id === customDataID));
+        if (perAccountData.length > 0) {
+          title = accountData ? `${accountData.name} — ${taxCategoryFromAccountTypeForDisplay(accountData.type)}` : 'Custom Account';
 
-      chartData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ portfolioValue, assetValue, debtBalance }) => [
-          { name: 'portfolioValue', value: portfolioValue },
-          { name: 'assetValue', value: assetValue },
-          { name: 'debtBalance', value: debtBalance },
-        ]);
+          chartData = perAccountData.flatMap((account) => {
+            const balance = account.balance;
 
-      nameForTotalValue = 'Net Worth';
-      totalValue = chartData.map(({ name, value }) => (name === 'debtBalance' ? -value : value)).reduce((sum, value) => sum + value, 0);
-      totalAbsoluteValue = chartData.reduce((sum, item) => sum + item.value, 0);
-      break;
-    case 'assetEquity':
-      title = 'Asset Equity';
+            const assetAllocation = account.assetAllocation ?? zeroAssetAmounts<AssetAllocation>();
+            const stocksAllocation = assetAllocation.stocks;
+            const bondsAllocation = assetAllocation.bonds;
+            const cashAllocation = assetAllocation.cash;
 
-      chartData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ assetEquity, securedDebtBalance }) => [
-          { name: 'assetEquity', value: assetEquity },
-          { name: 'securedDebt', value: securedDebtBalance },
-        ]);
+            return [
+              { name: formatChartString('stockHoldings'), value: balance * stocksAllocation },
+              { name: formatChartString('bondHoldings'), value: balance * bondsAllocation },
+              { name: formatChartString('cashHoldings'), value: balance * cashAllocation },
+            ];
+          });
 
-      nameForTotalValue = 'Total Market Value';
-      totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-      totalAbsoluteValue = totalValue;
-      break;
-    case 'debts':
-      title = 'Debt Balance';
+          nameForTotalValue = 'Account Value';
+          totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
+          totalAbsoluteValue = totalValue;
+          break;
+        }
 
-      chartData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ unsecuredDebtBalance, securedDebtBalance }) => [
-          { name: 'unsecuredDebt', value: unsecuredDebtBalance },
-          { name: 'securedDebt', value: securedDebtBalance },
-        ]);
+        const perAssetData = rawChartData
+          .filter((data) => data.age === selectedAge)
+          .flatMap(({ perAssetData }) => perAssetData.filter((asset) => asset.id === customDataID));
+        if (perAssetData.length > 0) {
+          title = physicalAssetData ? `${physicalAssetData.name} — Physical Asset` : 'Custom Physical Asset';
 
-      nameForTotalValue = 'Total Debt Balance';
-      totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-      totalAbsoluteValue = totalValue;
-      break;
-    case 'custom':
-      const perAccountData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ perAccountData }) => perAccountData.filter((account) => account.id === customDataID));
-      if (perAccountData.length > 0) {
-        title = accountData ? `${accountData.name} — ${taxCategoryFromAccountTypeForDisplay(accountData.type)}` : 'Custom Account';
+          chartData = perAssetData.flatMap((asset) => [
+            { name: formatChartString('equity'), value: asset.equity },
+            { name: formatChartString('loanBalance'), value: asset.loanBalance },
+          ]);
 
-        chartData = perAccountData.flatMap((account) => {
-          const balance = account.balance;
+          nameForTotalValue = 'Market Value';
+          totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
+          totalAbsoluteValue = totalValue;
+          break;
+        }
 
-          const assetAllocation = account.assetAllocation ?? zeroAssetAmounts<AssetAllocation>();
-          const stocksAllocation = assetAllocation.stocks;
-          const bondsAllocation = assetAllocation.bonds;
-          const cashAllocation = assetAllocation.cash;
+        const perDebtData = rawChartData
+          .filter((data) => data.age === selectedAge)
+          .flatMap(({ perDebtData }) => perDebtData.filter((debt) => debt.id === customDataID));
+        if (perDebtData.length > 0) {
+          title = debtData ? `${debtData.name} — Debt` : 'Custom Debt';
 
-          return [
-            { name: 'stockHoldings', value: balance * stocksAllocation },
-            { name: 'bondHoldings', value: balance * bondsAllocation },
-            { name: 'cashHoldings', value: balance * cashAllocation },
-          ];
-        });
+          chartData = perDebtData.flatMap((debt) => [{ name: formatChartString('balance'), value: debt.balance }]);
 
-        nameForTotalValue = 'Account Value';
-        totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-        totalAbsoluteValue = totalValue;
+          nameForTotalValue = 'Debt Balance';
+          totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
+          totalAbsoluteValue = totalValue;
+          break;
+        }
+
         break;
-      }
-
-      const perAssetData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ perAssetData }) => perAssetData.filter((asset) => asset.id === customDataID));
-      if (perAssetData.length > 0) {
-        title = physicalAssetData ? `${physicalAssetData.name} — Physical Asset` : 'Custom Physical Asset';
-
-        chartData = perAssetData.flatMap((asset) => [
-          { name: 'equity', value: asset.equity },
-          { name: 'loanBalance', value: asset.loanBalance },
-        ]);
-
-        nameForTotalValue = 'Market Value';
-        totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-        totalAbsoluteValue = totalValue;
-        break;
-      }
-
-      const perDebtData = rawChartData
-        .filter((data) => data.age === selectedAge)
-        .flatMap(({ perDebtData }) => perDebtData.filter((debt) => debt.id === customDataID));
-      if (perDebtData.length > 0) {
-        title = debtData ? `${debtData.name} — Debt` : 'Custom Debt';
-
-        chartData = perDebtData.flatMap((debt) => [{ name: 'balance', value: debt.balance }]);
-
-        nameForTotalValue = 'Debt Balance';
-        totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-        totalAbsoluteValue = totalValue;
-        break;
-      }
-
-      break;
+    }
   }
+
+  // Magnitudes size the slices and the legend's percentages, so a liability slice still draws.
+  const sliceData = chartData.map(({ name, value }) => ({ name, value: Math.abs(value) }));
+  totalAbsoluteValue = sliceData.reduce((sum, slice) => sum + slice.value, 0);
 
   let chart = null;
   switch (chartType) {
@@ -199,15 +157,15 @@ export default function SingleSimulationNetWorthPieChartCard({
       chart = (
         <div className="divide-border/25 flex h-full items-center pb-4 sm:divide-x">
           <div className="flex-1 sm:pr-6">
-            <SingleSimulationNetWorthPieChart chartData={chartData} />
+            <SingleSimulationNetWorthPieChart chartData={sliceData} />
           </div>
           {totalAbsoluteValue > 0 && (
             <div className="hidden flex-1 sm:block sm:pl-6">
               <DescriptionList>
-                {chartData.map(({ name, value }) => (
+                {sliceData.map(({ name, value }) => (
                   <Fragment key={name}>
-                    <DescriptionTerm>{formatChartString(name)}</DescriptionTerm>
-                    <DescriptionDetails>{`${formatCompactCurrency(value, 2)} (${formatPercentage(value / totalAbsoluteValue)})`}</DescriptionDetails>
+                    <DescriptionTerm>{name}</DescriptionTerm>
+                    <DescriptionDetails>{`${formatCompactCurrency(value, 2)} (${formatPercentage(totalAbsoluteValue === 0 ? 0 : value / totalAbsoluteValue)})`}</DescriptionDetails>
                   </Fragment>
                 ))}
                 <DescriptionTerm className="font-bold">{nameForTotalValue}</DescriptionTerm>

@@ -1186,6 +1186,10 @@ export const BAR_CHARTS: Readonly<Record<string, BarChartDefinition>> = {
     ['cumulativeBondGain', 'var(--chart-3)', 'Cumul. Bond Gain', 'Cumul. Bond'],
     ['cumulativeCashGain', 'var(--chart-4)', 'Cumul. Cash Gain', 'Cumul. Cash'],
   ]),
+  'returns.appreciation': barView('currency', [
+    ['annualAssetAppreciation', 'var(--chart-2)', 'Annual Appreciation', 'Annual Appreciation'],
+    ['cumulativeAssetAppreciation', 'var(--chart-4)', 'Cumul. Appreciation', 'Cumul. Appreciation'],
+  ]),
   'returns.taxCategory': barView('currency', [
     ['taxableGains', 'var(--chart-1)', 'Taxable Gains', 'Taxable'],
     ['taxDeferredGains', 'var(--chart-2)', 'Tax-Deferred Gains', 'Tax-Deferred'],

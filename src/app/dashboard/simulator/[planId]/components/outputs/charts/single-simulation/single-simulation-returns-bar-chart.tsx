@@ -6,6 +6,8 @@ import { formatCompactCurrency, formatPercentage } from '@/lib/utils/number-form
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useChartTheme } from '@/hooks/use-chart-theme';
 import type { SingleSimulationReturnsChartDataPoint } from '@/lib/types/chart-data-points';
+import { getMetricValueFormatter, resolveBarChart } from '@/lib/charts/metric-registry';
+import { toBarChartData } from '@/lib/charts/plot-types';
 import type { ReturnsDataView } from '@/lib/types/chart-data-views';
 
 import {
@@ -87,100 +89,43 @@ export default function SingleSimulationReturnsBarChart({
   let formatter = undefined;
   let transformedChartData: { name: string; amount: number; color: string }[] = [];
 
-  switch (dataView) {
-    case 'rates': {
-      formatter = (value: number) => formatPercentage(value);
+  // Views come from the metric registry (P4-P6): keys, colours, signs, labels, segment grouping,
+  // the zero filter and the formatter are frozen by the registry tests. `custom` keeps its own
+  // per-account series in the switch that remains below.
+  const definition = resolveBarChart('returns', dataView);
+  if (definition) {
+    transformedChartData = chartData.length > 0 ? toBarChartData(chartData[0], definition, { isSmallScreen }) : [];
+    formatter = getMetricValueFormatter(definition.format);
+  } else {
+    switch (dataView) {
+      case 'custom': {
+        if (!customDataID) {
+          console.warn('Custom data name is required for custom data view');
+          break;
+        }
 
-      const [stockLabel, bondLabel, cashLabel, inflationLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
-      transformedChartData = chartData.flatMap((item) => [
-        { name: stockLabel, amount: item.realStockReturnRate, color: 'var(--chart-2)' },
-        { name: bondLabel, amount: item.realBondReturnRate, color: 'var(--chart-3)' },
-        { name: cashLabel, amount: item.realCashReturnRate, color: 'var(--chart-4)' },
-        { name: inflationLabel, amount: item.inflationRate, color: 'var(--chart-8)' },
-      ]);
-      break;
-    }
-    case 'cagr': {
-      formatter = (value: number) => formatPercentage(value);
+        formatter = (value: number) => formatCompactCurrency(value, 1);
 
-      const [stockLabel, bondLabel, cashLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
-      transformedChartData = chartData.flatMap((item) => [
-        { name: stockLabel, amount: item.realStockCagr, color: 'var(--chart-2)' },
-        { name: bondLabel, amount: item.realBondCagr, color: 'var(--chart-3)' },
-        { name: cashLabel, amount: item.realCashCagr, color: 'var(--chart-4)' },
-      ]);
-      break;
-    }
-    case 'annualAmounts': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+        const perAccountData = chartData.flatMap(({ perAccountData }) => perAccountData).filter(({ id }) => id === customDataID);
+        if (perAccountData.length > 0) {
+          const [stockLabel, bondLabel, cashLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
+          transformedChartData = perAccountData.flatMap(({ returnAmounts }) => [
+            { name: stockLabel, amount: returnAmounts.stocks, color: 'var(--chart-2)' },
+            { name: bondLabel, amount: returnAmounts.bonds, color: 'var(--chart-3)' },
+            { name: cashLabel, amount: returnAmounts.cash, color: 'var(--chart-4)' },
+          ]);
+          break;
+        }
 
-      const [stockLabel, bondLabel, cashLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
-      transformedChartData = chartData.flatMap((item) => [
-        { name: stockLabel, amount: item.annualStockGain, color: 'var(--chart-2)' },
-        { name: bondLabel, amount: item.annualBondGain, color: 'var(--chart-3)' },
-        { name: cashLabel, amount: item.annualCashGain, color: 'var(--chart-4)' },
-      ]);
-      break;
-    }
-    case 'cumulativeAmounts': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+        const perAssetData = chartData.flatMap(({ perAssetData }) => perAssetData).filter(({ id }) => id === customDataID);
+        if (perAssetData.length > 0) {
+          transformedChartData = perAssetData.map(({ name, appreciation }) => ({ name, amount: appreciation, color: 'var(--chart-2)' }));
+          showReferenceLineAtZero = false;
+          break;
+        }
 
-      const [stockLabel, bondLabel, cashLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
-      transformedChartData = chartData.flatMap((item) => [
-        { name: stockLabel, amount: item.cumulativeStockGain, color: 'var(--chart-2)' },
-        { name: bondLabel, amount: item.cumulativeBondGain, color: 'var(--chart-3)' },
-        { name: cashLabel, amount: item.cumulativeCashGain, color: 'var(--chart-4)' },
-      ]);
-      break;
-    }
-    case 'taxCategory': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      const [taxableLabel, taxDeferredLabel, taxFreeLabel, cashLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
-      transformedChartData = chartData.flatMap((item) => [
-        { name: taxableLabel, amount: item.taxableGains, color: 'var(--chart-1)' },
-        { name: taxDeferredLabel, amount: item.taxDeferredGains, color: 'var(--chart-2)' },
-        { name: taxFreeLabel, amount: item.taxFreeGains, color: 'var(--chart-3)' },
-        { name: cashLabel, amount: item.cashSavingsGains, color: 'var(--chart-4)' },
-      ]);
-      break;
-    }
-    case 'appreciation': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      transformedChartData = chartData.flatMap((item) => [
-        { name: 'Annual Appreciation', amount: item.annualAssetAppreciation, color: 'var(--chart-2)' },
-        { name: 'Cumul. Appreciation', amount: item.cumulativeAssetAppreciation, color: 'var(--chart-4)' },
-      ]);
-      break;
-    }
-    case 'custom': {
-      if (!customDataID) {
-        console.warn('Custom data name is required for custom data view');
         break;
       }
-
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      const perAccountData = chartData.flatMap(({ perAccountData }) => perAccountData).filter(({ id }) => id === customDataID);
-      if (perAccountData.length > 0) {
-        const [stockLabel, bondLabel, cashLabel] = getLabelsForScreenSize(dataView, isSmallScreen);
-        transformedChartData = perAccountData.flatMap(({ returnAmounts }) => [
-          { name: stockLabel, amount: returnAmounts.stocks, color: 'var(--chart-2)' },
-          { name: bondLabel, amount: returnAmounts.bonds, color: 'var(--chart-3)' },
-          { name: cashLabel, amount: returnAmounts.cash, color: 'var(--chart-4)' },
-        ]);
-        break;
-      }
-
-      const perAssetData = chartData.flatMap(({ perAssetData }) => perAssetData).filter(({ id }) => id === customDataID);
-      if (perAssetData.length > 0) {
-        transformedChartData = perAssetData.map(({ name, appreciation }) => ({ name, amount: appreciation, color: 'var(--chart-2)' }));
-        showReferenceLineAtZero = false;
-        break;
-      }
-
-      break;
     }
   }
 
