@@ -4,13 +4,11 @@ import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import type { ExpenseInputs } from '@/lib/schemas/inputs/expense-form-schema';
 
 import { cumulativeInflationIndex as cumulativeInflationIndexFromTimeBinding } from './time-binding';
-import { fixedClock } from './clock';
-import { FinancialSimulationEngine, type SimulationResult } from './simulation-engine';
+import type { SimulationResult } from './simulation-engine';
 import { mergeMonteCarloSummaries, runMonteCarloRange, type MonteCarloRunResult } from './monte-carlo';
-import { FixedReturnsProvider } from './returns-providers/fixed-returns-provider';
-import { StochasticReturnsProvider } from './returns-providers/stochastic-returns-provider';
-import { LcgHistoricalBacktestReturnsProvider } from './returns-providers/lcg-historical-backtest-returns-provider';
+import { getNyuDataRange } from './historical-data/nyu-returns';
 import { cumulativeInflationIndex, DEFAULT_MONTE_CARLO_TRIALS, MONTE_CARLO_MAX_TRIALS, simulate, type SimulateOptions } from './simulate';
+import { runStoreSingleSimulation } from '@/lib/stores/single-run';
 import {
   create401kAccount,
   createContributionRule,
@@ -25,10 +23,12 @@ import {
 /**
  * P2-P1a: `simulate()` must be the engine behind one pure function.
  *
- * Three properties are pinned here:
+ * Four properties are pinned here:
  * 1. determinism — identical arguments give deep-equal results;
  * 2. host independence — identical results whatever the process timezone is;
- * 3. extraction, not a change — each mode equals the calls the store/worker path makes today.
+ * 3. extraction, not a change — the store's single-run path (`runStoreSingleSimulation`) equals a
+ *    direct `simulate()` call, with the store's policy visible as explicit inputs;
+ * 4. the Monte Carlo worker path agrees seed-for-seed with the same pure core.
  */
 
 const AS_OF = '2026-03-15';
@@ -46,6 +46,28 @@ const createPlan = (overrides?: Partial<SimulatorInputs>): SimulatorInputs =>
     ...overrides,
   });
 
+/** A historical plan: an optional pinned start year, the plan's own seed and historical mode. */
+const historicalPlan = (options?: {
+  /** The pinned start year; `null` leaves the plan unpinned. Defaults to 1975. */
+  startYear?: number | null;
+  lifeExpectancy?: number;
+  historicalBacktest?: { mode: 'looping' | 'truncate' };
+}): SimulatorInputs => {
+  const startYear = options?.startYear === undefined ? 1975 : options.startYear;
+
+  return createPlan({
+    timeline: { ...createDefaultTimeline(), birthMonth: 6, birthYear: 1990, lifeExpectancy: options?.lifeExpectancy ?? 90 },
+    simulationSettings: {
+      simulationSeed: 9521,
+      simulationMode: 'historicalReturns',
+      // No retirement pin: a reset at retirement can keep a long run inside the vendored data,
+      // which would hide the truncate mode this suite needs to observe.
+      ...(startYear === null ? {} : { historicalStartYearOverride: startYear }),
+      ...(options?.historicalBacktest ? { historicalBacktest: options.historicalBacktest } : {}),
+    },
+  });
+};
+
 const ALL_MODES = [
   'fixedReturns',
   'stochasticReturns',
@@ -55,37 +77,13 @@ const ALL_MODES = [
 ] as const;
 
 // ============================================================================
-// The existing store/worker path, replicated inline
+// The existing store/worker path
 // ============================================================================
 
-/** Exactly what `useSimulationResult` runs on the main thread for the three single-run modes. */
-function storeSingleRun(
-  inputs: SimulatorInputs,
-  mode: 'fixedReturns' | 'stochasticReturns' | 'historicalReturns',
-  seed: number,
-  asOf: string
-): SimulationResult {
-  const timeline = inputs.timeline!;
-  const engine = new FinancialSimulationEngine(inputs, fixedClock(asOf));
-
-  switch (mode) {
-    case 'fixedReturns':
-      return engine.runSimulation(new FixedReturnsProvider(inputs), timeline);
-    case 'stochasticReturns':
-      return engine.runSimulation(new StochasticReturnsProvider(inputs, seed), timeline);
-    case 'historicalReturns': {
-      const { historicalStartYearOverride, historicalRetirementStartYearOverride } = inputs.simulationSettings;
-      const returnsProvider = new LcgHistoricalBacktestReturnsProvider(
-        seed,
-        historicalStartYearOverride,
-        historicalRetirementStartYearOverride
-      );
-      const res = engine.runSimulation(returnsProvider, timeline);
-
-      return { ...res, context: { ...res.context, historicalRanges: returnsProvider.getHistoricalRanges() } };
-    }
-  }
-}
+// The single-run path is no longer transcribed here: the store calls `runStoreSingleSimulation`
+// (`src/lib/stores/single-run.ts`), so the tests below run the store's own module. The Monte Carlo
+// path still has to be emulated, because it is worker orchestration — chunking trials and folding
+// partial results through the merge worker — which no pure function can stand in for.
 
 /**
  * Exactly what the store's worker pool runs: trial index ranges of 10, each handed to a worker,
@@ -201,41 +199,74 @@ describe('simulate host independence', () => {
 });
 
 // ============================================================================
-// Extraction, not a change: equality with the existing store/worker path
+// Extraction, not a change: the store's single-run path is `simulate()`
 // ============================================================================
 
+describe('the store single-run path', () => {
+  it.each(['fixedReturns', 'stochasticReturns'] as const)('%s: the store helper equals a direct simulate()', (mode) => {
+    const inputs = createPlan();
+
+    // The expectation is produced by `simulate()` with the plan's own seed, so this fails if the
+    // store's seed rule, clock or input handling drifts away from the engine entry point.
+    expect(runStoreSingleSimulation(inputs, mode, { asOf: AS_OF })).toStrictEqual(
+      simulate(inputs, { mode, seed: inputs.simulationSettings.simulationSeed, asOf: AS_OF }).result
+    );
+  });
+
+  it('runs at an explicit seed override instead of the plan seed', () => {
+    const inputs = createPlan();
+    const stored = runStoreSingleSimulation(inputs, 'stochasticReturns', { seedOverride: 4242, asOf: AS_OF });
+
+    expect(stored).toStrictEqual(simulate(inputs, { mode: 'stochasticReturns', seed: 4242, asOf: AS_OF }).result);
+    expect(stored).not.toStrictEqual(
+      simulate(inputs, { mode: 'stochasticReturns', seed: inputs.simulationSettings.simulationSeed, asOf: AS_OF }).result
+    );
+  });
+
+  it('returns null for a plan with no timeline, where simulate() throws', () => {
+    const inputs = createPlan({ timeline: null });
+
+    expect(runStoreSingleSimulation(inputs, 'fixedReturns', { asOf: AS_OF })).toBeNull();
+    expect(() => simulate(inputs, { mode: 'fixedReturns', seed: 1, asOf: AS_OF })).toThrow(/timeline is required/);
+  });
+
+  it('keeps the pinned historical start years when the plan runs its own seed', () => {
+    const inputs = historicalPlan();
+    const stored = runStoreSingleSimulation(inputs, 'historicalReturns', { asOf: AS_OF });
+
+    expect(stored).toStrictEqual(simulate(inputs, { mode: 'historicalReturns', seed: 9521, asOf: AS_OF }).result);
+    expect(stored?.context.historicalRanges?.[0]?.startYear).toBe(1975);
+  });
+
+  it('ignores the pins on a per-seed drill-down, matching a plan that never had them', () => {
+    const pinned = historicalPlan();
+    const unpinned = historicalPlan({ startYear: null });
+    const stored = runStoreSingleSimulation(pinned, 'historicalReturns', { seedOverride: 4242, asOf: AS_OF });
+
+    // The expectation is `simulate()` on a plan without pins, so the store's suppression rule is
+    // what is under test while the engine wiring stays simulate()'s.
+    expect(stored).toStrictEqual(simulate(unpinned, { mode: 'historicalReturns', seed: 4242, asOf: AS_OF }).result);
+    expect(stored?.context.historicalRanges?.[0]?.startYear).not.toBe(1975);
+  });
+
+  it('runs a truncating plan as truncate, and carries truncatedAtYear to the UI (P2-P4)', () => {
+    const plan = historicalPlan({ startYear: 1990, historicalBacktest: { mode: 'truncate' } });
+    const looping = historicalPlan({ startYear: 1990, historicalBacktest: { mode: 'looping' } });
+
+    const stored = runStoreSingleSimulation(plan, 'historicalReturns', { asOf: AS_OF });
+
+    // Same result as a direct simulate() with truncate...
+    expect(stored).toStrictEqual(simulate(plan, { mode: 'historicalReturns', seed: 9521, asOf: AS_OF }).result);
+    // ...and it is the truncating run, not the looping one. Before the store was routed through
+    // `simulate()` it built the provider without the mode, so this plan rendered as looping:
+    // no disclosure, and the wrong ending balance.
+    expect(stored?.context.truncatedAtYear).toBe(getNyuDataRange().endYear);
+    expect(stored?.context.historicalWrapped).toBeUndefined();
+    expect(stored).not.toStrictEqual(simulate(looping, { mode: 'historicalReturns', seed: 9521, asOf: AS_OF }).result);
+  });
+});
+
 describe('simulate equals the existing store/worker path', () => {
-  it('fixedReturns matches useSimulationResult', () => {
-    const inputs = createPlan();
-    const outcome = simulate(inputs, { mode: 'fixedReturns', seed: 9521, asOf: AS_OF });
-
-    expect(outcome.mode).toBe('fixedReturns');
-    expect(outcome.result).toStrictEqual(storeSingleRun(inputs, 'fixedReturns', 9521, AS_OF));
-  });
-
-  it('stochasticReturns matches useSimulationResult', () => {
-    const inputs = createPlan();
-    const outcome = simulate(inputs, { mode: 'stochasticReturns', seed: 9521, asOf: AS_OF });
-
-    expect(outcome.result).toStrictEqual(storeSingleRun(inputs, 'stochasticReturns', 9521, AS_OF));
-  });
-
-  it('historicalReturns matches useSimulationResult, including the pinned start years', () => {
-    const inputs = createPlan({
-      simulationSettings: {
-        simulationSeed: 9521,
-        simulationMode: 'historicalReturns',
-        historicalStartYearOverride: 1975,
-        historicalRetirementStartYearOverride: 1990,
-      },
-    });
-    const outcome = simulate(inputs, { mode: 'historicalReturns', seed: 9521, asOf: AS_OF });
-
-    const stored = storeSingleRun(inputs, 'historicalReturns', 9521, AS_OF);
-    expect(outcome.result).toStrictEqual(stored);
-    expect(outcome.result.context.historicalRanges?.[0]?.startYear).toBe(1975);
-  });
-
   it('monteCarloStochasticReturns matches the worker pool seed-for-seed', { timeout: 60_000 }, () => {
     const inputs = createPlan();
     const outcome = simulate(inputs, {
@@ -276,7 +307,7 @@ describe('simulate equals the existing store/worker path', () => {
     });
 
     expect(simulate(inputs, { mode: 'fixedReturns', seed: 1, asOf: AS_OF }).result).toStrictEqual(
-      storeSingleRun(inputs, 'fixedReturns', 1, AS_OF)
+      runStoreSingleSimulation(inputs, 'fixedReturns', { seedOverride: 1, asOf: AS_OF })
     );
   });
 });

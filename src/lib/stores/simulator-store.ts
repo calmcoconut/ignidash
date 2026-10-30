@@ -10,13 +10,11 @@ import type { Id } from '@/convex/_generated/dataModel';
 import type { SimulationResult as ConvexSimulationResult } from '@/convex/validators/simulation_result_validator';
 
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
-import { FinancialSimulationEngine, type SimulationResult } from '@/lib/calc/simulation-engine';
+import type { SimulationResult } from '@/lib/calc/simulation-engine';
 import { type Clock, fixedClock } from '@/lib/calc/clock';
 import { DEFAULT_MONTE_CARLO_TRIALS } from '@/lib/calc/monte-carlo';
 import type { MultiSimulationAnalysis } from '@/lib/calc/data-analyzers/multi-simulation-analyzer';
-import { FixedReturnsProvider } from '@/lib/calc/returns-providers/fixed-returns-provider';
-import { StochasticReturnsProvider } from '@/lib/calc/returns-providers/stochastic-returns-provider';
-import { LcgHistoricalBacktestReturnsProvider } from '@/lib/calc/returns-providers/lcg-historical-backtest-returns-provider';
+import { runStoreSingleSimulation } from '@/lib/stores/single-run';
 import { KeyMetricsExtractor } from '@/lib/calc/data-extractors/key-metrics-extractor';
 import { ChartDataExtractor } from '@/lib/calc/data-extractors/chart-data-extractor';
 import { TableDataExtractor } from '@/lib/calc/data-extractors/table-data-extractor';
@@ -403,47 +401,15 @@ export const useSimulationResult = (
   simulationMode: 'fixedReturns' | 'stochasticReturns' | 'historicalReturns',
   seedOverride?: number | null
 ): SimulationResult | null => {
-  const hasSeedOverride = seedOverride !== undefined && seedOverride !== null;
-
-  const settingsSeed = inputs.simulationSettings.simulationSeed;
-  const seed = hasSeedOverride ? seedOverride : settingsSeed;
-
-  let startYearOverride = inputs.simulationSettings.historicalStartYearOverride;
-  startYearOverride = !hasSeedOverride ? startYearOverride : undefined;
-
-  let retirementStartYearOverride = inputs.simulationSettings.historicalRetirementStartYearOverride;
-  retirementStartYearOverride = !hasSeedOverride ? retirementStartYearOverride : undefined;
-
   const clock = useSimulationClock(inputs);
 
-  return useMemo(() => {
-    const timeline = inputs.timeline;
-    if (!timeline) return null;
-
-    const engine = new FinancialSimulationEngine(inputs, clock);
-    switch (simulationMode) {
-      case 'fixedReturns': {
-        const returnsProvider = new FixedReturnsProvider(inputs);
-        return engine.runSimulation(returnsProvider, timeline);
-      }
-      case 'stochasticReturns': {
-        const returnsProvider = new StochasticReturnsProvider(inputs, seed);
-        return engine.runSimulation(returnsProvider, timeline);
-      }
-      case 'historicalReturns': {
-        const returnsProvider = new LcgHistoricalBacktestReturnsProvider(seed, startYearOverride, retirementStartYearOverride);
-        const res = engine.runSimulation(returnsProvider, timeline);
-        const historicalRanges = returnsProvider.getHistoricalRanges();
-        return {
-          ...res,
-          context: {
-            ...res.context,
-            historicalRanges,
-          },
-        };
-      }
-    }
-  }, [inputs, clock, seed, simulationMode, startYearOverride, retirementStartYearOverride]);
+  // The run itself belongs to `simulate()`; only the store's seed/pin/timeline policy lives here,
+  // in `runStoreSingleSimulation` (see that module). The memo keeps the engine from re-running on
+  // every render of the five components that read this hook.
+  return useMemo(
+    () => runStoreSingleSimulation(inputs, simulationMode, { seedOverride, asOf: clock.asOf }),
+    [inputs, clock.asOf, seedOverride, simulationMode]
+  );
 };
 
 export const useMultiSimulationResult = (
