@@ -10,6 +10,8 @@ import { useState } from 'react';
 
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import { planMetadataSchema, type PlanMetadata } from '@/lib/schemas/plan-metadata-schema';
+import { PLAN_EXPORT_KIND, parseEnvelope, type ImportIssue } from '@/lib/export/plan-envelope';
+import ImportIssues from '@/components/ui/import-issues';
 import { Fieldset, FieldGroup, Field, Label, ErrorMessage, Description } from '@/components/catalyst/fieldset';
 import ErrorMessageCard from '@/components/ui/error-message-card';
 import { Select } from '@/components/catalyst/select';
@@ -58,7 +60,7 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
   const createPlanMutation = useMutation(api.plans.createBlankPlan);
   const createPlanWithDataMutation = useMutation(api.plans.createPlanWithData);
 
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<ImportIssue[] | null>(null);
 
   const clonedPlanId = useWatch({ control, name: 'clonedPlanId' });
   const isJsonImport = clonedPlanId === 'jsonImport';
@@ -69,7 +71,27 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
       if (selectedPlan) {
         await updateNameMutation({ planId: selectedPlan._id, name: data.name });
       } else if (isJsonImport && data.jsonImport !== undefined) {
-        const { name: _name, isDefault: _isDefault, ...planData } = JSON.parse(data.jsonImport);
+        // A pasted export file, parsed by the same envelope reader the Settings restore
+        // uses, so the dialog reports the same field paths instead of a JSON parse error.
+        const parsed = parseEnvelope(data.jsonImport);
+        if (!parsed.ok) {
+          setSaveError(parsed.issues);
+          return;
+        }
+        if (parsed.envelope.kind !== PLAN_EXPORT_KIND) {
+          setSaveError([{ path: 'kind', message: 'This file contains several plans. Restore it from Settings → Backup & restore.' }]);
+          return;
+        }
+        if (parsed.envelope.finances) {
+          setSaveError([
+            {
+              path: 'finances',
+              message: 'This file also contains finances. Restore it from Settings → Backup & restore so replacing them can be confirmed.',
+            },
+          ]);
+          return;
+        }
+        const { name: _name, isDefault: _isDefault, ...planData } = parsed.envelope.plan;
         await createPlanWithDataMutation({ ...planData, newPlanName: data.name, isDefault: false });
       } else if (data.clonedPlanId) {
         await clonePlanMutation({ planId: data.clonedPlanId as Id<'plans'> | 'template1' | 'template2', newPlanName: data.name });
@@ -79,9 +101,9 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
 
       onClose();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save plan.';
-      const truncated = message.length > 250 ? message.slice(0, 250) + '...' : message;
-      setSaveError(truncated);
+      // No truncation: the whole message is shown, as one entry in the same list the
+      // import path produces.
+      setSaveError([{ path: '', message: error instanceof Error ? error.message : 'Failed to save plan.' }]);
     }
   };
 
@@ -97,7 +119,8 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
         <Fieldset aria-label="Simulator plan details">
           <DialogBody>
             <FieldGroup>
-              {(saveError || hasFormErrors) && <ErrorMessageCard errorMessage={saveError || getErrorMessages(errors).join(', ')} />}
+              <ImportIssues issues={saveError} title="The plan could not be saved" />
+              {!saveError && hasFormErrors && <ErrorMessageCard errorMessage={getErrorMessages(errors).join(', ')} />}
               <Field>
                 <Label htmlFor="name">Name</Label>
                 <Input
@@ -137,7 +160,7 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
                   </Field>
                   {isJsonImport && (
                     <Field>
-                      <Label htmlFor="jsonImport">JSON Plan Data</Label>
+                      <Label htmlFor="jsonImport">Export file contents</Label>
                       <Textarea
                         {...register('jsonImport')}
                         id="jsonImport"
@@ -148,7 +171,10 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
                         rows={4}
                       />
                       {errors.jsonImport && <ErrorMessage>{errors.jsonImport?.message}</ErrorMessage>}
-                      <Description>Create a new plan by pasting JSON data copied from an existing plan.</Description>
+                      <Description>
+                        Paste a plan exported from Settings → Backup &amp; restore. Files that contain finances must be restored from
+                        Settings so replacing them can be confirmed.
+                      </Description>
                     </Field>
                   )}
                 </>

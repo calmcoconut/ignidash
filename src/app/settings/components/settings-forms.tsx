@@ -11,6 +11,7 @@ import { useAccountsList } from '@/hooks/use-accounts-data';
 import PageLoading from '@/components/ui/page-loading';
 
 import ProfileInfoForm from './profile-info-form';
+import BackupSettingsForm from './backup-settings-form';
 import DataSettingsForm from './data-settings-form';
 
 interface SettingsFormsProps {
@@ -51,6 +52,7 @@ export default function SettingsForms({ preloadedUser }: SettingsFormsProps) {
       <main className="mx-auto min-h-dvh max-w-prose px-2 pt-[4.25rem] pb-[2.125rem] sm:px-3 lg:px-4">
         <Authenticated>
           <ProfileInfoForm userData={{ fetchedName, ...settingsCapabilities }} showSuccessNotification={showSuccessNotification} />
+          <BackupSettingsForm showSuccessNotification={showSuccessNotification} />
           <DataSettingsForm showSuccessNotification={showSuccessNotification} />
         </Authenticated>
       </main>
