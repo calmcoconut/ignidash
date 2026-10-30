@@ -167,14 +167,16 @@ export default function PhysicalAssetDialog({
   };
 
   // The engine deflates loan payments and interest by the plan's inflation assumption, so the
-  // estimate has to use the same assumption to agree with the simulation.
-  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
+  // estimate has to use the same assumption to agree with the simulation. While the assumption is
+  // still loading there is no honest estimate: show none rather than a nominal one that jumps.
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate;
 
   const loanPayoffMonths = usePayoffEstimate(
     paymentMethodType === 'loan' &&
       !isNaN(Number(paymentMethod.loanBalance)) &&
       !isNaN(Number(paymentMethod.monthlyPayment)) &&
-      !isNaN(Number(paymentMethod.apr))
+      !isNaN(Number(paymentMethod.apr)) &&
+      annualInflationRate !== undefined
       ? {
           balance: Number(paymentMethod.loanBalance),
           monthlyPayment: Number(paymentMethod.monthlyPayment),

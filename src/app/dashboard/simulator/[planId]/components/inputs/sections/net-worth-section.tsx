@@ -45,7 +45,7 @@ function getAccountDesc(account: AccountInputs) {
   );
 }
 
-function getPhysicalAssetDesc(asset: PhysicalAssetInputs, annualInflationRate: number) {
+function getPhysicalAssetDesc(asset: PhysicalAssetInputs, annualInflationRate: number | undefined) {
   const value = formatCompactCurrency(asset.marketValue ?? asset.purchasePrice, 2);
 
   switch (asset.paymentMethod.type) {
@@ -61,8 +61,12 @@ function getPhysicalAssetDesc(asset: PhysicalAssetInputs, annualInflationRate: n
 
       const { loanBalance: balance, monthlyPayment, apr } = asset.paymentMethod;
       // The engine deflates loan payments and interest by the plan's inflation assumption, so the
-      // estimate uses the same assumption to agree with the simulation.
-      const payoffMonths = estimatePayoffMonths({ balance, monthlyPayment, apr, interestType: 'simple', annualInflationRate });
+      // estimate uses the same assumption to agree with the simulation. While the assumption is
+      // still loading there is no honest estimate: show none rather than a nominal one.
+      const payoffMonths =
+        annualInflationRate === undefined
+          ? null
+          : estimatePayoffMonths({ balance, monthlyPayment, apr, interestType: 'simple', annualInflationRate });
 
       return (
         <>
@@ -124,7 +128,7 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
   const nwAssets = useAssetData();
   const nwLiabilities = useLiabilityData();
 
-  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate;
 
   const isLoading = accountsLoading || physicalAssetsLoading;
   const hasData = numAccounts > 0 || numPhysicalAssets > 0;

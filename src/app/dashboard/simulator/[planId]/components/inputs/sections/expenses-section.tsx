@@ -38,10 +38,12 @@ function getExpenseDesc(expense: ExpenseInputs) {
   );
 }
 
-function getDebtDesc(debt: DebtInputs, annualInflationRate: number) {
+function getDebtDesc(debt: DebtInputs, annualInflationRate: number | undefined) {
   // The engine deflates loan payments and interest by the plan's inflation assumption, so the
   // estimate uses the same assumption to agree with the simulation (and with the debt dialog).
-  const payoffMonths = estimatePayoffMonths({ ...debt, annualInflationRate });
+  // While the assumption is still loading there is no honest estimate: show none rather than a
+  // nominal one that jumps once the assumption arrives.
+  const payoffMonths = annualInflationRate === undefined ? null : estimatePayoffMonths({ ...debt, annualInflationRate });
 
   return (
     <>
@@ -83,7 +85,7 @@ export default function ExpensesSection(props: ExpensesSectionProps) {
 
   const nwLiabilities = useLiabilityData();
 
-  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate;
 
   const isLoading = expensesLoading || debtsLoading;
   const hasData = numExpenses > 0 || numDebts > 0;

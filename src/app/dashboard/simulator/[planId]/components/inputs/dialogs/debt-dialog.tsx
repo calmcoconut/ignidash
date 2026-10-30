@@ -123,11 +123,12 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
   const compoundingFrequency = useWatch({ control, name: 'compoundingFrequency' });
 
   // The engine deflates loan payments and interest by the plan's inflation assumption, so the
-  // estimate has to use the same assumption to agree with the simulation.
-  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
+  // estimate has to use the same assumption to agree with the simulation. While the assumption is
+  // still loading there is no honest estimate: show none rather than a nominal one that jumps.
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate;
 
   const payoffMonths = usePayoffEstimate(
-    !isNaN(balance) && !isNaN(monthlyPayment) && !isNaN(apr)
+    !isNaN(balance) && !isNaN(monthlyPayment) && !isNaN(apr) && annualInflationRate !== undefined
       ? { balance, monthlyPayment, apr, interestType, compoundingFrequency, annualInflationRate }
       : null
   );

@@ -224,17 +224,24 @@ describe('estimatePayoffMonths vs simulation engine', () => {
       annualInflationRate,
     });
 
-    expect(estimateMonths).toBe(engineMonths);
+    expect(engineMonths).toBe(35);
+    expect(estimateMonths).toBe(35);
   });
 
-  it('matches the engine payoff month for a compound-daily personal loan (3% inflation)', () => {
-    // Fixture: $15,000 balance at 12.00% APR, $500 monthly payment, compounded daily, 3% inflation.
+  it('matches the engine payoff month for a compound-daily loan (3% inflation)', () => {
+    // Fixture: $100,000 balance at 8.00% APR, $733.76 monthly payment (a 30-year payment),
+    // compounded daily, 3% inflation.
+    //
+    // The parameters are chosen so the fixture discriminates real from nominal: a 30-year horizon
+    // with the payment only slightly above the monthly interest lets the deflated real rate move
+    // the payoff month. Nominal is 364 months, real is 360, so a regression back to a nominal
+    // estimate fails this test instead of coinciding with the engine.
     const debtInput = createDebtInput({
-      balance: 15000,
-      apr: 12,
+      balance: 100000,
+      apr: 8,
       interestType: 'compound',
       compoundingFrequency: 'daily',
-      monthlyPayment: 500,
+      monthlyPayment: 733.76,
     });
     const annualInflationRate = 3;
 
@@ -247,8 +254,19 @@ describe('estimatePayoffMonths vs simulation engine', () => {
       compoundingFrequency: debtInput.compoundingFrequency,
       annualInflationRate,
     });
+    const nominalMonths = estimatePayoffMonths({
+      balance: debtInput.balance,
+      monthlyPayment: debtInput.monthlyPayment,
+      apr: debtInput.apr,
+      interestType: debtInput.interestType,
+      compoundingFrequency: debtInput.compoundingFrequency,
+      annualInflationRate: 0,
+    });
 
-    expect(estimateMonths).toBe(engineMonths);
+    expect(engineMonths).toBe(360);
+    expect(estimateMonths).toBe(360);
+    expect(nominalMonths).toBe(364);
+    expect(estimateMonths).not.toBe(nominalMonths);
   });
 
   it('matches the engine payoff month for a physical-asset loan (net worth section estimate)', () => {
