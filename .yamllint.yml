@@ -1,0 +1,16 @@
+---
+# yamllint defaults to an 80-character line limit, which contradicts this repo's
+# Prettier `printWidth: 140` and cannot fit GitHub Actions expressions, docker
+# metadata-action tag lists, or long shell commands. Align the limit with the
+# formatter instead of forcing YAML the formatter would not produce.
+extends: default
+
+rules:
+  line-length:
+    max: 140
+    level: error
+  # Workflows conventionally open with `name:` rather than a `---` marker.
+  document-start: disable
+  # `on:` is a workflow trigger key, but YAML 1.1 parses the bare word as a boolean.
+  truthy:
+    allowed-values: ['true', 'false', 'on']

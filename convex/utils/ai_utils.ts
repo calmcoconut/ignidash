@@ -13,5 +13,5 @@ export function isAIConfigured(): boolean {
 export async function getCanUseAIFeatures(
   ctx: QueryCtx
 ): Promise<{ canUseAIFeatures: boolean; isAdmin: boolean; isActiveSubscription: boolean }> {
-  return await ctx.runQuery(api.auth.getCanUseAIFeatures, {});
+  return ctx.runQuery(api.auth.getCanUseAIFeatures, {});
 }
