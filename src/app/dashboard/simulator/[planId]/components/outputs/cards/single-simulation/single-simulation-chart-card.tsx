@@ -23,6 +23,7 @@ import SingleSimulationNetWorthAreaChartCard from './single-simulation-net-worth
 import SingleSimulationNetWorthPieChartCard from './single-simulation-net-worth-pie-chart-card';
 import SingleSimulationCashFlowLineChartCard from './single-simulation-cash-flow-line-chart-card';
 import SingleSimulationCashFlowBarChartCard from './single-simulation-cash-flow-bar-chart-card';
+import SingleSimulationCashFlowSankeyChartCard from './single-simulation-cash-flow-sankey-chart-card';
 import SingleSimulationReturnsLineChartCard from './single-simulation-returns-line-chart-card';
 import SingleSimulationReturnsBarChartCard from './single-simulation-returns-bar-chart-card';
 import SingleSimulationTaxesLineChartCard from './single-simulation-taxes-line-chart-card';
@@ -98,6 +99,9 @@ function CashFlowCharts({ simulation, keyMetrics, onAgeSelect, selectedAge, star
         dataView={dataView}
         customDataID={customDataID}
       />
+      <div className="@[120rem]:col-span-2">
+        <SingleSimulationCashFlowSankeyChartCard simulation={simulation} selectedAge={selectedAge} onAgeSelect={onAgeSelect} />
+      </div>
     </>
   );
 }

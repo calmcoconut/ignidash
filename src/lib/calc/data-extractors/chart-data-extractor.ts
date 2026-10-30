@@ -34,6 +34,8 @@ export abstract class ChartDataExtractor {
    * @returns Array of data points indexed by age
    */
   static extractSingleSimulationNetWorthData(simulation: SimulationResult): SingleSimulationNetWorthChartDataPoint[] {
+    let cumulativeInflationFactor = 1;
+
     return simulation.data.map((data) => {
       const age = Math.floor(data.age);
 
@@ -41,6 +43,9 @@ export abstract class ChartDataExtractor {
       const { taxableValue, taxDeferredValue, taxFreeValue, cashSavings } = SimulationDataExtractor.getPortfolioValueByTaxCategory(data);
 
       const returnsData = data.returns;
+
+      const annualInflationRate = returnsData?.annualInflationRate ?? 0;
+      if (data.returns) cumulativeInflationFactor *= 1 + annualInflationRate;
 
       const {
         stocks: stockAmount,
@@ -95,6 +100,8 @@ export abstract class ChartDataExtractor {
         unsecuredDebtBalance,
         debtBalance,
         netWorth,
+        annualInflationRate,
+        cumulativeInflationFactor,
         annualAssetAppreciation,
         annualPurchasedAssetValue,
         annualSoldAssetValue,

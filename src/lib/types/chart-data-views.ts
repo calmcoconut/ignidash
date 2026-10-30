@@ -1,52 +1,23 @@
 /**
  * View mode enums for chart series visibility.
  *
- * Each chart category has a union type controlling which data series are
- * rendered (e.g., net worth by asset class vs. tax category).
+ * The ids now live in the metric registry (`src/lib/charts/metric-registry.ts`), which
+ * also maps every id onto a registry metric id. This module re-exports them explicitly
+ * — one name at a time — so that:
+ *
+ * - every existing import path keeps working, and
+ * - a persisted `dataViews` preference stays valid: the ids are only ever added to,
+ *   never renamed or replaced by a generic string type.
+ *
+ * Ids the registry does not own yet resolve as `status: 'legacy'`; those charts still
+ * render through their own switch until P4-P6 migrates them.
  */
 
-export type NetWorthDataView =
-  | 'assetClass'
-  | 'taxCategory'
-  | 'netPortfolioChange'
-  | 'netWorth'
-  | 'netWorthChange'
-  | 'assetEquity'
-  | 'netAssetChange'
-  | 'debts'
-  | 'netDebtReduction'
-  | 'custom';
-
-export type CashFlowDataView = 'surplusDeficit' | 'cashFlow' | 'incomes' | 'expenses' | 'custom' | 'savingsRate';
-
-export type TaxesDataView =
-  | 'marginalRates'
-  | 'effectiveRates'
-  | 'annualAmounts'
-  | 'cumulativeAmounts'
-  | 'taxableIncome'
-  | 'adjustedGrossIncome'
-  | 'investmentIncome'
-  | 'retirementDistributions'
-  | 'taxFreeIncome'
-  | 'ordinaryIncome'
-  | 'capitalGainsAndDividends'
-  | 'earlyWithdrawalPenalties'
-  | 'adjustmentsAndDeductions'
-  | 'socialSecurityIncome'
-  | 'socialSecurityTaxablePercentage';
-
-export type ReturnsDataView = 'rates' | 'cagr' | 'annualAmounts' | 'cumulativeAmounts' | 'taxCategory' | 'appreciation' | 'custom';
-
-export type ContributionsDataView = 'annualAmounts' | 'cumulativeAmounts' | 'taxCategory' | 'custom' | 'employerMatch' | 'shortfall';
-
-export type WithdrawalsDataView =
-  | 'annualAmounts'
-  | 'cumulativeAmounts'
-  | 'taxCategory'
-  | 'realizedGains'
-  | 'requiredMinimumDistributions'
-  | 'earlyWithdrawals'
-  | 'shortfall'
-  | 'withdrawalRate'
-  | 'custom';
+export type {
+  NetWorthDataView,
+  CashFlowDataView,
+  TaxesDataView,
+  ReturnsDataView,
+  ContributionsDataView,
+  WithdrawalsDataView,
+} from '@/lib/charts/metric-registry';

@@ -18,6 +18,8 @@ import type { PhysicalAssetData } from '@/lib/calc/physical-assets';
 import type { DebtData } from '@/lib/calc/debts';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 
+import { getMetricValueFormatter, resolveDataView } from '@/lib/charts/metric-registry';
+import { applySeriesSigns, resolveSeries, toBarSeriesProps, toLineSeriesProps } from '@/lib/charts/plot-types';
 import {
   ChartEmptyState,
   TimeSeriesChartContainer,
@@ -164,115 +166,42 @@ export default function SingleSimulationCashFlowLineChart({
     () => setClickedOutsideChart(false)
   );
 
+  const chartSlice = useChartDataSlice(rawChartData, 'single');
+
   let chartData:
     | SingleSimulationCashFlowChartDataPoint[]
     | Array<{ age: number } & IncomeData>
     | Array<{ age: number } & ExpenseData>
     | Array<{ age: number } & PhysicalAssetData>
-    | Array<{ age: number } & DebtData> = useChartDataSlice(rawChartData, 'single');
+    | Array<{ age: number } & DebtData> = chartSlice;
 
-  const lineDataKeys: (
-    | keyof SingleSimulationCashFlowChartDataPoint
-    | keyof IncomeData
-    | keyof ExpenseData
-    | keyof PhysicalAssetData
-    | keyof DebtData
-  )[] = [];
-  const strokeColors: string[] = [];
+  // Ported views render from the metric registry. `custom` is deliberately not a
+  // registry metric: it derives its series from per-entity data, so that escape hatch
+  // keeps its bespoke switch below, exactly as before.
+  const resolution = resolveDataView('cashFlow', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+  const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
 
-  const barDataKeys: (
-    | keyof SingleSimulationCashFlowChartDataPoint
-    | keyof IncomeData
-    | keyof ExpenseData
-    | keyof PhysicalAssetData
-    | keyof DebtData
-  )[] = [];
-  const barColors: string[] = [];
+  const lineProps = toLineSeriesProps(resolvedSeries);
+  const barProps = toBarSeriesProps(resolvedSeries);
 
-  let formatter = undefined;
-  let stackOffset: 'sign' | undefined = undefined;
+  const lineDataKeys: string[] = [...lineProps.dataKeys];
+  const strokeColors: string[] = [...lineProps.strokeColors];
 
-  switch (dataView) {
-    case 'surplusDeficit': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+  const barDataKeys: string[] = [...barProps.dataKeys];
+  const barColors: string[] = [...barProps.barColors];
 
-      lineDataKeys.push('surplusDeficit');
-      strokeColors.push(LINE_COLOR);
+  let formatter = metric ? getMetricValueFormatter(metric.format) : undefined;
+  const stackOffset: 'sign' | undefined = metric?.stackOffset;
 
-      barDataKeys.push('income', 'expenses', 'taxesAndPenalties', 'debtPayments');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
+  if (metric) {
+    chartData = applySeriesSigns(chartData, resolvedSeries);
+  } else if (dataView === 'custom') {
+    formatter = (value: number) => formatCompactCurrency(value, 1);
 
-      chartData = chartData.map((entry) => ({
-        ...entry,
-        expenses: -entry.expenses,
-        taxesAndPenalties: -entry.taxesAndPenalties,
-        debtPayments: -entry.debtPayments,
-      }));
-
-      stackOffset = 'sign';
-      break;
-    }
-    case 'cashFlow': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      lineDataKeys.push('netCashFlow');
-      strokeColors.push(LINE_COLOR);
-
-      barDataKeys.push(
-        'income',
-        'amountLiquidated',
-        'assetSaleProceeds',
-        'expenses',
-        'taxesAndPenalties',
-        'debtPayments',
-        'amountInvested',
-        'assetPurchaseOutlay'
-      );
-      barColors.push(
-        'var(--chart-1)',
-        'var(--chart-2)',
-        'var(--chart-3)',
-        'var(--chart-4)',
-        'var(--chart-5)',
-        'var(--chart-6)',
-        'var(--chart-7)',
-        'var(--chart-8)'
-      );
-
-      chartData = chartData.map((entry) => ({
-        ...entry,
-        expenses: -entry.expenses,
-        taxesAndPenalties: -entry.taxesAndPenalties,
-        debtPayments: -entry.debtPayments,
-        amountInvested: -entry.amountInvested,
-        assetPurchaseOutlay: -entry.assetPurchaseOutlay,
-      }));
-
-      stackOffset = 'sign';
-      break;
-    }
-    case 'incomes': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('earnedIncome', 'socialSecurityIncome', 'taxFreeIncome', 'employerMatch');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    }
-    case 'expenses': {
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('expenses', 'taxesAndPenalties', 'debtPayments');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    }
-    case 'custom': {
-      if (!customDataID) {
-        console.warn('Custom data name is required for custom data view');
-        break;
-      }
-
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
+    if (!customDataID) {
+      console.warn('Custom data name is required for custom data view');
+    } else {
       const perIncomeData = chartData.flatMap(({ age, perIncomeData }) =>
         perIncomeData.filter((income) => income.id === customDataID && income.income !== 0).map((income) => ({ age, ...income }))
       );
@@ -281,50 +210,37 @@ export default function SingleSimulationCashFlowLineChart({
         strokeColors.push('var(--chart-2)');
 
         chartData = perIncomeData;
-        break;
+      } else {
+        const perExpenseData = chartData.flatMap(({ age, perExpenseData }) =>
+          perExpenseData.filter((expense) => expense.id === customDataID && expense.expense !== 0).map((expense) => ({ age, ...expense }))
+        );
+        if (perExpenseData.length > 0) {
+          lineDataKeys.push('expense');
+          strokeColors.push('var(--chart-4)');
+
+          chartData = perExpenseData;
+        } else {
+          const perAssetData = chartData.flatMap(({ age, perAssetData }) =>
+            perAssetData.filter((asset) => asset.id === customDataID && asset.loanPayment !== 0).map((asset) => ({ age, ...asset }))
+          );
+          if (perAssetData.length > 0) {
+            lineDataKeys.push('loanPayment');
+            strokeColors.push('var(--chart-8)');
+
+            chartData = perAssetData;
+          } else {
+            const perDebtData = chartData.flatMap(({ age, perDebtData }) =>
+              perDebtData.filter((debt) => debt.id === customDataID && debt.payment !== 0).map((debt) => ({ age, ...debt }))
+            );
+            if (perDebtData.length > 0) {
+              lineDataKeys.push('payment');
+              strokeColors.push('var(--chart-5)');
+
+              chartData = perDebtData;
+            }
+          }
+        }
       }
-
-      const perExpenseData = chartData.flatMap(({ age, perExpenseData }) =>
-        perExpenseData.filter((expense) => expense.id === customDataID && expense.expense !== 0).map((expense) => ({ age, ...expense }))
-      );
-      if (perExpenseData.length > 0) {
-        lineDataKeys.push('expense');
-        strokeColors.push('var(--chart-4)');
-
-        chartData = perExpenseData;
-        break;
-      }
-
-      const perAssetData = chartData.flatMap(({ age, perAssetData }) =>
-        perAssetData.filter((asset) => asset.id === customDataID && asset.loanPayment !== 0).map((asset) => ({ age, ...asset }))
-      );
-      if (perAssetData.length > 0) {
-        lineDataKeys.push('loanPayment');
-        strokeColors.push('var(--chart-8)');
-
-        chartData = perAssetData;
-        break;
-      }
-
-      const perDebtData = chartData.flatMap(({ age, perDebtData }) =>
-        perDebtData.filter((debt) => debt.id === customDataID && debt.payment !== 0).map((debt) => ({ age, ...debt }))
-      );
-      if (perDebtData.length > 0) {
-        lineDataKeys.push('payment');
-        strokeColors.push('var(--chart-5)');
-
-        chartData = perDebtData;
-        break;
-      }
-
-      break;
-    }
-    case 'savingsRate': {
-      formatter = (value: number) => formatPercentage(value);
-
-      lineDataKeys.push('savingsRate');
-      strokeColors.push('var(--chart-3)');
-      break;
     }
   }
 
@@ -341,7 +257,8 @@ export default function SingleSimulationCashFlowLineChart({
 
   const allDataKeys = [...lineDataKeys, ...barDataKeys];
   const hasNoData =
-    chartData.length === 0 || chartData.every((point) => allDataKeys.every((key) => point[key as keyof typeof point] === 0));
+    chartData.length === 0 ||
+    chartData.every((point) => allDataKeys.every((key) => (point as unknown as Record<string, unknown>)[key] === 0));
   if (hasNoData) {
     return <ChartEmptyState />;
   }

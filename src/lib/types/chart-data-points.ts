@@ -34,6 +34,10 @@ export interface SingleSimulationNetWorthChartDataPoint {
   unsecuredDebtBalance: number;
   debtBalance: number;
   netWorth: number;
+  /** Annual inflation rate applied in this year (real/nominal support for derived metrics). */
+  annualInflationRate: number;
+  /** Cumulative inflation factor since the start of the simulation (year 0 = 1). */
+  cumulativeInflationFactor: number;
   annualAssetAppreciation: number;
   annualPurchasedAssetValue: number;
   annualSoldAssetValue: number;
