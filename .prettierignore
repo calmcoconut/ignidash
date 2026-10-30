@@ -22,6 +22,8 @@ pnpm-lock.yaml
 # Generated files
 *.min.js
 *.min.css
+# Generated JSON Schema (npm run schema:plan); its test byte-compares it to the generator
+schema/ignidash-plan.v*.schema.json
 
 # Build artifacts
 coverage

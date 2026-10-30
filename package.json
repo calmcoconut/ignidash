@@ -23,6 +23,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "create-demo": "tsx scripts/convert-inputs-json-to-demo-inputs.ts",
+    "headless:simulate": "tsx scripts/headless-simulate.ts",
+    "schema:plan": "tsx scripts/generate-plan-json-schema.ts",
     "docker:build": "docker compose build",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
