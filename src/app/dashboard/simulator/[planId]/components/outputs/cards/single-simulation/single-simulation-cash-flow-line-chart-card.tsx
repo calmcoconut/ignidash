@@ -11,6 +11,7 @@ import { resolveDataView } from '@/lib/charts/metric-registry';
 import { useUniqueChartItems } from '@/hooks/use-unique-chart-items';
 import { useDataViewSelectHandler } from '@/hooks/use-data-view-select';
 import { useChartDataSlice } from '@/hooks/use-chart-data-slice';
+import type { SimulationEvent } from '@/lib/calc/data-extractors/annotations-extractor';
 
 import SingleSimulationCashFlowLineChart from '../../charts/single-simulation/single-simulation-cash-flow-line-chart';
 import ChartTimeFrameDropdown from '../../chart-time-frame-dropdown';
@@ -39,6 +40,8 @@ interface SingleSimulationCashFlowLineChartCardProps {
   rawChartData: SingleSimulationCashFlowChartDataPoint[];
   keyMetrics: KeyMetrics;
   startAge: number;
+  /** Simulation events to mark (P4-P3). */
+  events?: readonly SimulationEvent[];
 }
 
 export default function SingleSimulationCashFlowLineChartCard({
@@ -51,6 +54,7 @@ export default function SingleSimulationCashFlowLineChartCard({
   rawChartData,
   keyMetrics,
   startAge,
+  events = [],
 }: SingleSimulationCashFlowLineChartCardProps) {
   const showReferenceLines = useShowReferenceLines();
   const [view, setView] = useState<ChartCardView>('chart');
@@ -125,6 +129,7 @@ export default function SingleSimulationCashFlowLineChartCard({
       }
     >
       <SingleSimulationCashFlowLineChart
+        events={events}
         onAgeSelect={onAgeSelect}
         selectedAge={selectedAge}
         keyMetrics={keyMetrics}

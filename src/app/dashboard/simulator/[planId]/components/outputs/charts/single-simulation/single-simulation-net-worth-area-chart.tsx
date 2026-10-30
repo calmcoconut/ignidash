@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, memo, useMemo } from 'react';
 import { ComposedChart, Tooltip, ReferenceLine } from 'recharts';
 import { ChartLineIcon } from 'lucide-react';
 
@@ -17,6 +17,7 @@ import { useChartTheme } from '@/hooks/use-chart-theme';
 import { useClickDetection } from '@/hooks/use-outside-click';
 import { useChartDataSlice } from '@/hooks/use-chart-data-slice';
 import { useChartInterval } from '@/hooks/use-chart-interval';
+import type { SimulationEvent } from '@/lib/calc/data-extractors/annotations-extractor';
 import { zeroAssetAmounts, type AssetAllocation } from '@/lib/calc/asset';
 
 import {
@@ -32,6 +33,7 @@ import {
   BarSeries,
   SignReferenceLine,
   AgeReferenceLines,
+  EventAnnotations,
 } from '../chart-primitives';
 
 interface CustomTooltipProps {
@@ -179,6 +181,8 @@ interface SingleSimulationNetWorthAreaChartProps {
   customDataID: string;
   onAgeSelect: (age: number) => void;
   selectedAge: number;
+  /** Simulation events to mark (P4-P3); already derived by the card. */
+  events?: readonly SimulationEvent[];
 }
 
 export default function SingleSimulationNetWorthAreaChart({
@@ -190,11 +194,14 @@ export default function SingleSimulationNetWorthAreaChart({
   customDataID,
   onAgeSelect,
   selectedAge,
+  events = [],
 }: SingleSimulationNetWorthAreaChartProps) {
   const [clickedOutsideChart, setClickedOutsideChart] = useState(false);
 
   const { foregroundColor, foregroundMutedColor } = useChartTheme();
   const isSmallScreen = useIsMobile();
+
+  const netWorthByAge = useMemo(() => new Map(rawChartData.map((dataPoint) => [dataPoint.age, dataPoint.netWorth])), [rawChartData]);
 
   const chartRef = useClickDetection<HTMLDivElement>(
     () => setClickedOutsideChart(true),
@@ -425,6 +432,8 @@ export default function SingleSimulationNetWorthAreaChart({
           cursor={{ stroke: foregroundColor }}
         />
         <AgeReferenceLines keyMetrics={keyMetrics} showReferenceLines={showReferenceLines} selectedAge={selectedAge} />
+        {/* Dots for asset purchases/sales sit on the net worth curve itself. */}
+        <EventAnnotations events={events} showReferenceLines={showReferenceLines} getY={(age) => netWorthByAge.get(age)} />
         {keyMetrics.portfolioAtRetirement && showReferenceLines && ['assetClass', 'taxCategory'].includes(dataView) && (
           <ReferenceLine y={Math.round(keyMetrics.portfolioAtRetirement)} stroke={foregroundMutedColor} strokeDasharray="10 5" />
         )}

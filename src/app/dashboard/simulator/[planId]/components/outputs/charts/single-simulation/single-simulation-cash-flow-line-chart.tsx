@@ -17,6 +17,7 @@ import type { ExpenseData } from '@/lib/calc/expenses';
 import type { PhysicalAssetData } from '@/lib/calc/physical-assets';
 import type { DebtData } from '@/lib/calc/debts';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import type { SimulationEvent } from '@/lib/calc/data-extractors/annotations-extractor';
 
 import { getMetricValueFormatter, resolveDataView } from '@/lib/charts/metric-registry';
 import { applySeriesSigns, resolveSeries, toBarSeriesProps, toLineSeriesProps } from '@/lib/charts/plot-types';
@@ -32,6 +33,7 @@ import {
   BarSeries,
   SignReferenceLine,
   AgeReferenceLines,
+  EventAnnotations,
 } from '../chart-primitives';
 
 interface CustomTooltipProps {
@@ -144,6 +146,8 @@ interface SingleSimulationCashFlowLineChartProps {
   selectedAge: number;
   dataView: CashFlowDataView;
   customDataID?: string;
+  /** Simulation events to mark (P4-P3); already derived by the card. */
+  events?: readonly SimulationEvent[];
 }
 
 export default function SingleSimulationCashFlowLineChart({
@@ -155,6 +159,7 @@ export default function SingleSimulationCashFlowLineChart({
   selectedAge,
   dataView,
   customDataID,
+  events = [],
 }: SingleSimulationCashFlowLineChartProps) {
   const [clickedOutsideChart, setClickedOutsideChart] = useState(false);
 
@@ -287,6 +292,7 @@ export default function SingleSimulationCashFlowLineChart({
           cursor={{ stroke: foregroundColor }}
         />
         <AgeReferenceLines keyMetrics={keyMetrics} showReferenceLines={showReferenceLines} selectedAge={selectedAge} />
+        <EventAnnotations events={events} showReferenceLines={showReferenceLines} />
       </ComposedChart>
     </TimeSeriesChartContainer>
   );

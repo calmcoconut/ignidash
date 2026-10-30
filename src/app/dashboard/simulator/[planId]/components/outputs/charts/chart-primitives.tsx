@@ -1,13 +1,15 @@
 'use client';
 
-import type { ReactNode, Ref } from 'react';
-import { CartesianGrid, XAxis, YAxis, ReferenceLine, Line, Bar, Area, Cell } from 'recharts';
+import { useMemo, type ReactNode, type Ref } from 'react';
+import { CartesianGrid, XAxis, YAxis, ReferenceLine, ReferenceDot, Line, Bar, Area, Cell } from 'recharts';
 
 import { formatChartString, cn } from '@/lib/utils';
 import { formatCompactCurrency } from '@/lib/utils/number-formatters';
 import { useChartTheme } from '@/hooks/use-chart-theme';
 import { useIsMobile } from '@/hooks/use-mobile';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import type { SimulationEvent, SimulationEventKind } from '@/lib/calc/data-extractors/annotations-extractor';
+import { selectAnnotatedEvents } from '@/lib/calc/data-extractors/annotations-extractor';
 
 export const NEEDS_BG_TEXT_COLORS = [
   'var(--chart-3)',
@@ -244,6 +246,99 @@ export function AgeReferenceLines({
         <ReferenceLine x={Math.round(keyMetrics.retirementAge)} stroke={foregroundMutedColor} strokeDasharray="10 5" />
       )}
       {selectedAge && <ReferenceLine x={selectedAge} stroke={foregroundMutedColor} strokeWidth={1.5} ifOverflow="visible" />}
+    </>
+  );
+}
+
+// ================================
+// EVENT ANNOTATIONS
+// ================================
+
+/**
+ * One colour per event kind, so a reader can tell a retirement marker from a debt payoff at
+ * a glance. Retirement reuses the muted theme colour because the age reference lines already
+ * draw it: two identical dashed strokes over the same x read as one line, so annotating
+ * retirement adds a label without changing the line a user already sees.
+ */
+export const EVENT_KIND_COLORS: Readonly<Record<SimulationEventKind, string>> = {
+  retirement: 'var(--foreground)',
+  rmdStart: 'var(--chart-5)',
+  incomeStart: 'var(--chart-1)',
+  incomeEnd: 'var(--chart-1)',
+  expenseStart: 'var(--chart-2)',
+  expenseEnd: 'var(--chart-2)',
+  debtPayoff: 'var(--chart-6)',
+  assetPurchase: 'var(--chart-3)',
+  assetSale: 'var(--chart-7)',
+};
+
+/**
+ * Renders simulation events as vertical reference lines, plus a reference dot for
+ * instrument-scoped events (purchases, sales) when the chart can supply a y value.
+ *
+ * Legibility: labels are rotated to run along the line, spaced out, and capped by
+ * `selectAnnotatedEvents` (two labels on a phone, five on a wide card), so a long plan never
+ * produces a wall of overlapping text. Unlabelled events still get a faint line.
+ */
+export function EventAnnotations({
+  events,
+  showReferenceLines = true,
+  getY,
+}: {
+  events: readonly SimulationEvent[];
+  showReferenceLines?: boolean;
+  getY?: (age: number) => number | undefined;
+}) {
+  const { foregroundMutedColor } = useChartTheme();
+  const isSmallScreen = useIsMobile();
+  const annotated = useMemo(() => selectAnnotatedEvents(events, { isSmallScreen }), [events, isSmallScreen]);
+
+  if (!showReferenceLines || annotated.length === 0) return null;
+
+  return (
+    <>
+      {annotated.map(({ event, showLabel }) => (
+        <ReferenceLine
+          key={`event-${event.id}`}
+          x={event.age}
+          stroke={event.kind === 'retirement' ? foregroundMutedColor : EVENT_KIND_COLORS[event.kind]}
+          strokeDasharray={event.kind === 'retirement' ? '10 5' : '3 5'}
+          strokeOpacity={event.kind === 'retirement' ? 1 : 0.55}
+          ifOverflow="hidden"
+          label={
+            showLabel
+              ? {
+                  value: event.label,
+                  position: 'insideTopLeft',
+                  angle: -90,
+                  offset: 6,
+                  fontSize: 10,
+                  fill: foregroundMutedColor,
+                }
+              : undefined
+          }
+        />
+      ))}
+      {getY
+        ? annotated
+            .filter(({ event }) => event.scope === 'instrument')
+            .map(({ event }) => {
+              const y = getY(event.age);
+              if (y === undefined || !Number.isFinite(y)) return null;
+
+              return (
+                <ReferenceDot
+                  key={`event-dot-${event.id}`}
+                  x={event.age}
+                  y={y}
+                  r={3}
+                  fill={EVENT_KIND_COLORS[event.kind]}
+                  stroke="none"
+                  ifOverflow="hidden"
+                />
+              );
+            })
+        : null}
     </>
   );
 }

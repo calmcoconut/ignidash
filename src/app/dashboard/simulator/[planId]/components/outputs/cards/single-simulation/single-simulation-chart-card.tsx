@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 import type { TaxableIncomeReferenceLineMode, AgiReferenceLineMode } from '@/lib/types/reference-line-modes';
@@ -17,6 +17,7 @@ import {
   useUpdateDataView,
 } from '@/lib/stores/simulator-store';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
+import { extractSimulationEvents } from '@/lib/calc/data-extractors/annotations-extractor';
 import { SingleSimulationCategory } from '@/lib/types/simulation-category';
 
 import SingleSimulationNetWorthAreaChartCard from './single-simulation-net-worth-area-chart-card';
@@ -43,6 +44,9 @@ interface ChartsCategoryProps {
 
 function NetWorthCharts({ simulation, keyMetrics, onAgeSelect, selectedAge, startAge }: ChartsCategoryProps) {
   const rawChartData = useSingleSimulationNetWorthChartData(simulation);
+  // Annotations are derived from the simulation output only (P4-P3): no engine input, no
+  // number changes, so the goldens are untouched by construction.
+  const events = useMemo(() => extractSimulationEvents(simulation.data), [simulation]);
 
   const { dataView, customDataID } = useDataView('netWorth');
   const updateDataView = useUpdateDataView();
@@ -52,6 +56,7 @@ function NetWorthCharts({ simulation, keyMetrics, onAgeSelect, selectedAge, star
   return (
     <>
       <SingleSimulationNetWorthAreaChartCard
+        events={events}
         onAgeSelect={onAgeSelect}
         selectedAge={selectedAge}
         keyMetrics={keyMetrics}
@@ -74,6 +79,7 @@ function NetWorthCharts({ simulation, keyMetrics, onAgeSelect, selectedAge, star
 
 function CashFlowCharts({ simulation, keyMetrics, onAgeSelect, selectedAge, startAge }: ChartsCategoryProps) {
   const rawChartData = useSingleSimulationCashFlowChartData(simulation);
+  const events = useMemo(() => extractSimulationEvents(simulation.data), [simulation]);
 
   const { dataView, customDataID } = useDataView('cashFlow');
   const updateDataView = useUpdateDataView();
@@ -83,6 +89,7 @@ function CashFlowCharts({ simulation, keyMetrics, onAgeSelect, selectedAge, star
   return (
     <>
       <SingleSimulationCashFlowLineChartCard
+        events={events}
         onAgeSelect={onAgeSelect}
         selectedAge={selectedAge}
         setDataView={setDataView}

@@ -7,6 +7,7 @@ import type { SingleSimulationNetWorthChartDataPoint } from '@/lib/types/chart-d
 import type { NetWorthDataView } from '@/lib/types/chart-data-views';
 import { useUniqueChartItems } from '@/hooks/use-unique-chart-items';
 import { useDataViewSelectHandler } from '@/hooks/use-data-view-select';
+import type { SimulationEvent } from '@/lib/calc/data-extractors/annotations-extractor';
 
 import SingleSimulationNetWorthAreaChart from '../../charts/single-simulation/single-simulation-net-worth-area-chart';
 import ChartTimeFrameDropdown from '../../chart-time-frame-dropdown';
@@ -38,6 +39,8 @@ interface SingleSimulationNetWorthAreaChartCardProps {
   setCustomDataID: (name: string) => void;
   customDataID: string;
   startAge: number;
+  /** Simulation events to mark (P4-P3). */
+  events?: readonly SimulationEvent[];
 }
 
 export default function SingleSimulationNetWorthAreaChartCard({
@@ -50,6 +53,7 @@ export default function SingleSimulationNetWorthAreaChartCard({
   setCustomDataID,
   customDataID,
   startAge,
+  events = [],
 }: SingleSimulationNetWorthAreaChartCardProps) {
   const showReferenceLines = useShowReferenceLines();
 
@@ -120,6 +124,7 @@ export default function SingleSimulationNetWorthAreaChartCard({
       }
     >
       <SingleSimulationNetWorthAreaChart
+        events={events}
         rawChartData={rawChartData}
         startAge={startAge}
         keyMetrics={keyMetrics}
