@@ -41,6 +41,35 @@ const eslintConfig = [
     },
   },
   {
+    // Same determinism rule, closing the import loophole: code under src/lib/calc must not
+    // reach the app-boundary wall-clock module (src/lib/utils/system-clock.ts) instead of
+    // taking an injected Clock from src/lib/calc/clock.ts. Patterns cover the `@/` alias and
+    // relative paths from any src/lib/calc subdirectory. src/lib/schemas is deliberately not
+    // covered: `calculateAge`'s UI-facing default there legitimately reads that module.
+    files: ['src/lib/calc/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@/lib/utils/system-clock',
+                '**/utils/system-clock',
+                '**/utils/system-clock.ts',
+                '../utils/system-clock',
+                '../../utils/system-clock',
+              ],
+              message:
+                'Do not import the wall clock into src/lib/calc. Take an explicit Clock (src/lib/calc/clock.ts) and let the store resolve it in src/lib/stores/simulator-store.ts.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',

@@ -12,6 +12,8 @@ import {
   debtToConvex,
   physicalAssetFromConvex,
   physicalAssetToConvex,
+  simulationSettingsFromConvex,
+  simulationSettingsToConvex,
   simulatorFromConvex,
   simulatorToConvex,
   arrayToRecord,
@@ -235,6 +237,42 @@ describe('Physical asset transforms', () => {
     expect(back.assetType).toBe('primaryResidence');
     expect(back.purchasePrice).toBe(doc.purchasePrice);
     expect(back.saleDate).toEqual({ type: 'atRetirement' });
+  });
+});
+
+// ============================================================================
+// Simulation Settings (clock injection, parity plan P2-P0)
+// ============================================================================
+
+describe('simulationSettingsFromConvex / simulationSettingsToConvex', () => {
+  it('carries a pinned asOfDate to Convex instead of dropping it', () => {
+    const convexSettings = simulationSettingsToConvex({
+      simulationSeed: 9521,
+      simulationMode: 'fixedReturns',
+      asOfDate: '2026-03-15',
+    });
+
+    expect(convexSettings).toEqual({ simulationSeed: 9521, simulationMode: 'fixedReturns', asOfDate: '2026-03-15' });
+  });
+
+  it('carries a pinned asOfDate back from Convex', () => {
+    const zodSettings = simulationSettingsFromConvex({
+      simulationSeed: 9521,
+      simulationMode: 'fixedReturns',
+      asOfDate: '2026-03-15',
+    } as Doc<'plans'>['simulationSettings']);
+
+    expect(zodSettings.asOfDate).toBe('2026-03-15');
+  });
+
+  it('round-trips settings without asOfDate unchanged', () => {
+    const zodSettings = simulationSettingsFromConvex({
+      simulationSeed: 9521,
+      simulationMode: 'fixedReturns',
+    } as Doc<'plans'>['simulationSettings']);
+
+    expect(zodSettings).toEqual({ simulationSeed: 9521, simulationMode: 'fixedReturns' });
+    expect(simulationSettingsToConvex(zodSettings)).toEqual({ simulationSeed: 9521, simulationMode: 'fixedReturns' });
   });
 });
 
