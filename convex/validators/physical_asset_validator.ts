@@ -11,6 +11,8 @@ const physicalAssetTimePointValidator = v.object({
   month: v.optional(v.number()),
   year: v.optional(v.number()),
   age: v.optional(v.number()),
+  everyNYears: v.optional(v.number()),
+  recurrenceYears: v.optional(v.number()),
 });
 
 const cashPaymentValidator = v.object({
@@ -37,6 +39,8 @@ export const physicalAssetValidator = v.object({
   appreciationRate: v.number(),
   saleDate: v.optional(physicalAssetTimePointValidator),
   paymentMethod: paymentMethodValidator,
+  // real (today's dollars, default) | nominal (dollars of the purchase date)
+  amountBasis: v.optional(v.union(v.literal('real'), v.literal('nominal'))),
   syncedAssetId: v.optional(v.string()),
   syncedLiabilityId: v.optional(v.string()),
 });

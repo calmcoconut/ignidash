@@ -11,6 +11,8 @@ const incomeTimePointValidator = v.object({
   month: v.optional(v.number()),
   year: v.optional(v.number()),
   age: v.optional(v.number()),
+  everyNYears: v.optional(v.number()),
+  recurrenceYears: v.optional(v.number()),
 });
 
 export const incomeValidator = v.object({
@@ -45,6 +47,8 @@ export const incomeValidator = v.object({
     ),
     withholding: v.optional(v.number()),
   }),
+  // real (today's dollars, default) | nominal (dollars of the event's own date)
+  amountBasis: v.optional(v.union(v.literal('real'), v.literal('nominal'))),
   disabled: v.boolean(),
 });
 

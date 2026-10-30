@@ -7,7 +7,8 @@
  */
 
 import type { PhysicalAssetInputs, PaymentMethodInputs, PhysicalAssetType } from '@/lib/schemas/inputs/physical-asset-form-schema';
-import type { TimePoint } from '@/lib/schemas/inputs/income-expenses-shared-schemas';
+
+import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
 
@@ -268,8 +269,8 @@ export interface PhysicalAssetData {
 export class PhysicalAssets {
   private readonly assets: PhysicalAsset[];
 
-  constructor(data: PhysicalAssetInputs[]) {
-    this.assets = data.map((asset) => new PhysicalAsset(asset));
+  constructor(data: PhysicalAssetInputs[], context?: TimeBindingContext) {
+    this.assets = data.map((asset) => new PhysicalAsset(asset, context));
   }
 
   getOwnedAssets(): PhysicalAsset[] {
@@ -302,35 +303,41 @@ export class PhysicalAsset {
   private id: string;
   private name: string;
   private assetType: PhysicalAssetType;
-  private purchaseDate: TimePoint;
+  private purchaseBinding: TimeBinding;
   private marketValue: number;
   private purchasePrice: number;
   private appreciationRate: number;
-  private saleDate: TimePoint | undefined;
+  private saleBinding: TimeBinding | undefined;
   private paymentMethod: PaymentMethodInputs;
   private loanBalance: number = 0;
   private loanPrincipal: number = 0;
   private nominalAPR: number = 0; // Store nominal APR (user input)
   private monthlyLoanPayment: number = 0; // Mutable, deflates over time
+  private downPayment: number | undefined; // Scaled with the rest of the purchase price
   private ownershipStatus: OwnershipStatus;
   private hasSecuredDebtBeenIncurred: boolean;
 
-  constructor(data: PhysicalAssetInputs) {
+  constructor(data: PhysicalAssetInputs, context?: TimeBindingContext) {
     this.id = data.id;
     this.name = data.name;
     this.assetType = data.assetType;
-    this.purchaseDate = data.purchaseDate;
-    this.marketValue = data.marketValue ?? data.purchasePrice;
-    this.purchasePrice = data.purchasePrice;
+    this.purchaseBinding = new TimeBinding(data.purchaseDate, undefined, context);
+    this.saleBinding = data.saleDate === undefined ? undefined : new TimeBinding(data.saleDate, undefined, context);
+    // A nominal price, market value and loan are expressed in the dollars of the purchase date,
+    // so all of them are converted to the plan's real dollars with the same factor. Scaling them
+    // together keeps the "down payment + loan balance = purchase price" identity intact.
+    const amountScale = this.purchaseBinding.amountScale(data.amountBasis);
+    this.marketValue = (data.marketValue ?? data.purchasePrice) * amountScale;
+    this.purchasePrice = data.purchasePrice * amountScale;
     this.appreciationRate = data.appreciationRate / 100;
-    this.saleDate = data.saleDate;
     this.paymentMethod = data.paymentMethod;
 
     if (data.paymentMethod.type === 'loan') {
-      this.loanBalance = data.paymentMethod.loanBalance;
-      this.loanPrincipal = data.paymentMethod.loanBalance;
+      this.loanBalance = data.paymentMethod.loanBalance * amountScale;
+      this.loanPrincipal = this.loanBalance;
       this.nominalAPR = data.paymentMethod.apr / 100;
-      this.monthlyLoanPayment = data.paymentMethod.monthlyPayment;
+      this.monthlyLoanPayment = data.paymentMethod.monthlyPayment * amountScale;
+      this.downPayment = data.paymentMethod.downPayment === undefined ? undefined : data.paymentMethod.downPayment * amountScale;
     }
 
     // Assets with purchaseDate.type === 'now' are already owned (no purchase expense)
@@ -434,8 +441,8 @@ export class PhysicalAsset {
   }
 
   shouldSellThisPeriod(simulationState: SimulationState): boolean {
-    if (this.ownershipStatus !== 'owned' || !this.saleDate) return false;
-    return this.getIsSimTimeAtOrAfterTimePoint(simulationState, this.saleDate);
+    if (this.ownershipStatus !== 'owned' || this.saleBinding === undefined) return false;
+    return this.saleBinding.isActiveAt(simulationState);
   }
 
   /**
@@ -457,7 +464,7 @@ export class PhysicalAsset {
 
   shouldPurchaseThisPeriod(simulationState: SimulationState): boolean {
     if (this.ownershipStatus !== 'pending') return false;
-    return this.getIsSimTimeAtOrAfterTimePoint(simulationState, this.purchaseDate);
+    return this.purchaseBinding.isActiveAt(simulationState);
   }
 
   /**
@@ -470,7 +477,7 @@ export class PhysicalAsset {
     this.ownershipStatus = 'owned';
 
     const purchaseMarketValue = this.marketValue;
-    const purchaseOutlay = this.paymentMethod.type === 'loan' ? (this.paymentMethod.downPayment ?? 0) : this.purchasePrice;
+    const purchaseOutlay = this.paymentMethod.type === 'loan' ? (this.downPayment ?? 0) : this.purchasePrice;
 
     return { purchaseOutlay, purchaseMarketValue };
   }
@@ -482,28 +489,5 @@ export class PhysicalAsset {
 
     this.hasSecuredDebtBeenIncurred = true;
     return this.loanBalance;
-  }
-
-  private getIsSimTimeAtOrAfterTimePoint(simulationState: SimulationState, timePoint: TimePoint): boolean {
-    const simDate = simulationState.time.date;
-    const simAge = simulationState.time.age;
-
-    switch (timePoint.type) {
-      case 'customAge':
-        return simAge >= timePoint.age!;
-      case 'customDate':
-        const customDateYear = timePoint.year!;
-        const customDateMonth = timePoint.month! - 1;
-
-        const customDate = new Date(customDateYear, customDateMonth);
-
-        return simDate >= customDate;
-      case 'now':
-        return true;
-      case 'atRetirement':
-        return simulationState.phase?.name === 'retirement';
-      case 'atLifeExpectancy':
-        return false;
-    }
   }
 }

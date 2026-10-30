@@ -32,6 +32,7 @@ import {
   addAssetAmounts,
 } from './asset';
 import { ContributionRules } from './contribution-rules';
+import { timePointProgress } from './time-binding';
 import type { IncomesData } from './incomes';
 import type { ExpensesData } from './expenses';
 import type { DebtsData } from './debts';
@@ -751,34 +752,9 @@ export class PortfolioProcessor {
       cash: 0,
     };
 
-    let progress: number;
-
-    switch (this.glidePath.endTimePoint.type) {
-      case 'customAge': {
-        const startAge = this.simulationContext.startAge;
-        const endAge = this.glidePath.endTimePoint.age!;
-        const currentAge = this.simulationState.time.age;
-
-        const totalSpan = endAge - startAge;
-        if (totalSpan <= 0) return targetAllocation;
-
-        progress = (currentAge - startAge) / totalSpan;
-        break;
-      }
-      case 'customDate': {
-        const startDate = this.simulationContext.startDate;
-        const endDate = new Date(this.glidePath.endTimePoint.year!, this.glidePath.endTimePoint.month! - 1, 1);
-        const currentDate = this.simulationState.time.date;
-
-        const totalSpan = endDate.getTime() - startDate.getTime();
-        if (totalSpan <= 0) return targetAllocation;
-
-        progress = (currentDate.getTime() - startDate.getTime()) / totalSpan;
-        break;
-      }
-    }
-
-    progress = Math.max(0, Math.min(1, progress));
+    // Distance from the run's start to the glide path's end point, resolved by the shared
+    // time binding (contract: one resolver for every dated event).
+    const progress = timePointProgress(this.glidePath.endTimePoint, this.simulationState, this.simulationContext);
 
     return {
       stocks: startAllocation.stocks + (targetAllocation.stocks - startAllocation.stocks) * progress,

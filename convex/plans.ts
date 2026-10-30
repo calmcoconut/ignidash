@@ -158,6 +158,10 @@ export const createBlankPlan = mutation({
 });
 
 export const createPlanWithData = mutation({
+  // Every `planDataFields` entry has to be listed here by hand: this is the mutation both
+  // import paths use, and Convex validates arguments per function. A field that is stored and
+  // exported but missing from this list is dropped on import, so
+  // `convex/plan_import.test.ts` asserts this list covers the whole plan payload.
   args: {
     newPlanName: v.string(),
     isDefault: v.boolean(),

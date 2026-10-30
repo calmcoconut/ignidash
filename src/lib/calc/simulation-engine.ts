@@ -25,6 +25,7 @@ import { Incomes, IncomesProcessor, type IncomesData } from './incomes';
 import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
+import type { TimeBindingContext } from './time-binding';
 import { TaxProcessor, type TaxesData } from './taxes';
 import { taxYearFor } from './tax-data';
 import { type AssetFlows, zeroAssetAmounts } from './asset';
@@ -123,10 +124,18 @@ export class FinancialSimulationEngine {
     const simulationContext: SimulationContext = this.initSimulationContext(timeline, startCalendarDate);
     const simulationState: SimulationState = this.initSimulationState(simulationContext);
 
-    const incomes = new Incomes(Object.values(this.inputs.incomes));
-    const expenses = new Expenses(Object.values(this.inputs.expenses));
-    const debts = new Debts(Object.values(this.inputs.debts));
-    const physicalAssets = new PhysicalAssets(Object.values(this.inputs.physicalAssets));
+    // Every dated event binds against the same plan start and inflation assumption, so nominal
+    // amounts and recurrence cadences resolve identically for every entity type.
+    const timeBindingContext: TimeBindingContext = {
+      startAge: simulationContext.startAge,
+      startDate: simulationContext.startDate,
+      marketAssumptions: this.inputs.marketAssumptions,
+    };
+
+    const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext);
+    const expenses = new Expenses(Object.values(this.inputs.expenses), timeBindingContext);
+    const debts = new Debts(Object.values(this.inputs.debts), timeBindingContext);
+    const physicalAssets = new PhysicalAssets(Object.values(this.inputs.physicalAssets), timeBindingContext);
     const contributionRules = new ContributionRules(Object.values(this.inputs.contributionRules), this.inputs.baseContributionRule);
 
     const resultData: Array<SimulationDataPoint> = [this.initSimulationDataPoint(simulationState, debts, physicalAssets)];

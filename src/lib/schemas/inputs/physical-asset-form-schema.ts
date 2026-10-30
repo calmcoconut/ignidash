@@ -5,7 +5,7 @@ import {
   optionalCurrencyFieldAllowsZero,
   percentageField,
 } from '@/lib/utils/zod-utils';
-import { timePointSchema } from './income-expenses-shared-schemas';
+import { amountBasisSchema, timePointSchema } from './income-expenses-shared-schemas';
 
 export const physicalAssetTypeSchema = z.enum(['primaryResidence', 'other']);
 
@@ -36,6 +36,7 @@ export const physicalAssetFormSchema = z
     purchasePrice: currencyFieldForbidsZero('Purchase price must be greater than zero'),
     marketValue: optionalCurrencyFieldForbidsZero('Market value must be greater than zero'),
     appreciationRate: percentageField(-30, 20, 'Annual appreciation rate'),
+    amountBasis: amountBasisSchema.optional(),
     saleDate: timePointSchema,
     paymentMethod: paymentMethodSchema,
     syncedAssetId: z.string().optional(),

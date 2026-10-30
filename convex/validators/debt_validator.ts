@@ -11,6 +11,8 @@ const debtTimePointValidator = v.object({
   month: v.optional(v.number()),
   year: v.optional(v.number()),
   age: v.optional(v.number()),
+  everyNYears: v.optional(v.number()),
+  recurrenceYears: v.optional(v.number()),
 });
 
 export const debtValidator = v.object({
@@ -22,6 +24,8 @@ export const debtValidator = v.object({
   compoundingFrequency: v.optional(v.union(v.literal('daily'), v.literal('monthly'))),
   startDate: debtTimePointValidator,
   monthlyPayment: v.number(),
+  // real (today's dollars, default) | nominal (dollars of the start date)
+  amountBasis: v.optional(v.union(v.literal('real'), v.literal('nominal'))),
   disabled: v.optional(v.boolean()),
   syncedFinanceId: v.optional(v.string()),
 });

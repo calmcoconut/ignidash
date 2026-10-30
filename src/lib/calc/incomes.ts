@@ -7,7 +7,8 @@
  */
 
 import type { IncomeInputs, IncomeType } from '@/lib/schemas/inputs/income-form-schema';
-import type { TimePoint } from '@/lib/schemas/inputs/income-expenses-shared-schemas';
+
+import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
 
@@ -112,8 +113,8 @@ export interface IncomesData {
 export class Incomes {
   private readonly incomes: Income[];
 
-  constructor(data: IncomeInputs[]) {
-    this.incomes = data.filter((income) => !income.disabled).map((income) => new Income(income));
+  constructor(data: IncomeInputs[], context?: TimeBindingContext) {
+    this.incomes = data.filter((income) => !income.disabled).map((income) => new Income(income, context));
   }
 
   getActiveIncomesByTimeFrame(simulationState: SimulationState): Income[] {
@@ -140,22 +141,28 @@ export class Income {
   private amount: number;
   private growthRate: number | undefined;
   private growthLimit: number | undefined;
-  private timeFrameStart: TimePoint;
-  private timeFrameEnd: TimePoint | undefined;
+  private binding: TimeBinding;
   private frequency: 'yearly' | 'oneTime' | 'quarterly' | 'monthly' | 'biweekly' | 'weekly';
   private lastYear: number = 0;
   private incomeType: IncomeType;
   private withholdingRate: number;
+  /** Occurrence year the one-time payment last fired, so a recurrence can fire once per year. */
+  private oneTimeOccurrenceIndex: number | null = null;
+  /** Recurrence year of the most recent active month; see `getIsActiveByTimeFrame`. */
+  private currentOccurrenceIndex: number | null = null;
 
-  constructor(data: IncomeInputs) {
+  constructor(data: IncomeInputs, context?: TimeBindingContext) {
     this.hasOneTimeIncomeOccurred = false;
     this.id = data.id;
     this.name = data.name;
-    this.amount = data.amount;
+    this.binding = new TimeBinding(data.timeframe.start, data.timeframe.end, context);
+    // A nominal amount is expressed in the dollars of the date the income starts, so it is
+    // converted to the plan's real dollars here. The growth limit is an amount too, so it moves
+    // with the same factor.
+    const amountScale = this.binding.amountScale(data.amountBasis);
+    this.amount = data.amount * amountScale;
     this.growthRate = data.growth?.growthRate;
-    this.growthLimit = data.growth?.growthLimit;
-    this.timeFrameStart = data.timeframe.start;
-    this.timeFrameEnd = data.timeframe.end;
+    this.growthLimit = data.growth?.growthLimit === undefined ? undefined : data.growth.growthLimit * amountScale;
     this.frequency = data.frequency;
     this.incomeType = data.taxes.incomeType;
     this.withholdingRate = data.taxes.withholding ?? 0;
@@ -238,7 +245,10 @@ export class Income {
 
     const incomeAfterPayrollDeductions = income - amountWithheld - ficaTax;
 
-    if (this.frequency === 'oneTime') this.hasOneTimeIncomeOccurred = true;
+    if (this.frequency === 'oneTime') {
+      this.hasOneTimeIncomeOccurred = true;
+      this.oneTimeOccurrenceIndex = this.currentOccurrenceIndex;
+    }
     return {
       id: this.id,
       name: this.name,
@@ -252,60 +262,13 @@ export class Income {
   }
 
   getIsActiveByTimeFrame(simulationState: SimulationState): boolean {
-    const simTimeIsAfterIncomeStart = this.getIsSimTimeAfterIncomeStart(simulationState);
-    const simTimeIsBeforeIncomeEnd = this.getIsSimTimeBeforeIncomeEnd(simulationState);
+    const isActive = this.binding.isActiveAt(simulationState);
 
-    return simTimeIsAfterIncomeStart && simTimeIsBeforeIncomeEnd;
-  }
+    // The one-time latch needs the occurrence year of the month being processed; remember it
+    // while the caller is asking whether this income is active.
+    this.currentOccurrenceIndex = isActive ? this.binding.occurrenceIndexAt(simulationState) : null;
 
-  private getIsSimTimeAfterIncomeStart(simulationState: SimulationState): boolean {
-    const simDate = simulationState.time.date;
-    const simAge = simulationState.time.age;
-
-    const timeFrameStart = this.timeFrameStart;
-    switch (timeFrameStart.type) {
-      case 'customAge':
-        return simAge >= timeFrameStart.age!;
-      case 'customDate':
-        const customDateYear = timeFrameStart.year!;
-        const customDateMonth = timeFrameStart.month! - 1;
-
-        const customStartDate = new Date(customDateYear, customDateMonth);
-
-        return simDate >= customStartDate;
-      case 'now':
-        return true;
-      case 'atRetirement':
-        return simulationState.phase?.name === 'retirement';
-      case 'atLifeExpectancy':
-        return false;
-    }
-  }
-
-  private getIsSimTimeBeforeIncomeEnd(simulationState: SimulationState): boolean {
-    const simDate = simulationState.time.date;
-    const simAge = simulationState.time.age;
-
-    const timeFrameEnd = this.timeFrameEnd;
-    if (!timeFrameEnd) return true; // If no end time frame is set, consider it active
-
-    switch (timeFrameEnd.type) {
-      case 'customAge':
-        return simAge <= timeFrameEnd.age!;
-      case 'customDate':
-        const customDateYear = timeFrameEnd.year!;
-        const customDateMonth = timeFrameEnd.month! - 1;
-
-        const customEndDate = new Date(customDateYear, customDateMonth);
-
-        return simDate <= customEndDate;
-      case 'now':
-        return false;
-      case 'atRetirement':
-        return simulationState.phase?.name !== 'retirement';
-      case 'atLifeExpectancy':
-        return true;
-    }
+    return isActive;
   }
 
   private getTimesToApplyPerYear(): number {
@@ -313,7 +276,7 @@ export class Income {
       case 'yearly':
         return 1;
       case 'oneTime':
-        if (this.hasOneTimeIncomeOccurred) return 0;
+        if (this.hasOneTimeAlreadyOccurred()) return 0;
         return 1;
       case 'quarterly':
         return 4;
@@ -326,12 +289,23 @@ export class Income {
     }
   }
 
+  /**
+   * Whether this one-time payment has already been made for the month being processed.
+   *
+   * Without a cadence it fires exactly once, as it always has. With `everyNYears` it fires once
+   * per occurrence year, so "every 5 years" pays out in year 0, 5, 10, ...
+   */
+  private hasOneTimeAlreadyOccurred(): boolean {
+    if (!this.binding.isRecurring()) return this.hasOneTimeIncomeOccurred;
+    return this.oneTimeOccurrenceIndex !== null && this.oneTimeOccurrenceIndex === this.currentOccurrenceIndex;
+  }
+
   private getTimesToApplyPerMonth(): number {
     switch (this.frequency) {
       case 'yearly':
         return 1 / 12;
       case 'oneTime':
-        if (this.hasOneTimeIncomeOccurred) return 0;
+        if (this.hasOneTimeAlreadyOccurred()) return 0;
         return 1;
       case 'quarterly':
         return 4 / 12;

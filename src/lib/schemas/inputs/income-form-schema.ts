@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import { currencyFieldForbidsZero, optionalPercentageField } from '@/lib/utils/zod-utils';
 
-import { growthSchema, frequencyTimeframeSchema } from './income-expenses-shared-schemas';
+import { amountBasisSchema, growthSchema, frequencyTimeframeSchema } from './income-expenses-shared-schemas';
 
 export type IncomeType = 'wage' | 'socialSecurity' | 'exempt' | 'selfEmployment' | 'pension';
 
@@ -60,6 +60,7 @@ export const incomeFormSchema = z
     id: z.string(),
     name: z.string().min(2, 'Name must be at least 2 characters').max(50, 'Name must be at most 50 characters'),
     amount: currencyFieldForbidsZero('Income cannot be negative or zero'),
+    amountBasis: amountBasisSchema.optional(),
     growth: growthSchema.optional(),
     taxes: incomeTaxSchema,
     disabled: z.boolean().optional(),

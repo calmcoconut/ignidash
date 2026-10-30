@@ -7,7 +7,8 @@
  */
 
 import type { DebtInputs, CompoundingFrequency } from '@/lib/schemas/inputs/debt-form-schema';
-import type { TimePoint } from '@/lib/schemas/inputs/income-expenses-shared-schemas';
+
+import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
 
@@ -157,8 +158,8 @@ export interface DebtData {
 export class Debts {
   private readonly debts: Debt[];
 
-  constructor(data: DebtInputs[]) {
-    this.debts = data.filter((debt) => !debt.disabled).map((debt) => new Debt(debt));
+  constructor(data: DebtInputs[], context?: TimeBindingContext) {
+    this.debts = data.filter((debt) => !debt.disabled).map((debt) => new Debt(debt, context));
   }
 
   getActiveDebts(simulationState: SimulationState): Debt[] {
@@ -179,20 +180,23 @@ export class Debt {
   private nominalAPR: number; // Store nominal APR (user input)
   private interestType: 'simple' | 'compound';
   private compoundingFrequency: CompoundingFrequency | undefined;
-  private startDate: TimePoint;
+  private binding: TimeBinding;
   private monthlyPayment: number; // Mutable, deflates over time
   private hasBeenIncurred: boolean;
 
-  constructor(data: DebtInputs) {
+  constructor(data: DebtInputs, context?: TimeBindingContext) {
     this.id = data.id;
     this.name = data.name;
-    this.balance = data.balance;
-    this.principal = data.balance;
+    this.binding = new TimeBinding(data.startDate, undefined, context);
+    // A nominal balance and payment are expressed in the dollars of the debt's start date, so
+    // both are converted to the plan's real dollars here.
+    const amountScale = this.binding.amountScale(data.amountBasis);
+    this.balance = data.balance * amountScale;
+    this.principal = this.balance;
     this.nominalAPR = data.apr / 100;
     this.interestType = data.interestType;
     this.compoundingFrequency = data.compoundingFrequency;
-    this.startDate = data.startDate;
-    this.monthlyPayment = data.monthlyPayment;
+    this.monthlyPayment = data.monthlyPayment * amountScale;
     this.hasBeenIncurred = data.startDate.type === 'now';
   }
 
@@ -305,30 +309,6 @@ export class Debt {
 
   getIsActive(simulationState: SimulationState): boolean {
     if (this.isPaidOff()) return false;
-    return this.getIsSimTimeAfterDebtStart(simulationState);
-  }
-
-  private getIsSimTimeAfterDebtStart(simulationState: SimulationState): boolean {
-    const simDate = simulationState.time.date;
-    const simAge = simulationState.time.age;
-
-    const startDate = this.startDate;
-    switch (startDate.type) {
-      case 'customAge':
-        return simAge >= startDate.age!;
-      case 'customDate':
-        const customDateYear = startDate.year!;
-        const customDateMonth = startDate.month! - 1;
-
-        const customStartDate = new Date(customDateYear, customDateMonth);
-
-        return simDate >= customStartDate;
-      case 'now':
-        return true;
-      case 'atRetirement':
-        return simulationState.phase?.name === 'retirement';
-      case 'atLifeExpectancy':
-        return false;
-    }
+    return this.binding.isActiveAt(simulationState);
   }
 }
