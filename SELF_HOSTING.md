@@ -76,7 +76,7 @@ without editing `docker-compose.yml`.
 `unraid/ignidash.xml` is a Community Applications-style Docker template for the single-container
 image. On the Unraid box: **Docker → Add Container → Template**, paste the template URL
 
-```
+```text
 https://raw.githubusercontent.com/calmcoconut/ignidash/main/unraid/ignidash.xml
 ```
 
@@ -425,6 +425,84 @@ The guards are deliberate: `--confirm` must be the exact target URL, an interact
 run also asks you to type `RESTORE`, a non-loopback target additionally needs
 `--allow-non-loopback`, and a non-TTY run needs `--yes`. Restore into the **previous**
 image's deployment rather than downgrading a schema in place.
+
+---
+
+## Encryption at rest
+
+**Decision (P5.5, D6): two layers, and no third.**
+
+1. **Host disk encryption** for everything Ignidash stores — the Unraid array or pool holding
+   `/mnt/user/appdata/ignidash` (the `convex-data` appdata) _and_ the backup share
+   `/mnt/user/backups/ignidash`. Unraid covers this with LUKS (encrypted array devices), encrypted
+   XFS/Btrfs pools, or native ZFS encryption.
+2. **age encryption for archives**, which `scripts/backup.sh` applies by default: with no recipient
+   configured it refuses to run at all — before exporting — rather than write a plaintext ZIP, and
+   only `--allow-unencrypted` (or `IGNIDASH_BACKUP_ALLOW_UNENCRYPTED=1`) permits one (see
+   [Encrypting the archive](#encrypting-the-archive)). A configured recipient always wins over that
+   opt-out.
+
+App-level field encryption is deliberately **not built**. That is a decision with reasons, not a
+gap waiting to be filled — the reasons are at the end of this section.
+
+### Residual risks
+
+Disk encryption protects data **at rest on a powered-off disk**. It does not protect against:
+
+- **A running, unlocked array.** Anyone who reaches the app over the LAN, or gets a shell on the box
+  while the array is mounted, reads plaintext. That is what the LAN/Tailscale boundary and the
+  signup lock are for, not the disk encryption.
+- **A keyfile stored beside the array.** Convenient for unattended reboots, but then disk theft and
+  server theft are the same event.
+- **A compromised host.** The OS, the backend, the container and `.env.local` itself (admin key,
+  `BETTER_AUTH_SECRET`, AI keys) are readable from the host. Encryption at rest cannot defend
+  against a host that is running and trusted to decrypt.
+- **A copy taken off the array without its own encryption.** A `cp -r` of the appdata directory, a
+  VM/volume snapshot, or a share synced to the cloud is plaintext unless that destination encrypts.
+  Only archives written by `scripts/backup.sh` carry age — prefer those for anything leaving the
+  box.
+
+### Encrypted arrays and unattended reboots
+
+An encrypted array needs its passphrase or keyfile **at array start**. Consequences:
+
+- **Reboot without a keyfile → the array does not mount →** `/mnt/user/appdata/ignidash` is missing,
+  the container cannot start, and the app is down until someone enters the passphrase.
+- **The nightly backup cron runs into the same wall.** A User Scripts backup on a box that rebooted
+  unattended with no keyfile fails every night until the array is unlocked, and User Scripts only
+  reports that if you look (or have notifications on). A backup that quietly stops is worse than no
+  schedule: check the last-run status after any unattended reboot.
+- With a keyfile on the boot device, reboots are unattended again — but the keyfile is then part of
+  what protects the data, so it must not live on the array it unlocks.
+
+The check for this whole decision is the restore drill's negative case: without the identity, an
+`.age` archive will not decrypt (`scripts/restore.sh` refuses it, and `age` would fail anyway);
+with the identity, the [restore drill](#restore-drill) passes.
+
+### Why app-level field encryption is not built
+
+Considered and rejected (P5.5; `PLAN-parity.md` §5 records it as "won't fix, by decision"):
+
+- **The key would sit next to the data.** Convex functions run server-side, so anything they can
+  decrypt lives in the same container as the database and in the same `.env.local` as the admin key.
+  An attacker with host access gets both. The threat field encryption pretends to solve is already
+  covered by the encrypted disk; the threats it does not cover are the ones that matter.
+- **It would break the app's own contracts.** Convex validators describe plaintext shapes, and
+  indexes, snapshots/undo and the import/export envelope all assume readable values. Encrypted blobs
+  would need parallel schemas, and snapshots would stop being diffable and restores would become
+  all-or-nothing.
+- **It would break server-side AI.** Chat and insights build prompts on the server, so the key would
+  have to be in prompt-building code (same box, same risk) or the features would go away.
+- **It needs a one-way plaintext backfill** for existing rows: a migration with no rollback.
+
+If the threat model changes — the box leaves your physical control, or you expose it beyond the LAN
+— the answer is stronger access control and transport, not field crypto running on the server that
+holds the key.
+
+**Related decision (F5, P5.6):** there is no PWA/service-worker offline shell, because a service
+worker needs a secure context and this deployment is plain HTTP on the LAN; remote access, if
+wanted, is Tailscale, whose own login gates it. The standing rule is unchanged: **exposing the app
+beyond the LAN and Tailscale requires the `twoFactor()` plugin with backup codes first.**
 
 ---
 
