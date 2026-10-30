@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ignidash</Name>
+  <Repository>ghcr.io/calmcoconut/ignidash:latest</Repository>
+  <Registry>https://github.com/calmcoconut/ignidash/pkgs/container/ignidash</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/calmcoconut/ignidash/issues</Support>
+  <Project>https://github.com/calmcoconut/ignidash</Project>
+  <Overview>Self-hosted personal financial planning: Monte Carlo retirement projections, historical backtesting and US tax estimation. One container runs both the Convex backend and the Next.js app; open the WebUI and create the first account.</Overview>
+  <Category>Tools: Productivity:</Category>
+  <WebUI>http://[IP]:[PORT:3030]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/calmcoconut/ignidash/main/unraid/ignidash.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/calmcoconut/ignidash/main/public/apple-touch-icon.png</Icon>
+  <ExtraParams>--health-cmd="curl -fsS http://127.0.0.1:3210/version &gt;/dev/null &amp;&amp; curl -fsS http://127.0.0.1:3000/api/health &gt;/dev/null" --health-interval=15s --health-timeout=5s --health-retries=5 --health-start-period=60s --stop-timeout=30</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled>0</DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Description>Ignidash is a single-container, offline-friendly financial planner. The container supervises two processes: the Convex backend (database, functions, HTTP actions on 3210/3211) and the Next.js app (3000).
+
+The browser talks to the Convex API directly, so ports 3210 and 3211 must be reachable from client machines as well as 3030.
+
+Appdata: /mnt/user/appdata/ignidash holds the SQLite database, uploaded file storage and the Convex instance credentials. Back that path up; it is the only stateful volume. Do not put it on a cache-only share.
+
+First run: open the WebUI, create your account, then clear ALLOW_SIGNUP (signup is locked by default and only unlocked for that bootstrap step). Upgrade by changing the Repository tag or digest; take a backup first (scripts/backup.sh) because the backend applies in-place migrations on start.
+
+Full documentation: https://github.com/calmcoconut/ignidash/blob/main/SELF_HOSTING.md</Description>
+
+  <!-- Ports. The browser dials 3210 (Convex API/WebSocket) and 3211 (HTTP actions) directly. -->
+  <Config Name="WebUI Port" Target="3000" Default="3030" Mode="tcp" Description="Ignidash app (HTTP)." Type="Port" Display="always" Required="true" Mask="false">3030</Config>
+  <Config Name="Convex API Port" Target="3210" Default="3210" Mode="tcp" Description="Convex API and WebSocket. Must be reachable from the browser; put it behind TLS if you expose it beyond the LAN." Type="Port" Display="always" Required="true" Mask="false">3210</Config>
+  <Config Name="Convex Actions Port" Target="3211" Default="3211" Mode="tcp" Description="Convex HTTP actions (auth callbacks)." Type="Port" Display="always" Required="true" Mask="false">3211</Config>
+
+  <!-- The only stateful path in the container. -->
+  <Config Name="Appdata" Target="/convex/data" Default="/mnt/user/appdata/ignidash" Mode="rw" Description="SQLite database, file storage and the Convex instance credentials. Edit this to move the appdata elsewhere; use an array share, not the cache pool." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ignidash</Config>
+
+  <!-- Required settings. -->
+  <Config Name="Site URL" Target="SITE_URL" Default="http://[IP]:[PORT:3030]" Mode="" Description="Public URL of the app, as the browser sees it. Use the LAN IP or hostname, not localhost, when reaching it from another machine." Type="Variable" Display="always" Required="true" Mask="false">http://[IP]:[PORT:3030]</Config>
+  <Config Name="Convex public URL" Target="NEXT_PUBLIC_CONVEX_URL" Default="http://[IP]:[PORT:3210]" Mode="" Description="Convex API URL the browser uses." Type="Variable" Display="always" Required="true" Mask="false">http://[IP]:[PORT:3210]</Config>
+  <Config Name="Convex site URL" Target="NEXT_PUBLIC_CONVEX_SITE_URL" Default="http://[IP]:[PORT:3211]" Mode="" Description="Convex HTTP actions URL the browser uses (auth callbacks)." Type="Variable" Display="always" Required="true" Mask="false">http://[IP]:[PORT:3211]</Config>
+  <Config Name="Auth secret" Target="BETTER_AUTH_SECRET" Default="" Mode="" Description="Secret for sessions and JWKs. Generate with: openssl rand -base64 32 . Generate once and keep it: changing it invalidates every session and encrypted JWK, and the only recovery is restoring a backup." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+
+  <!-- Container-internal wiring (leave as-is unless you know why you are changing it). -->
+  <Config Name="Internal Convex URL" Target="SELF_HOSTED_CONVEX_URL" Default="http://127.0.0.1:3210" Mode="" Description="Server-side Convex URL. Loopback: server traffic never leaves the container." Type="Variable" Display="advanced" Required="true" Mask="false">http://127.0.0.1:3210</Config>
+  <Config Name="Internal Convex site URL" Target="SELF_HOSTED_CONVEX_SITE_URL" Default="http://127.0.0.1:3211" Mode="" Description="Server-side Convex HTTP actions URL (loopback)." Type="Variable" Display="advanced" Required="true" Mask="false">http://127.0.0.1:3211</Config>
+  <Config Name="Advertised Convex origin" Target="CONVEX_CLOUD_ORIGIN" Default="http://[IP]:[PORT:3210]" Mode="" Description="Origin the backend advertises to clients. Must match NEXT_PUBLIC_CONVEX_URL." Type="Variable" Display="advanced" Required="true" Mask="false">http://[IP]:[PORT:3210]</Config>
+  <Config Name="Advertised Convex site origin" Target="CONVEX_SITE_ORIGIN" Default="http://[IP]:[PORT:3211]" Mode="" Description="Origin the backend advertises for HTTP actions. Must match NEXT_PUBLIC_CONVEX_SITE_URL." Type="Variable" Display="advanced" Required="true" Mask="false">http://[IP]:[PORT:3211]</Config>
+  <Config Name="Disable telemetry" Target="DISABLE_BEACON" Default="true" Mode="" Description="Stops the backend's hourly beacon. Leave true for a private instance." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Backend log level" Target="RUST_LOG" Default="info" Mode="" Description="Convex backend log level." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+
+  <!-- Optional product surface. -->
+  <Config Name="Allow signup" Target="ALLOW_SIGNUP" Default="" Mode="" Description="Account creation is LOCKED unless this is exactly true. Bootstrap: set true, create your account, then clear it and restart. Password reset does not need it (/forgot-password writes the link to the container log)." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Google client ID" Target="GOOGLE_CLIENT_ID" Default="" Mode="" Description="Optional Google sign-in. The button also requires NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=true at image build time, so the published image does not show it." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Google client secret" Target="GOOGLE_CLIENT_SECRET" Default="" Mode="" Description="Optional Google sign-in secret." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="OpenAI API key" Target="OPENAI_API_KEY" Default="" Mode="" Description="Optional: enables AI chat and insights. Leave empty to hide both." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="OpenAI base URL" Target="OPENAI_BASE_URL" Default="" Mode="" Description="Optional: any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio) to keep AI traffic on the LAN." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Azure OpenAI endpoint" Target="OPENAI_ENDPOINT" Default="" Mode="" Description="Optional: Azure OpenAI endpoint, used only when OPENAI_BASE_URL is empty." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Chat model" Target="OPENAI_CHAT_MODEL" Default="gpt-5.2-chat" Mode="" Description="Optional: model or deployment name for chat." Type="Variable" Display="advanced" Required="false" Mask="false">gpt-5.2-chat</Config>
+  <Config Name="Insights model" Target="OPENAI_INSIGHTS_MODEL" Default="gpt-5.2" Mode="" Description="Optional: model or deployment name for insights." Type="Variable" Display="advanced" Required="false" Mask="false">gpt-5.2</Config>
+</Container>

@@ -56,6 +56,9 @@ demo-log.json
 # Scripts (not needed at runtime)
 scripts/
 
+# Unraid deployment assets (template + User Scripts entry, not needed in the image)
+unraid/
+
 # Backup files
 *.backup
 *.bak

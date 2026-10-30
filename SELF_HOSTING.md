@@ -71,6 +71,36 @@ without editing `docker-compose.yml`.
 
 ---
 
+## Unraid template
+
+`unraid/ignidash.xml` is a Community Applications-style Docker template for the single-container
+image. On the Unraid box: **Docker → Add Container → Template**, paste the template URL
+
+```
+https://raw.githubusercontent.com/calmcoconut/ignidash/main/unraid/ignidash.xml
+```
+
+then fill in the fields. It carries:
+
+| Field                         | Default                               | Notes                                                                 |
+| ----------------------------- | ------------------------------------- | --------------------------------------------------------------------- |
+| Repository                    | `ghcr.io/calmcoconut/ignidash:latest` | Pin a tag or digest for upgrades you can roll back                    |
+| WebUI port → 3000             | `3030`                                | The app                                                               |
+| Convex API port → 3210        | `3210`                                | The browser dials this directly; it must be reachable from the client |
+| Convex actions port → 3211    | `3211`                                | Auth callbacks                                                        |
+| Appdata → `/convex/data`      | `/mnt/user/appdata/ignidash`          | Editable: the only stateful path (SQLite, file storage, credentials)  |
+| Site URL / Convex public URLs | `http://[IP]:[PORT:…]`                | Replace the LAN IP if you edit the ports                              |
+| Auth secret                   | empty, masked                         | `openssl rand -base64 32`, generated once and kept forever            |
+| Allow signup                  | empty (locked)                        | Set `true` only for the bootstrap step                                |
+| Google / OpenAI               | empty                                 | Optional; AI features stay hidden until configured                    |
+| Healthcheck                   | `--health-cmd` in `ExtraParams`       | Probes both processes, the same pair as the compose healthcheck       |
+
+Appdata on an array share, not the cache pool — the same rule as backups. The template pins no
+version beyond `:latest`; change the Repository to a digest before upgrading, so the rollback is
+"start the previous image", not "downgrade the schema".
+
+---
+
 ## Commands
 
 | Command                             | Description                                                    |
@@ -329,16 +359,20 @@ pool is rebuilt or the cache drive fails, which is the situation the backup exis
 for. Because the array share is on the encrypted array, the archives are also
 encrypted at rest; the age layer protects the copy once it leaves the box.
 
-An example User Script (schedule it nightly, e.g. `0 3 * * *`):
+The repository ships the entry: **`unraid/user-scripts/ignidash-backup.sh`**. Paste it into
+**User Scripts → Add New Script**, set `REPO_DIR` if you cloned somewhere other than
+`/mnt/user/appdata/ignidash`, save, then schedule it (Daily, or custom `0 3 * * *`). It exports the
+cron `PATH` itself, writes to `/mnt/user/backups/ignidash` and hands off to `scripts/backup.sh`, so
+a failed export shows up as a failed run instead of a silent one.
 
 ```bash
 #!/bin/bash
-# Cron runs with a minimal PATH; NerdTools installs into /usr/bin and /usr/local/bin.
+# The shape of that script; see unraid/user-scripts/ignidash-backup.sh for the real one.
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-cd /mnt/user/appdata/ignidash || exit 1   # the cloned repository
-export AGE_RECIPIENT=age1...              # or AGE_IDENTITY_FILE=/root/.keys/ignidash-backup.txt
+REPO_DIR=/mnt/user/appdata/ignidash
 export IGNIDASH_BACKUP_DIR=/mnt/user/backups/ignidash
-exec bash scripts/backup.sh
+export AGE_RECIPIENT=age1...              # or AGE_IDENTITY_FILE=/root/.keys/ignidash-backup.txt
+cd "$REPO_DIR" && exec bash scripts/backup.sh
 ```
 
 The script reads `CONVEX_SELF_HOSTED_URL` / `CONVEX_SELF_HOSTED_ADMIN_KEY` from
@@ -450,6 +484,33 @@ before every upgrade, and keep the restore drill green.
 
 ---
 
+## Database migrations
+
+Migrations run through `@convex-dev/migrations`. `scripts/selfhost.sh` calls `migrations:runAll`
+after a failed-closed export (see [Updating](#updating)), and `npm run selfhost -- --sync-only`
+does not run them at all.
+
+The policy, in order of importance:
+
+1. **Append-only.** A new migration is added to the end of `runAll` in `convex/migrations.ts`. An
+   entry that has ever shipped is never removed or reordered: a deployment that already ran it
+   would skip it, and one that has not would run it out of order.
+2. **Idempotent.** Running a migration twice must leave documents byte-identical. The simplest way
+   is what `backfillOwnerAndHousehold` does: compute a patch, return `undefined` when there is
+   nothing to write, and never overwrite a field that is already set.
+3. **Expand/contract.** Add the new field or table first and make readers default to it
+   (`owner ?? 'primary'`, "missing household means one person"), ship that, migrate the data, and
+   only remove the old path in a later release. A migration never changes a number: if the reader
+   default and the migrated value disagree, the migration is wrong.
+4. **Fail closed.** `runAll` is only reached after an export succeeded, so the pre-migration state
+   is always restorable. An export failure aborts the upgrade instead of migrating without a
+   rollback point.
+
+`backfillOwnerAndHousehold` is the worked example: it backfills `owner`/`propertyRegime`/`household`
+on plans written before households existed, skips anything a user already tagged, skips
+`planSnapshots` (rewriting history would make a restored snapshot differ from what was stored), and
+is a no-op on a second run. Its readers had already defaulted, so it moved no numbers.
+
 ## No dashboard
 
 The Convex dashboard is not shipped. Everything it did has a CLI equivalent. Two
@@ -496,6 +557,15 @@ docker compose logs --tail=100 ignidash
 
 The healthcheck requires **both** processes: `127.0.0.1:3210/version` (backend) and
 `127.0.0.1:3000/api/health` (app). A dead backend shows as an unhealthy container.
+`/api/health` answers `{"status":"ok","version":"<package version>","uptime":<seconds since the app
+process started>}`, so a restart is visible as a small `uptime` and a hang as a climbing one:
+
+```bash
+curl -s http://127.0.0.1:3030/api/health
+```
+
+`version` comes from the image's `package.json`, not a hand-written string, so it changes when you
+upgrade or roll back.
 
 Startup order is handled inside the entrypoint — it waits for `/version` before
 starting Next.js, so an early `502` usually means the backend never came up.
