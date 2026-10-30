@@ -1,16 +1,21 @@
 'use client';
 
+import { useState } from 'react';
+
 import { useShowReferenceLines } from '@/lib/stores/simulator-store';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 import { Select } from '@/components/catalyst/select';
 import type { SingleSimulationCashFlowChartDataPoint } from '@/lib/types/chart-data-points';
 import type { CashFlowDataView } from '@/lib/types/chart-data-views';
+import { resolveDataView } from '@/lib/charts/metric-registry';
 import { useUniqueChartItems } from '@/hooks/use-unique-chart-items';
 import { useDataViewSelectHandler } from '@/hooks/use-data-view-select';
+import { useChartDataSlice } from '@/hooks/use-chart-data-slice';
 
 import SingleSimulationCashFlowLineChart from '../../charts/single-simulation/single-simulation-cash-flow-line-chart';
 import ChartTimeFrameDropdown from '../../chart-time-frame-dropdown';
-import ChartCard from '../chart-card';
+import MetricTable from '../../tables/metric-table';
+import ChartCard, { type ChartCardView } from '../chart-card';
 
 const CASH_FLOW_NON_CUSTOM_VIEWS = ['surplusDeficit', 'cashFlow', 'incomes', 'expenses', 'savingsRate'] as const satisfies readonly Exclude<
   CashFlowDataView,
@@ -48,6 +53,7 @@ export default function SingleSimulationCashFlowLineChartCard({
   startAge,
 }: SingleSimulationCashFlowLineChartCardProps) {
   const showReferenceLines = useShowReferenceLines();
+  const [view, setView] = useState<ChartCardView>('chart');
 
   const uniqueIncomes = useUniqueChartItems(rawChartData, extractIncomes);
   const uniqueExpenses = useUniqueChartItems(rawChartData, extractExpenses);
@@ -55,11 +61,26 @@ export default function SingleSimulationCashFlowLineChartCard({
 
   const { handleSelectChange, getSelectValue } = useDataViewSelectHandler(setDataView, setCustomDataID, CASH_FLOW_NON_CUSTOM_VIEWS);
 
+  // The toggle only exists for views the metric registry owns. `custom` (and, later, any
+  // view P4-P6 has not migrated) keeps its bespoke chart switch and shows no toggle, so a
+  // stale table view can never outlive the metric it belongs to.
+  const resolution = resolveDataView('cashFlow', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+
+  // The table shows the same window the chart does; the chart itself keeps receiving the
+  // unsliced `rawChartData`, so this cannot alter what it renders.
+  const tablePoints = useChartDataSlice(rawChartData, 'single');
+
   return (
     <ChartCard
       title="Cash Flow"
       subtitle="Time Series"
       truncateTitle
+      view={view}
+      onViewChange={metric ? setView : undefined}
+      table={
+        metric ? <MetricTable metricId={metric.id} points={tablePoints} exportFilename={`cash-flow-${dataView}-table.csv`} /> : undefined
+      }
       controls={
         <>
           <Select
