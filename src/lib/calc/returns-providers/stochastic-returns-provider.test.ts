@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 
 import { StochasticReturnsProvider } from './stochastic-returns-provider';
+import { SeededRandom } from './seeded-random';
 import type { PhaseData } from '../phase';
 
 describe('StochasticReturnsProvider', () => {
@@ -103,41 +104,62 @@ describe('StochasticReturnsProvider', () => {
     const volatility = 0.18; // 18%
     const numSamples = 10000;
 
+    // A seeded generator, not `Math.random()`: these are statistical claims, and the sample they
+    // are measured on has to be the same on every run. The tolerances below are the sampling error
+    // of this sample size (four standard errors), not slack widened until a flaky test stopped
+    // failing — a provider whose mean or sigma is wrong still fails them.
+    const random = new SeededRandom(54321);
+
     const returns: number[] = [];
     const logReturns: number[] = [];
 
-    // Generate samples using Box-Muller for z-scores
     for (let i = 0; i < numSamples; i++) {
-      const u1 = Math.random();
-      const u2 = Math.random();
-      const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-
-      const r = generateLogNormalReturn.call(provider, expectedReturn, volatility, z);
+      const r = generateLogNormalReturn.call(provider, expectedReturn, volatility, random.nextGaussian());
       returns.push(r);
       logReturns.push(Math.log(1 + r));
     }
 
-    // Verify mean and std dev match inputs
-    const meanReturn = returns.reduce((sum, r) => sum + r, 0) / numSamples;
-    const variance = returns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / numSamples;
-    const stdDev = Math.sqrt(variance);
+    const mean = (values: number[]): number => values.reduce((sum, value) => sum + value, 0) / values.length;
+    const stdDev = (values: number[], valuesMean: number): number =>
+      Math.sqrt(values.reduce((sum, value) => sum + Math.pow(value - valuesMean, 2), 0) / values.length);
 
-    expect(meanReturn).toBeCloseTo(expectedReturn, 2);
-    expect(stdDev).toBeCloseTo(volatility, 2);
+    // The distribution the provider promises: ln(1 + R) is normal with this sigma and mu, which is
+    // also what makes the arithmetic mean of R equal `expectedReturn` and its sigma `volatility`.
+    const onePlusMean = 1 + expectedReturn;
+    const sigma = Math.sqrt(Math.log(1 + (volatility * volatility) / (onePlusMean * onePlusMean)));
+    const mu = Math.log(onePlusMean) - 0.5 * sigma * sigma;
+
+    // Four standard errors: 4·sd/sqrt(n) for a mean, 4·sd/sqrt(2n) for a standard deviation.
+    const standardErrors = 4;
+
+    const meanReturn = mean(returns);
+    const sampleStdDev = stdDev(returns, meanReturn);
+
+    // Verify mean and std dev match inputs
+    expect(Math.abs(meanReturn - expectedReturn)).toBeLessThanOrEqual((standardErrors * volatility) / Math.sqrt(numSamples));
+    expect(Math.abs(sampleStdDev - volatility)).toBeLessThanOrEqual((standardErrors * volatility) / Math.sqrt(2 * numSamples));
 
     // Verify all returns > -100%
     expect(Math.min(...returns)).toBeGreaterThan(-1);
 
-    // Verify log-returns follow normal distribution
-    const meanLog = logReturns.reduce((sum, lr) => sum + lr, 0) / numSamples;
-    const logStdDev = Math.sqrt(logReturns.reduce((sum, lr) => sum + Math.pow(lr - meanLog, 2), 0) / numSamples);
+    // Verify log-returns follow the normal distribution the parameters imply
+    const meanLog = mean(logReturns);
+    const logStdDev = stdDev(logReturns, meanLog);
+
+    expect(Math.abs(meanLog - mu)).toBeLessThanOrEqual((standardErrors * sigma) / Math.sqrt(numSamples));
+    expect(Math.abs(logStdDev - sigma)).toBeLessThanOrEqual((standardErrors * sigma) / Math.sqrt(2 * numSamples));
 
     const within1Sigma = logReturns.filter((lr) => Math.abs(lr - meanLog) <= logStdDev).length / numSamples;
-    expect(within1Sigma).toBeCloseTo(0.68, 1);
+    expect(Math.abs(within1Sigma - 0.6827)).toBeLessThanOrEqual(
+      (standardErrors * Math.sqrt(0.6827 * (1 - 0.6827))) / Math.sqrt(numSamples)
+    );
 
-    // Verify positive skewness (characteristic of log-normal)
-    const skewness = returns.reduce((sum, r) => sum + Math.pow((r - meanReturn) / stdDev, 3), 0) / numSamples;
+    // Verify the skewness is positive, and that it is the value this sigma implies for a log-normal
+    const skewness = returns.reduce((sum, r) => sum + Math.pow((r - meanReturn) / sampleStdDev, 3), 0) / numSamples;
+    const logNormalSkewness = (Math.exp(sigma * sigma) + 2) * Math.sqrt(Math.exp(sigma * sigma) - 1);
+
     expect(skewness).toBeGreaterThan(0);
+    expect(Math.abs(skewness - logNormalSkewness)).toBeLessThanOrEqual(0.1);
   });
 
   it('should handle extreme parameter combinations correctly', () => {

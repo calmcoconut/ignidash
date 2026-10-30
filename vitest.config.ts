@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 
 export default defineConfig({
@@ -11,7 +11,12 @@ export default defineConfig({
     ],
   },
   test: {
-    exclude: ['e2e/**', 'node_modules/**'],
+    // `exclude` REPLACES `configDefaults.exclude` rather than extending it, so the defaults have to
+    // be spread back in explicitly. Without them the suite loses `**/node_modules/**` (any depth — a
+    // workspace's or Playwright's nested install, not just the root one) and `**/.git/**`, and a
+    // stray `*.test.ts` in either would be collected. `e2e/**` is the project's own addition: the
+    // Playwright specs match the default `*.spec.ts` include pattern but are not unit tests.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     server: { deps: { inline: ['convex-test'] } },
   },
 });
