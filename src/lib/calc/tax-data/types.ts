@@ -170,6 +170,24 @@ export interface MedicareIrmaaTable {
   readonly standardPartBMonthly: number;
 }
 
+/**
+ * The temporary senior deduction (IRC §151(d)(5)(C), added by P.L. 119-21 §70103).
+ *
+ * $6,000 for each individual on the return who is 65 or older at the end of the year, reduced by 6%
+ * of MAGI over $75,000 ($150,000 on a joint return), for tax years beginning before 2029. It is
+ * **fixed** by statute — not indexed — and it is *not* an itemized deduction: it is allowed on top
+ * of the standard deduction or the itemized total, and it survives into AMTI because §56 does not
+ * add it back. `lastTaxYear` carries the sunset so a later year's return reads zero from the table
+ * rather than borrowing the last year the deduction existed.
+ */
+export interface SeniorDeductionTable {
+  readonly perIndividual: number;
+  readonly phaseOutThreshold: ByFilingStatus<number>;
+  readonly phaseOutRate: number;
+  /** The last tax year the deduction exists (the statute's "before January 1, 2029"). */
+  readonly lastTaxYear: TaxYear;
+}
+
 /** Table groups every jurisdiction has. */
 export interface TaxTables {
   /** Progressive ordinary-income schedule (federal: IRC §1). */
@@ -206,6 +224,10 @@ export interface FederalTaxTables extends TaxTables {
   readonly alternativeMinimumTax: TableMeta<AlternativeMinimumTaxTable>;
   /** Medicare income-related monthly adjustment amounts, Parts B and D (42 U.S.C. §1395r(i)). */
   readonly medicareIrmaa: TableMeta<MedicareIrmaaTable>;
+  /** The temporary senior deduction (IRC §151(d)(5)(C)). */
+  readonly seniorDeduction: TableMeta<SeniorDeductionTable>;
+  /** The AGI floor on the medical-expense itemized deduction (IRC §213(a)); a rate, not an amount. */
+  readonly medicalExpenseFloor: TableMeta<number>;
 }
 
 /**

@@ -36,7 +36,7 @@
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
-import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
+import type { FilingStatus, ItemizedDeductionsInputs } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
 import type { SimulationState } from './simulation-engine';
 import type { IncomesData } from './incomes';
@@ -47,6 +47,7 @@ import { sumFlows } from './asset';
 import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
+import { saltCapFor } from './tax-data/salt-cap';
 import type {
   CapitalGainsTaxBracket,
   FederalIncomeTaxBracket,
@@ -127,6 +128,48 @@ export interface IrmaaData {
   total: number;
 }
 
+/**
+ * The plan's deduction settings (P3-P3), passed in by the caller.
+ *
+ * `itemizedDeductions` absent means "this plan does not itemize" — the standard deduction applies.
+ * It is deliberately not defaulted to zeros: a plan that itemizes nothing and a plan that has never
+ * heard of itemizing are the same arithmetic but different data, and the export envelope's v6
+ * statement depends on the distinction.
+ */
+export interface DeductionSettings {
+  readonly itemizedDeductions?: ItemizedDeductionsInputs | undefined;
+  readonly spouseQualifiesForSeniorDeduction?: boolean | undefined;
+}
+
+/**
+ * What reduced taxable income this year, and which rule did it.
+ *
+ * The return takes the **larger** of the standard deduction and the itemized total (a tie goes to
+ * the standard deduction), and then adds the §151(d)(5)(C) senior deduction, which is allowed on top
+ * of either. `type` says which of the two was taken, so a reader never has to infer it from the
+ * numbers.
+ */
+export interface DeductionData {
+  type: 'standard' | 'itemized';
+  standardDeduction: number;
+  /** The itemized lines after the statutory limits; all zero when the standard deduction was taken. */
+  itemized: {
+    mortgageInterest: number;
+    charitable: number;
+    /** State and local taxes after the §164(b)(7) cap. */
+    stateAndLocalTaxes: number;
+    /** Medical expenses above the §213(a) floor. */
+    medicalExpenses: number;
+    total: number;
+  };
+  /** The SALT cap that applied, and what it did to the entered amount. */
+  saltCap: { entered: number; allowed: number; phaseDown: number; resolvedYear: TaxYear };
+  /** §151(d)(5)(C): $6,000 per qualified individual, phased out, additional to the deduction above. */
+  seniorDeduction: number;
+  /** `max(standardDeduction, itemized.total) + seniorDeduction`. */
+  total: number;
+}
+
 export interface TaxesData {
   federalIncomeTaxes: FederalIncomeTaxesData;
   capitalGainsTaxes: CapitalGainsTaxesData;
@@ -162,8 +205,13 @@ export interface TaxesData {
   totalTaxableIncome: number;
   /** Above-the-line adjustments: tax-deferred contributions (401k/IRA/HSA), capital loss deduction, Section 121 exclusion, half of the SE tax */
   adjustments: Record<string, number>;
-  /** Below-the-line deductions: standard deduction (itemized deductions not modeled) */
+  /**
+   * Below-the-line deductions actually taken, as a record: `standardDeduction` when the standard
+   * deduction won, the itemized lines when they did, plus `seniorDeduction` either way.
+   */
   deductions: Record<string, number>;
+  /** The same deductions with the selection and the statutory limits made explicit. */
+  deduction: DeductionData;
 }
 
 export interface EarlyWithdrawalPenaltyData {
@@ -243,7 +291,8 @@ export class TaxProcessor {
     private simulationState: SimulationState,
     private filingStatus: FilingStatus,
     taxYear: TaxYear = LATEST_TAX_YEAR,
-    rulesetOverride?: FederalTaxRuleset
+    rulesetOverride?: FederalTaxRuleset,
+    private deductionSettings: DeductionSettings = {}
   ) {
     this.taxYear = taxYear;
     this.ruleset = rulesetOverride ?? getRules(taxYear);
@@ -316,9 +365,11 @@ export class TaxProcessor {
       provisionalIncome: incomeData.provisionalIncome,
     };
 
-    const standardDeduction = this.getStandardDeduction();
-    const deductionUsedForOrdinary = Math.min(standardDeduction, incomeData.adjustedIncomeTaxedAsOrdinary);
-    const deductionUsedForGains = standardDeduction - deductionUsedForOrdinary;
+    // Which deduction the return takes (P3-P3): the larger of the standard deduction and the
+    // itemized total, plus the senior deduction, which §151(d)(5)(C) allows on top of either.
+    const deduction = this.processDeductions(incomeData.adjustedGrossIncome);
+    const deductionUsedForOrdinary = Math.min(deduction.total, incomeData.adjustedIncomeTaxedAsOrdinary);
+    const deductionUsedForGains = deduction.total - deductionUsedForOrdinary;
 
     const taxableIncomeTaxedAsOrdinary = Math.max(0, incomeData.adjustedIncomeTaxedAsOrdinary - deductionUsedForOrdinary);
     const taxableIncomeTaxedAsCapitalGains = Math.max(0, incomeData.adjustedIncomeTaxedAsCapitalGains - deductionUsedForGains);
@@ -357,7 +408,14 @@ export class TaxProcessor {
     // part of the tax the alternative minimum tax competes with.
     const amt = this.processAlternativeMinimumTax({
       taxableIncome: taxableIncomeTaxedAsOrdinary + taxableIncomeTaxedAsCapitalGains,
-      deductionApplied: deductionUsedForOrdinary + deductionUsedForGains,
+      // The lines actually taken, scaled by how much of the deduction the year's income could use.
+      // §56(b)(1) then adds back the disallowed ones — the standard deduction, or the SALT line —
+      // which is how itemized preferences reach AMTI without any itemized-specific code.
+      appliedDeductions: this.deductionsTaken(deduction),
+      deductionUsedFraction:
+        deduction.total > 0
+          ? Math.min(1, (incomeData.adjustedIncomeTaxedAsOrdinary + incomeData.adjustedIncomeTaxedAsCapitalGains) / deduction.total)
+          : 0,
       netCapitalGains: taxableIncomeTaxedAsCapitalGains,
       regularIncomeTax: federalIncomeTaxes.federalIncomeTaxAmount + capitalGainsTaxes.capitalGainsTaxAmount,
     });
@@ -400,7 +458,8 @@ export class TaxProcessor {
         section121Exclusion: incomeData.section121Exclusion,
         selfEmploymentTaxDeduction: fica.selfEmployment.halfDeduction,
       },
-      deductions: { standardDeduction },
+      deductions: { ...this.deductionsTaken(deduction), seniorDeduction: deduction.seniorDeduction },
+      deduction,
     };
   }
 
@@ -432,22 +491,26 @@ export class TaxProcessor {
    */
   private processAlternativeMinimumTax({
     taxableIncome,
-    deductionApplied,
+    appliedDeductions,
+    deductionUsedFraction,
     netCapitalGains,
     regularIncomeTax,
   }: {
     taxableIncome: number;
-    deductionApplied: number;
+    appliedDeductions: Record<string, number>;
+    /** How much of the deduction the year's income could actually use (1 when income covers it). */
+    deductionUsedFraction: number;
     netCapitalGains: number;
     regularIncomeTax: number;
   }): AlternativeMinimumTaxesData {
     const table = this.ruleset.tables.alternativeMinimumTax.values;
 
-    // The deductions the regular return took that AMT does not allow. Today the engine applies no
-    // itemized deductions, so `standardDeduction` is the only entry that can be non-zero; the list
-    // is read from the table so P3-P3's itemized lines join it without touching this code.
-    const appliedDeductions: Record<string, number> = { standardDeduction: deductionApplied };
-    const addbacks = table.disallowedDeductions.reduce((total, id) => total + (appliedDeductions[id] ?? 0), 0);
+    // The deductions the regular return took that AMT does not allow (IRC §56(b)(1)): the standard
+    // deduction, or the itemized lines it names — state and local taxes, miscellaneous itemized
+    // deductions. Qualified mortgage interest and charitable contributions survive, so they are
+    // simply not on the list. Scaling by the fraction the income could use keeps AMTI from
+    // inheriting a deduction the regular return never got to take.
+    const addbacks = table.disallowedDeductions.reduce((total, id) => total + (appliedDeductions[id] ?? 0) * deductionUsedFraction, 0);
 
     const amtIncome = taxableIncome + addbacks;
 
@@ -539,6 +602,98 @@ export class TaxProcessor {
       partDMonthly: tier.partDMonthly,
       total: (tier.partBMonthly + tier.partDMonthly) * 12,
     };
+  }
+
+  /**
+   * The deduction the return takes, and why (P3-P3).
+   *
+   * The rule is the larger of the standard deduction and the itemized total, with a tie going to the
+   * standard deduction, plus the §151(d)(5)(C) senior deduction on top. Two statutory limits are
+   * applied here rather than by the user: the SALT cap (with its MAGI phase-down) and the 7.5%-of-AGI
+   * floor on medical expenses.
+   *
+   * Hand check (2026, single, AGI $200,000, itemized: SALT $50,000, mortgage interest $20,000,
+   * charitable $10,000, medical $30,000):
+   *   SALT: cap 40,400 (MAGI is under the $505,000 phase-down) → min(50,000, 40,400) = $40,400
+   *   medical: 30,000 − 7.5% × 200,000 = 30,000 − 15,000            = $15,000
+   *   itemized total = 40,400 + 20,000 + 10,000 + 15,000            = $85,400
+   *   standard = $16,100 → itemized wins; senior = 0 (under 65)      → total $85,400
+   */
+  private processDeductions(adjustedGrossIncome: number): DeductionData {
+    const standardDeduction = this.getStandardDeduction();
+    const entered = this.deductionSettings.itemizedDeductions;
+    const salt = saltCapFor(this.taxYear, adjustedGrossIncome);
+    const medicalFloor = this.ruleset.tables.medicalExpenseFloor.values;
+
+    const lines = {
+      mortgageInterest: entered?.mortgageInterest ?? 0,
+      charitable: entered?.charitable ?? 0,
+      stateAndLocalTaxes: Math.min(entered?.stateAndLocalTaxes ?? 0, salt.cap),
+      medicalExpenses: Math.max(0, (entered?.medicalExpenses ?? 0) - medicalFloor * adjustedGrossIncome),
+    };
+    const itemizedTotal = lines.mortgageInterest + lines.charitable + lines.stateAndLocalTaxes + lines.medicalExpenses;
+
+    // A tie goes to the standard deduction: it is simpler to explain and it is what the form does
+    // when the two are equal (there is nothing to itemize *for*).
+    const type: 'standard' | 'itemized' = itemizedTotal > standardDeduction ? 'itemized' : 'standard';
+    const base = type === 'itemized' ? itemizedTotal : standardDeduction;
+    const seniorDeduction = this.seniorDeductionFor(adjustedGrossIncome);
+
+    return {
+      type,
+      standardDeduction,
+      itemized: { ...lines, total: itemizedTotal },
+      saltCap: {
+        entered: entered?.stateAndLocalTaxes ?? 0,
+        allowed: lines.stateAndLocalTaxes,
+        phaseDown: (entered?.stateAndLocalTaxes ?? 0) - lines.stateAndLocalTaxes,
+        resolvedYear: salt.resolvedYear,
+      },
+      seniorDeduction,
+      total: base + seniorDeduction,
+    };
+  }
+
+  /**
+   * The lines the return actually deducted, keyed by the names §56(b)(1) uses.
+   *
+   * This is the record the AMT addback reads: it names the standard deduction when that was taken,
+   * or the itemized lines when they were, and never both.
+   */
+  private deductionsTaken(deduction: DeductionData): Record<string, number> {
+    if (deduction.type === 'itemized') {
+      const { mortgageInterest, charitable, stateAndLocalTaxes, medicalExpenses } = deduction.itemized;
+      return { mortgageInterest, charitable, stateAndLocalTaxes, medicalExpenses };
+    }
+
+    return { standardDeduction: deduction.standardDeduction };
+  }
+
+  /**
+   * The temporary senior deduction (IRC §151(d)(5)(C), P.L. 119-21 §70103).
+   *
+   * $6,000 for each individual on the return who is 65 or older at the end of the year, reduced by
+   * 6% of MAGI over $75,000 ($150,000 on a joint return), for tax years beginning before 2029 — the
+   * sunset is read from the table, so a 2029 return gets nothing rather than last year's amount.
+   *
+   * The primary's age is the simulation clock's age (the plan axis). A spouse's age is not part of
+   * the tax inputs, so a joint return counts the spouse only when the plan says so; absent means
+   * "under 65", the conservative reading.
+   *
+   * Hand check (2026, single, age 67, MAGI $80,000): 6,000 − 6% × (80,000 − 75,000) = $5,700.
+   */
+  private seniorDeductionFor(adjustedGrossIncome: number): number {
+    const table = this.ruleset.tables.seniorDeduction.values;
+    if (this.taxYear > table.lastTaxYear) return 0;
+
+    const primaryQualifies = this.simulationState.time.age >= 65;
+    const spouseQualifies =
+      this.filingStatus === 'marriedFilingJointly' && this.deductionSettings.spouseQualifiesForSeniorDeduction === true;
+    const qualifiedIndividuals = (primaryQualifies ? 1 : 0) + (spouseQualifies ? 1 : 0);
+    if (qualifiedIndividuals === 0) return 0;
+
+    const excess = Math.max(0, adjustedGrossIncome - table.phaseOutThreshold[this.filingStatus]);
+    return Math.max(0, table.perIndividual * qualifiedIndividuals - table.phaseOutRate * excess);
   }
 
   /**

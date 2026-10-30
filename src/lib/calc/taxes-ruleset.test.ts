@@ -12,6 +12,10 @@ import {
   createEmptyPhysicalAssetsData,
 } from './__tests__/test-utils';
 
+/**
+ * A mock state at `age`. The fixtures use 60 so the §151(d)(5)(C) senior deduction (age 65+, tax
+ * years 2025-2028) does not shift the taxable income these ruleset-resolution assertions are about.
+ */
 const createMockSimulationState = (age: number): SimulationState => ({
   time: { date: new Date(2026, 0, 1), age, year: 2026, month: 1 },
   portfolio: new Portfolio([]),
@@ -55,7 +59,7 @@ function withSocialSecurityPercentage(taxablePercentage: number): FederalTaxRule
 
 describe('TaxProcessor — tax year and ruleset', () => {
   it('settles the year it is given', () => {
-    const processor = new TaxProcessor(createMockSimulationState(65), 'single', 2026);
+    const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2026);
     const taxes = process(processor);
 
     // Provisional income 33,000 lands in the single 50% tier: min((33,000 - 25,000) × 50%, 20,000 × 50%).
@@ -65,21 +69,21 @@ describe('TaxProcessor — tax year and ruleset', () => {
   });
 
   it('resolves a later year to the nearest prior ruleset', () => {
-    const processor = new TaxProcessor(createMockSimulationState(65), 'single', 2051);
+    const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2051);
 
     expect(process(processor).federalIncomeTaxes.federalIncomeTaxAmount).toBe(
-      process(new TaxProcessor(createMockSimulationState(65), 'single', 2026)).federalIncomeTaxes.federalIncomeTaxAmount
+      process(new TaxProcessor(createMockSimulationState(60), 'single', 2026)).federalIncomeTaxes.federalIncomeTaxAmount
     );
   });
 
   it('throws for a year with no ruleset at or before it', () => {
-    expect(() => new TaxProcessor(createMockSimulationState(65), 'single', 2025)).toThrow(
+    expect(() => new TaxProcessor(createMockSimulationState(60), 'single', 2025)).toThrow(
       /No federal tax ruleset for 2025 or any earlier year/
     );
   });
 
   it('re-resolves the ruleset when the year advances', () => {
-    const processor = new TaxProcessor(createMockSimulationState(65), 'single', 2026);
+    const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2026);
     const firstYear = process(processor);
 
     processor.setTaxYear(LATEST_TAX_YEAR + 5);
@@ -89,7 +93,7 @@ describe('TaxProcessor — tax year and ruleset', () => {
   });
 
   it('reads the §86 tier percentages from the dataset instead of hard-coded values', () => {
-    const state = createMockSimulationState(65);
+    const state = createMockSimulationState(60);
 
     const currentLaw = process(new TaxProcessor(state, 'single', 2026));
     const atEightyFive = process(new TaxProcessor(state, 'single', 2026, withSocialSecurityPercentage(0.85)));
@@ -118,7 +122,7 @@ describe('TaxProcessor — tax year and ruleset', () => {
       },
     };
 
-    const taxes = process(new TaxProcessor(createMockSimulationState(65), 'single', 2026, noDeduction));
+    const taxes = process(new TaxProcessor(createMockSimulationState(60), 'single', 2026, noDeduction));
 
     // 23,000 other income + 4,000 taxable benefits = 27,000, undeducted.
     expect(taxes.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBe(27000);

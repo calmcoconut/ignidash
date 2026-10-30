@@ -1438,6 +1438,40 @@
             "marriedFilingJointly",
             "headOfHousehold"
           ]
+        },
+        "itemizedDeductions": {
+          "type": "object",
+          "properties": {
+            "mortgageInterest": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            },
+            "charitable": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            },
+            "stateAndLocalTaxes": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            },
+            "medicalExpenses": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            }
+          },
+          "required": [
+            "mortgageInterest",
+            "charitable",
+            "stateAndLocalTaxes",
+            "medicalExpenses"
+          ]
+        },
+        "spouseQualifiesForSeniorDeduction": {
+          "type": "boolean"
         }
       },
       "required": [

@@ -52,6 +52,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
   //   v4 — simulationSettings.historicalBacktest.
   //   v5 — incomes[0].socialSecurity.
   //   v6 — timeline.household.members[*].birthMonth / .birthYear / .lifeExpectancy.
+  //   v7 — taxSettings.itemizedDeductions / .spouseQualifiesForSeniorDeduction.
   const [firstIncome, ...otherIncomes] = basicTemplate.incomes;
   const incomes = [
     {
@@ -84,6 +85,13 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
       },
     },
     simulationSettings: { ...basicTemplate.simulationSettings, historicalBacktest: { mode: 'truncate' as const } },
+    // A plan that itemizes, so the v7 fixture has the block to strip and a v6 file is the same plan
+    // without it — which reads as "does not itemize", not as itemizing zeros.
+    taxSettings: {
+      ...basicTemplate.taxSettings,
+      itemizedDeductions: { mortgageInterest: 12000, charitable: 5000, stateAndLocalTaxes: 30000, medicalExpenses: 0 },
+      spouseQualifiesForSeniorDeduction: true,
+    },
     glidePath: GLIDE_PATH,
     debts: [
       {
@@ -188,6 +196,9 @@ const VERSION_5_FIELDS = ['socialSecurity'];
 
 /** What the v6 bump (P1-P3) added: a household member's own ages. */
 const VERSION_6_FIELDS = ['birthMonth', 'birthYear', 'lifeExpectancy'];
+
+/** What the v7 bump (P3-P3) added: the itemized-deduction inputs inside `taxSettings`. */
+const VERSION_7_FIELDS = ['itemizedDeductions', 'spouseQualifiesForSeniorDeduction'];
 
 /**
  * Visits every household member in a payload, wherever the envelope keeps it.
@@ -409,8 +420,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 6 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6];
+    // an older file fails here, not in a support thread. Adding version 7 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -438,6 +449,9 @@ describe('malformed files report the exact field paths', () => {
 
     // The strip is guarded in both directions: the fixture really carries the fields each bump
     // added, and none survives, so "a v1 file still imports" is not vacuously true.
+    expect(countFields(v1, VERSION_7_FIELDS)).toBe(2);
+    stripFields(v1, VERSION_7_FIELDS);
+    expect(countFields(v1, VERSION_7_FIELDS)).toBe(0);
     expect(countFields(v1, VERSION_5_FIELDS)).toBe(1);
     stripFields(v1, VERSION_5_FIELDS);
     expect(countFields(v1, VERSION_5_FIELDS)).toBe(0);
@@ -483,6 +497,9 @@ describe('malformed files report the exact field paths', () => {
     const v2 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v2.schemaVersion = 2;
 
+    expect(countFields(v2, VERSION_7_FIELDS)).toBe(2);
+    stripFields(v2, VERSION_7_FIELDS);
+    expect(countFields(v2, VERSION_7_FIELDS)).toBe(0);
     expect(countFields(v2, VERSION_5_FIELDS)).toBe(1);
     stripFields(v2, VERSION_5_FIELDS);
     expect(countFields(v2, VERSION_5_FIELDS)).toBe(0);
@@ -527,8 +544,12 @@ describe('malformed files report the exact field paths', () => {
     const v3WithField = structuredClone(envelope) as unknown as Record<string, unknown>;
     v3WithField.schemaVersion = 3;
 
-    // A v3 file cannot carry `socialSecurity` either (v5 postdates it), so strip that one and
-    // keep the v4 field — which is the accident this test is about.
+    // A v3 file cannot carry `socialSecurity` (v5), the itemized block (v7) or the member ages
+    // (v6) either, so strip those and keep the v4 field — which is the accident this test is about.
+    expect(countFields(v3WithField, VERSION_7_FIELDS)).toBe(2);
+    stripFields(v3WithField, VERSION_7_FIELDS);
+    expect(countFields(v3WithField, VERSION_7_FIELDS)).toBe(0);
+    stripMemberAges(v3WithField);
     stripFields(v3WithField, VERSION_5_FIELDS);
     expect(countFields(v3WithField, VERSION_5_FIELDS)).toBe(0);
     expect(countFields(v3WithField, VERSION_4_FIELDS)).toBe(1);
@@ -571,10 +592,11 @@ describe('malformed files report the exact field paths', () => {
     // either, so both are stripped and the file is stamped with its own version explicitly —
     // this fixture must not move when the current version bumps again.
     const v3Shaped = structuredClone(envelope) as unknown as Record<string, unknown>;
-    stripFields(v3Shaped, [...VERSION_5_FIELDS, ...VERSION_4_FIELDS]);
+    stripFields(v3Shaped, [...VERSION_7_FIELDS, ...VERSION_5_FIELDS, ...VERSION_4_FIELDS]);
     v3Shaped.schemaVersion = 4;
     expect(countFields(v3Shaped, VERSION_4_FIELDS)).toBe(0);
     expect(countFields(v3Shaped, VERSION_5_FIELDS)).toBe(0);
+    expect(countFields(v3Shaped, VERSION_7_FIELDS)).toBe(0);
     expect(countFields(v3Shaped, VERSION_3_FIELDS)).toBe(4); // still a v4-era payload otherwise
 
     const parsed = parseEnvelope(JSON.stringify(v3Shaped));
@@ -593,7 +615,10 @@ describe('malformed files report the exact field paths', () => {
     const v4 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v4.schemaVersion = 4;
 
-    // Non-vacuous: the v5 fixture really has the field, and none survives the strip.
+    // Non-vacuous: the fixture really has the fields, and none survives the strip.
+    expect(countFields(v4, VERSION_7_FIELDS)).toBe(2);
+    stripFields(v4, VERSION_7_FIELDS);
+    expect(countFields(v4, VERSION_7_FIELDS)).toBe(0);
     expect(countFields(v4, VERSION_5_FIELDS)).toBe(1);
     stripFields(v4, VERSION_5_FIELDS);
     expect(countFields(v4, VERSION_5_FIELDS)).toBe(0);
@@ -633,6 +658,9 @@ describe('malformed files report the exact field paths', () => {
     v5.schemaVersion = 5;
     stripMemberAges(v5);
     expect(countMemberAges(v5)).toBe(0);
+    expect(countFields(v5, VERSION_7_FIELDS)).toBe(2);
+    stripFields(v5, VERSION_7_FIELDS);
+    expect(countFields(v5, VERSION_7_FIELDS)).toBe(0);
 
     const parsed = parseEnvelope(JSON.stringify(v5));
 
@@ -662,6 +690,46 @@ describe('malformed files report the exact field paths', () => {
       for (const field of VERSION_6_FIELDS) expect(member).not.toHaveProperty(field);
       expect(resolveHouseholdMember(member, planAges)).toMatchObject({ ...planAges, hasStoredAges: false });
     }
+  });
+
+  it('imports a version 6 plan as one that does not itemize, not as one that itemized nothing', () => {
+    // v7 is the change that adds `taxSettings.itemizedDeductions`, so this is the real v6 shape:
+    // the same plan with the block (and the spouse flag) absent. The reader must not invent a block
+    // of zeros — "absent" is the plan's statement that it does not itemize, and a block of zeros
+    // would be a different claim (it itemized, and every line was zero) that happens to compute the
+    // same standard deduction today but would not survive a future change to the selection rule.
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    expect(countFields(envelope, VERSION_7_FIELDS)).toBe(2);
+
+    const v6 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v6.schemaVersion = 6;
+    stripFields(v6, VERSION_7_FIELDS);
+    expect(countFields(v6, VERSION_7_FIELDS)).toBe(0);
+    // The v6 fields are still there: this is a v6 file, not an older one.
+    expect(countMemberAges(v6)).toBe(6);
+
+    const parsed = parseEnvelope(JSON.stringify(v6));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(6);
+    // Nothing invented on the way in.
+    expect(parsed.envelope).toStrictEqual(v6);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const taxSettings = (imported.plans[0] as unknown as { taxSettings: Record<string, unknown> }).taxSettings;
+    expect(taxSettings).not.toHaveProperty('itemizedDeductions');
+    expect(taxSettings).not.toHaveProperty('spouseQualifiesForSeniorDeduction');
+    // ...and everything a v6 plan does carry survives the import.
+    expect(taxSettings).toHaveProperty('filingStatus', 'single');
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {

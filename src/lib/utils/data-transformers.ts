@@ -93,7 +93,12 @@ export function baseContributionFromConvex(baseContribution: Doc<'plans'>['baseC
 }
 
 export function taxSettingsFromConvex(taxSettings: Doc<'plans'>['taxSettings']): TaxSettingsInputs {
-  return { filingStatus: taxSettings.filingStatus };
+  // Absent stays absent: a plan that does not itemize must not read back as itemizing zeros.
+  return {
+    filingStatus: taxSettings.filingStatus,
+    itemizedDeductions: taxSettings.itemizedDeductions,
+    spouseQualifiesForSeniorDeduction: taxSettings.spouseQualifiesForSeniorDeduction,
+  };
 }
 
 export function privacySettingsFromConvex(privacySettings: Doc<'plans'>['privacySettings']): PrivacySettingsInputs {
@@ -288,7 +293,19 @@ export function baseContributionToConvex(baseContribution: BaseContributionInput
 }
 
 export function taxSettingsToConvex(taxSettings: TaxSettingsInputs): Doc<'plans'>['taxSettings'] {
-  return { filingStatus: taxSettings.filingStatus };
+  // A block of all zeros is stored as absent, because "absent" is what every reader means by "this
+  // plan does not itemize" — writing zeros would say the same thing in a second dialect, and the
+  // export envelope's v6 statement (absent = not itemized) would stop being true of new files.
+  const entered = taxSettings.itemizedDeductions;
+  const itemizes =
+    entered !== undefined &&
+    (entered.mortgageInterest > 0 || entered.charitable > 0 || entered.stateAndLocalTaxes > 0 || entered.medicalExpenses > 0);
+
+  return {
+    filingStatus: taxSettings.filingStatus,
+    ...(itemizes ? { itemizedDeductions: entered } : {}),
+    ...(taxSettings.spouseQualifiesForSeniorDeduction === true ? { spouseQualifiesForSeniorDeduction: true } : {}),
+  };
 }
 
 export function privacySettingsToConvex(privacySettings: PrivacySettingsInputs): Doc<'plans'>['privacySettings'] {

@@ -4,8 +4,8 @@ import { ConvexError } from 'convex/values';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm } from 'react-hook-form';
-import { useEffect, useMemo, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { taxSettingsToConvex } from '@/lib/utils/data-transformers';
 import { type TaxSettingsInputs, taxSettingsFormSchema } from '@/lib/schemas/inputs/tax-settings-form-schema';
@@ -15,6 +15,9 @@ import Card from '@/components/ui/card';
 import { Field, FieldGroup, Fieldset, Label, Description, ErrorMessage } from '@/components/catalyst/fieldset';
 import ErrorMessageCard from '@/components/ui/error-message-card';
 import { Select } from '@/components/catalyst/select';
+import { Switch, SwitchField } from '@/components/catalyst/switch';
+import NumberInput from '@/components/ui/number-input';
+import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
 import { Divider } from '@/components/catalyst/divider';
 import { Button } from '@/components/catalyst/button';
 import { DialogActions } from '@/components/catalyst/dialog';
@@ -28,13 +31,27 @@ interface TaxSettingsDrawerProps {
 export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsDrawerProps) {
   const planId = useSelectedPlanId();
 
-  const taxSettingsDefaultValues = useMemo(() => ({ filingStatus: 'single' }) as const satisfies TaxSettingsInputs, []);
-  const defaultValues = taxSettings || taxSettingsDefaultValues;
+  const withDeductionDefaults = useCallback(
+    (settings: TaxSettingsInputs | null): TaxSettingsInputs => ({
+      filingStatus: settings?.filingStatus ?? 'single',
+      itemizedDeductions: {
+        mortgageInterest: settings?.itemizedDeductions?.mortgageInterest ?? 0,
+        charitable: settings?.itemizedDeductions?.charitable ?? 0,
+        stateAndLocalTaxes: settings?.itemizedDeductions?.stateAndLocalTaxes ?? 0,
+        medicalExpenses: settings?.itemizedDeductions?.medicalExpenses ?? 0,
+      },
+      spouseQualifiesForSeniorDeduction: settings?.spouseQualifiesForSeniorDeduction ?? false,
+    }),
+    []
+  );
+
+  const defaultValues = useMemo(() => withDeductionDefaults(taxSettings), [taxSettings, withDeductionDefaults]);
 
   const {
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(taxSettingsFormSchema),
@@ -42,8 +59,8 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
   });
 
   useEffect(() => {
-    if (taxSettings) reset(taxSettings);
-  }, [taxSettings, reset]);
+    reset(withDeductionDefaults(taxSettings));
+  }, [taxSettings, reset, withDeductionDefaults]);
 
   const m = useMutation(api.tax_settings.update);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -78,6 +95,84 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                   {errors.filingStatus && <ErrorMessage>{errors.filingStatus?.message}</ErrorMessage>}
                   <Description>Your filing status determines your tax rates and standard deduction.</Description>
                 </Field>
+                <Divider />
+                <Fieldset aria-label="Itemized deductions">
+                  <legend className="text-base font-semibold text-zinc-950 dark:text-white">Itemized Deductions</legend>
+                  <Description className="mt-1">
+                    Enter yearly amounts. The return takes whichever is larger — these or the standard deduction — and the engine applies
+                    the statutory caps: the SALT limit and the 7.5%-of-AGI floor on medical expenses.
+                  </Description>
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field>
+                      <Label htmlFor="itemizedDeductions.mortgageInterest">Mortgage Interest</Label>
+                      <NumberInput
+                        name="itemizedDeductions.mortgageInterest"
+                        control={control}
+                        id="itemizedDeductions.mortgageInterest"
+                        inputMode="decimal"
+                        placeholder={formatCurrencyPlaceholder(12000)}
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.itemizedDeductions?.mortgageInterest && (
+                        <ErrorMessage>{errors.itemizedDeductions.mortgageInterest.message}</ErrorMessage>
+                      )}
+                    </Field>
+                    <Field>
+                      <Label htmlFor="itemizedDeductions.charitable">Charitable Contributions</Label>
+                      <NumberInput
+                        name="itemizedDeductions.charitable"
+                        control={control}
+                        id="itemizedDeductions.charitable"
+                        inputMode="decimal"
+                        placeholder={formatCurrencyPlaceholder(5000)}
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.itemizedDeductions?.charitable && <ErrorMessage>{errors.itemizedDeductions.charitable.message}</ErrorMessage>}
+                    </Field>
+                    <Field>
+                      <Label htmlFor="itemizedDeductions.stateAndLocalTaxes">State &amp; Local Taxes</Label>
+                      <NumberInput
+                        name="itemizedDeductions.stateAndLocalTaxes"
+                        control={control}
+                        id="itemizedDeductions.stateAndLocalTaxes"
+                        inputMode="decimal"
+                        placeholder={formatCurrencyPlaceholder(20000)}
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.itemizedDeductions?.stateAndLocalTaxes && (
+                        <ErrorMessage>{errors.itemizedDeductions.stateAndLocalTaxes.message}</ErrorMessage>
+                      )}
+                      <Description>Capped by the SALT limit, which phases down above the MAGI threshold.</Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="itemizedDeductions.medicalExpenses">Medical Expenses</Label>
+                      <NumberInput
+                        name="itemizedDeductions.medicalExpenses"
+                        control={control}
+                        id="itemizedDeductions.medicalExpenses"
+                        inputMode="decimal"
+                        placeholder={formatCurrencyPlaceholder(0)}
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.itemizedDeductions?.medicalExpenses && (
+                        <ErrorMessage>{errors.itemizedDeductions.medicalExpenses.message}</ErrorMessage>
+                      )}
+                      <Description>Only the amount above 7.5% of your adjusted gross income is deductible.</Description>
+                    </Field>
+                  </div>
+                </Fieldset>
+                <Divider />
+                <SwitchField>
+                  <Label>Spouse is 65 or older</Label>
+                  <Description>
+                    Only used on a joint return, for the temporary senior deduction. Your own age comes from the timeline.
+                  </Description>
+                  <Controller
+                    name="spouseQualifiesForSeniorDeduction"
+                    control={control}
+                    render={({ field: { onChange, value, name } }) => <Switch name={name} checked={value ?? false} onChange={onChange} />}
+                  />
+                </SwitchField>
                 <Divider />
               </FieldGroup>
             </Fieldset>

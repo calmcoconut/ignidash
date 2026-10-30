@@ -8,6 +8,7 @@ import type { SimulationResult } from './simulation-engine';
 import { mergeMonteCarloSummaries, runMonteCarloRange, type MonteCarloRunResult } from './monte-carlo';
 import { getNyuDataRange } from './historical-data/nyu-returns';
 import { cumulativeInflationIndex, DEFAULT_MONTE_CARLO_TRIALS, MONTE_CARLO_MAX_TRIALS, simulate, type SimulateOptions } from './simulate';
+import type { Household } from '@/lib/schemas/inputs/household-schema';
 import { runStoreSingleSimulation } from '@/lib/stores/single-run';
 import {
   create401kAccount,
@@ -75,6 +76,108 @@ const ALL_MODES = [
   'monteCarloStochasticReturns',
   'monteCarloHistoricalReturns',
 ] as const;
+
+// ============================================================================
+// Itemized deductions reach the engine (P3-P3)
+// ============================================================================
+
+/**
+ * The deduction settings have to survive the trip from the plan to `TaxProcessor`, and only a run
+ * through `simulate()` proves it: every hand-worked unit fixture constructs `DeductionSettings`
+ * directly, so a dropped constructor argument would leave them all green.
+ */
+describe('itemized deductions reach the engine', () => {
+  /** A plan whose only income is wages and whose returns are zero, so AGI is exactly the wage. */
+  const flatPlan = (overrides: Partial<SimulatorInputs> = {}): SimulatorInputs =>
+    createPlan({
+      timeline: { ...createDefaultTimeline(), birthMonth: 6, birthYear: 1990, lifeExpectancy: 40 },
+      accounts: {},
+      expenses: {},
+      contributionRules: {},
+      marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 0 },
+      incomes: { 'income-1': createWageIncome({ id: 'income-1', amount: 110000, taxes: { incomeType: 'wage', withholding: 0 } }) },
+      ...overrides,
+    });
+
+  it('changes the tax by the hand-worked amount when the plan itemizes', () => {
+    // $110,000 of wages, single, no returns and no spending. The first settlement closes a year
+    // after the 2026-03-15 start, so it is a 2027 return — which is why the SALT cap is 2027's
+    // $40,804 (101% of 2026's $40,400, IRC §164(b)(7)(A)(iii)).
+    //
+    // Standard deduction path:
+    //   taxable = 110,000 − 16,100 = 93,900
+    //   tax     = 1,240 + 4,560 + 22% × (93,900 − 50,400) = $15,370.00
+    // Itemized path (SALT 50,000 capped to 40,804, mortgage 20,000, charitable 10,000):
+    //   itemized = 40,804 + 20,000 + 10,000 = $70,804  > 16,100 → itemized wins
+    //   taxable  = 110,000 − 70,804 = 39,196
+    //   tax      = 1,240 + 12% × (39,196 − 12,400) = $4,455.52
+    //   difference = 15,370.00 − 4,455.52 = $10,914.48
+    const baseline = simulate(flatPlan(), { mode: 'fixedReturns', seed: 1, asOf: AS_OF });
+    const itemizing = simulate(
+      flatPlan({
+        taxSettings: {
+          filingStatus: 'single',
+          itemizedDeductions: { mortgageInterest: 20000, charitable: 10000, stateAndLocalTaxes: 50000, medicalExpenses: 0 },
+        },
+      }),
+      { mode: 'fixedReturns', seed: 1, asOf: AS_OF }
+    );
+
+    const standard = baseline.result.data[1].taxes!;
+    const itemized = itemizing.result.data[1].taxes!;
+
+    expect(standard.deduction.type).toBe('standard');
+    expect(standard.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(15370);
+    expect(standard.totalTaxLiability).toBeCloseTo(15370 + standard.fica.total);
+
+    expect(itemized.deduction.type).toBe('itemized');
+    expect(itemized.deduction.saltCap.allowed).toBeCloseTo(40804);
+    expect(itemized.deduction.itemized.total).toBeCloseTo(70804);
+    expect(itemized.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(4455.52);
+    expect(itemized.totalTaxLiability).toBeCloseTo(4455.52 + itemized.fica.total);
+
+    // The delta is the deduction's effect, exactly: same wages, so payroll tax is identical.
+    expect(itemized.fica.total).toBeCloseTo(standard.fica.total);
+    expect(standard.totalTaxLiability - itemized.totalTaxLiability).toBeCloseTo(10914.48);
+  });
+
+  it('keeps itemizing after the first death, when the survivor files single', () => {
+    // The second `new TaxProcessor(...)` — the survivor's filing-status swap — must carry the same
+    // deduction settings. A partial wiring would silently drop this plan back to the standard
+    // deduction for every year after the death, which is the bug this test exists to catch.
+    const household: Household = {
+      members: [
+        { id: 'primary', role: 'primary', lifeExpectancy: 70 },
+        { id: 'partner', role: 'partner', lifeExpectancy: 95 },
+      ],
+    };
+    const survivorPlan = createPlan({
+      timeline: { ...createDefaultTimeline(), birthMonth: 6, birthYear: 1990, lifeExpectancy: 95, household },
+      accounts: { '401k-1': create401kAccount({ id: '401k-1', balance: 500000 }) },
+      expenses: { 'expense-1': createLivingExpense({ id: 'expense-1', amount: 45000 }) },
+      contributionRules: {},
+      incomes: { 'income-1': createWageIncome({ id: 'income-1', amount: 90000 }) },
+      taxSettings: {
+        filingStatus: 'single', // the household overrides this to marriedFilingJointly
+        itemizedDeductions: { mortgageInterest: 30000, charitable: 20000, stateAndLocalTaxes: 60000, medicalExpenses: 0 },
+      },
+    });
+
+    const rows = simulate(survivorPlan, { mode: 'fixedReturns', seed: 1, asOf: AS_OF }).result.data;
+    const settled = rows.filter((row) => row.taxes !== null);
+    const joint = settled.filter((row) => row.taxes!.deduction.standardDeduction === 32200);
+    const single = settled.filter((row) => row.taxes!.deduction.standardDeduction === 16100);
+
+    // Both regimes occur, so the swap really happened inside this run.
+    expect(joint.length).toBeGreaterThan(0);
+    expect(single.length).toBeGreaterThan(0);
+    // And the plan itemizes in both: the standard deduction is the one it did *not* take.
+    expect(joint.every((row) => row.taxes!.deduction.type === 'itemized')).toBe(true);
+    expect(single.every((row) => row.taxes!.deduction.type === 'itemized')).toBe(true);
+    // The survivor's itemized lines are still there, not zeroed by the swap.
+    expect(single[0].taxes!.deduction.itemized.stateAndLocalTaxes).toBeGreaterThan(0);
+  });
+});
 
 // ============================================================================
 // The existing store/worker path

@@ -160,3 +160,36 @@ carryforward.
 Cross-check run before regenerating: every data point's numeric leaves other than the IRMAA chain are
 identical, `taxes.amt` is zero everywhere, and the only newly present optional key is the
 `capitalLossDeduction` noted above.
+
+### P3-P3: itemized deductions, the SALT cap and the senior deduction
+
+Regenerated once, deliberately. `TaxesData` gains `deduction` — which deduction the return took, the
+itemized lines after the statutory caps, the SALT cap that applied and the §151(d)(5)(C) senior
+deduction — and `deductions.seniorDeduction`. **No fixture itemizes** (none carries
+`taxSettings.itemizedDeductions`), so the itemized half of this change is shape only.
+
+One fixture moves numerically: **`shortfall-repaid`**, whose primary is 66 at the plan start. The
+senior deduction ($6,000 per individual aged 65 or older, tax years 2025-2028) applies to its 2027
+and 2028 settlements and then sunsets:
+
+| row | age    | senior deduction | taxable ordinary income | federal income tax | what moved                                                                                |
+| --- | ------ | ---------------- | ----------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
+| 1   | 66.75  | $6,000           | 4,132.58 → **0.00**     | 413.26 → **0.00**  | The deduction exceeds the year's taxable income, so the whole federal tax disappears.     |
+| 2   | 67.75  | $6,000           | 0.00 → 0.00             | 0.00 → 0.00        | Taxable income was already zero; only the intermediate AMT figures move (see below).      |
+| 3+  | 68.75+ | $0               | unchanged               | unchanged          | The statute ends the deduction after 2028, and the table's `lastTaxYear` is what says so. |
+
+Lifetime taxes **−$378.34** (213,823.37 → 213,445.03) and the final portfolio **+$378.34**: the tax
+saved in 2027 is invested, and its later returns and taxes account for the difference between the
+$413.26 saved and the lifetime figure.
+
+The other five runs are numerically unchanged: their primaries are under 65 in 2027-2028 and none of
+them itemizes. Two _intermediate_ AMT figures do move in every run — `amt.amtIncome` and
+`amt.addbacks` — because the addback is now scaled by the share of the deduction the year's income
+could actually use. Before, a year whose income was below the standard deduction added the whole
+nominal deduction back into AMTI, which overstated it (AMTI should be AGI, not AGI plus a deduction
+the return never got to take). `amt.netCharge` stays zero everywhere, so no tax moves.
+
+Cross-check run before regenerating: `taxes.deduction` is the only added field, `deduction.type` is
+`standard` in every frozen row, `deduction.seniorDeduction` is non-zero only in `shortfall-repaid`
+rows 1-2, and the only numeric changes outside `amt.amtIncome`/`amt.addbacks` are that fixture's
+income tax and its compounding.

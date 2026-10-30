@@ -22,6 +22,31 @@ import {
 import type { SimulationState } from './simulation-engine';
 import type { PhysicalAssetData } from './physical-assets';
 
+/** Itemized-deduction settings for a test, with the four lines defaulted to zero. */
+function deductionSettings(overrides?: {
+  mortgageInterest?: number;
+  charitable?: number;
+  stateAndLocalTaxes?: number;
+  medicalExpenses?: number;
+  spouseQualifiesForSeniorDeduction?: boolean;
+}) {
+  const entered =
+    overrides === undefined ? undefined : { mortgageInterest: 0, charitable: 0, stateAndLocalTaxes: 0, medicalExpenses: 0, ...overrides };
+
+  return {
+    itemizedDeductions: entered,
+    spouseQualifiesForSeniorDeduction: overrides?.spouseQualifiesForSeniorDeduction,
+  };
+}
+
+/**
+ * A mock state at `age`.
+ *
+ * The bracket and capital-gains tests below use 60, not 65, on purpose: from 2026 a filer aged 65 or
+ * over also gets the §151(d)(5)(C) senior deduction, which would shift the taxable income every one
+ * of those assertions is written against. The senior deduction has its own fixtures in
+ * "itemized deductions and the deduction choice".
+ */
 const createMockSimulationState = (age: number): SimulationState => ({
   time: { date: new Date(2025, 0, 1), age, year: 2025, month: 1 },
   portfolio: new Portfolio([]),
@@ -37,7 +62,7 @@ describe('TaxProcessor', () => {
   describe('income tax brackets', () => {
     describe('single filing status', () => {
       it('should apply 10% bracket for income up to $12,400', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         // Income of 28,500 - standard deduction of 16,100 = 12,400 taxable
         incomes.totalIncome = 28500;
@@ -50,7 +75,7 @@ describe('TaxProcessor', () => {
       });
 
       it('should apply 12% bracket for income between $12,400 and $50,400', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         // Income of 66,500 - standard deduction of 16,100 = 50,400 taxable
         incomes.totalIncome = 66500;
@@ -64,7 +89,7 @@ describe('TaxProcessor', () => {
       });
 
       it('should calculate progressive tax across multiple brackets', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         // Income of 115,000 - standard deduction of 16,100 = 98,900 taxable
         incomes.totalIncome = 115000;
@@ -81,7 +106,7 @@ describe('TaxProcessor', () => {
 
     describe('married filing jointly', () => {
       it('should use married filing jointly brackets', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
         const incomes = createEmptyIncomesData();
         // Income of 57,000 - standard deduction of 32,200 = 24,800 taxable
         incomes.totalIncome = 57000;
@@ -96,7 +121,7 @@ describe('TaxProcessor', () => {
 
     describe('head of household', () => {
       it('should use head of household brackets', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'headOfHousehold');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'headOfHousehold');
         const incomes = createEmptyIncomesData();
         // Income of 41,850 - standard deduction of 24,150 = 17,700 taxable
         incomes.totalIncome = 41850;
@@ -111,7 +136,7 @@ describe('TaxProcessor', () => {
 
     describe('standard deduction', () => {
       it('should apply standard deduction before calculating taxes', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         incomes.totalIncome = 50000;
 
@@ -123,9 +148,9 @@ describe('TaxProcessor', () => {
       });
 
       it('should use correct standard deduction for each filing status', () => {
-        const singleProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
-        const marriedProcessor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
-        const hohProcessor = new TaxProcessor(createMockSimulationState(65), 'headOfHousehold');
+        const singleProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
+        const marriedProcessor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
+        const hohProcessor = new TaxProcessor(createMockSimulationState(60), 'headOfHousehold');
         const incomes = createEmptyIncomesData();
         incomes.totalIncome = 100000;
 
@@ -154,7 +179,7 @@ describe('TaxProcessor', () => {
       });
 
       it('should apply standard deduction to ordinary income first, then capital gains', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         incomes.totalIncome = 10000; // Only 10k ordinary income
         const portfolioData = createEmptyPortfolioData();
@@ -175,7 +200,7 @@ describe('TaxProcessor', () => {
 
   describe('capital gains tax', () => {
     it('should apply 0% rate for gains within 0% bracket', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       const portfolioData = createEmptyPortfolioData();
       // No ordinary income, 33,125 gains - 16,100 std deduction = 17,025 taxable
@@ -188,7 +213,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should apply 15% rate for gains in 15% bracket', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       const portfolioData = createEmptyPortfolioData();
       // No ordinary income, 100,000 gains - 16,100 std deduction = 83,900 taxable
@@ -202,7 +227,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should fill brackets with ordinary income first', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       // 65,550 ordinary - 16,100 std deduction = 49,450 taxable (fills 0% cap gains bracket)
       incomes.totalIncome = 65550;
@@ -216,7 +241,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should include dividend income in capital gains', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       const portfolioData = createEmptyPortfolioData();
       const returnsData = createEmptyReturnsData();
@@ -235,7 +260,7 @@ describe('TaxProcessor', () => {
 
   describe('NIIT (Net Investment Income Tax)', () => {
     it('should not apply NIIT when AGI is below threshold', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000;
       const portfolioData = createEmptyPortfolioData();
@@ -248,7 +273,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should apply 3.8% NIIT on income above threshold', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 150000;
       const portfolioData = createEmptyPortfolioData();
@@ -264,7 +289,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should use correct NIIT threshold for married filing jointly', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 200000;
       const portfolioData = createEmptyPortfolioData();
@@ -278,7 +303,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should include dividends and interest in net investment income', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 250000;
       const portfolioData = createEmptyPortfolioData();
@@ -301,7 +326,7 @@ describe('TaxProcessor', () => {
 
   describe('Social Security taxation', () => {
     it('should not tax Social Security when provisional income is below first threshold', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalSocialSecurityIncome = 20000;
       // Provisional income = 0 + (20,000 * 0.5) = 10,000, below 25k threshold
@@ -313,7 +338,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should tax up to 50% when provisional income is in middle tier', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalSocialSecurityIncome = 30000;
       incomes.totalIncome = 30000; // Includes SS income
@@ -335,7 +360,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should tax up to 85% when provisional income is above upper threshold', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalSocialSecurityIncome = 30000;
       incomes.totalIncome = 80000; // 30k SS + 50k earned
@@ -349,7 +374,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should use married filing jointly thresholds', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
       const incomes = createEmptyIncomesData();
       incomes.totalSocialSecurityIncome = 30000;
       incomes.totalIncome = 50000; // 30k SS + 20k earned
@@ -362,7 +387,7 @@ describe('TaxProcessor', () => {
 
     describe('threshold boundary conditions', () => {
       it('single filer: should not tax SS at exactly $25,000 provisional income (Tier 1 boundary)', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         // To get provisional income of exactly $25,000:
         // Provisional = other income + (SS * 0.5)
@@ -379,7 +404,7 @@ describe('TaxProcessor', () => {
       });
 
       it('single filer: should tax at 50% just above $25,000 provisional income', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         incomes.totalSocialSecurityIncome = 20000;
         incomes.totalIncome = 35001; // 20k SS + 15001 earned
@@ -393,7 +418,7 @@ describe('TaxProcessor', () => {
       });
 
       it('single filer: should tax at 50% at exactly $34,000 provisional income (Tier 2 boundary)', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         // To get provisional income of exactly $34,000:
         // If SS = 20000, other income = 34000 - 10000 = 24000
@@ -410,7 +435,7 @@ describe('TaxProcessor', () => {
       });
 
       it('single filer: should tax at 85% just above $34,000 provisional income', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'single');
         const incomes = createEmptyIncomesData();
         incomes.totalSocialSecurityIncome = 20000;
         incomes.totalIncome = 44001; // 20k SS + 24001 earned
@@ -422,7 +447,7 @@ describe('TaxProcessor', () => {
       });
 
       it('MFJ: should not tax SS at exactly $32,000 provisional income (Tier 1 boundary)', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
         const incomes = createEmptyIncomesData();
         // To get provisional income of exactly $32,000:
         // If SS = 24000, other income = 32000 - 12000 = 20000
@@ -437,7 +462,7 @@ describe('TaxProcessor', () => {
       });
 
       it('MFJ: should tax at 50% just above $32,000 provisional income', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
         const incomes = createEmptyIncomesData();
         incomes.totalSocialSecurityIncome = 24000;
         incomes.totalIncome = 44001; // 24k SS + 20001 earned
@@ -449,7 +474,7 @@ describe('TaxProcessor', () => {
       });
 
       it('MFJ: should tax at 50% at exactly $44,000 provisional income (Tier 2 boundary)', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
         const incomes = createEmptyIncomesData();
         // To get provisional income of exactly $44,000:
         // If SS = 24000, other income = 44000 - 12000 = 32000
@@ -464,7 +489,7 @@ describe('TaxProcessor', () => {
       });
 
       it('MFJ: should tax at 85% just above $44,000 provisional income', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+        const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
         const incomes = createEmptyIncomesData();
         incomes.totalSocialSecurityIncome = 24000;
         incomes.totalIncome = 56001; // 24k SS + 32001 earned
@@ -612,7 +637,7 @@ describe('TaxProcessor', () => {
 
   describe('capital loss carryover', () => {
     it('should limit capital loss deduction to $3,000 per year', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const portfolioData = createEmptyPortfolioData();
       portfolioData.realizedGains = -10000; // 10k loss
 
@@ -622,7 +647,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should carry over losses to subsequent years', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const portfolioData = createEmptyPortfolioData();
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 50000;
@@ -647,7 +672,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should offset gains with losses before applying carryover', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const portfolioData = createEmptyPortfolioData();
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 50000;
@@ -668,7 +693,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should preserve carryover across iterative convergence using snapshot/restore', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const portfolioData = createEmptyPortfolioData();
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 50000;
@@ -719,7 +744,7 @@ describe('TaxProcessor', () => {
 
   describe('tax-deductible contributions', () => {
     it('should reduce taxable income by 401k contributions', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000;
       const portfolioData = createEmptyPortfolioData();
@@ -754,7 +779,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should include IRA and HSA contributions as deductible', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000;
       const portfolioData = createEmptyPortfolioData();
@@ -806,7 +831,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should NOT include Roth contributions as deductible', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000;
       const portfolioData = createEmptyPortfolioData();
@@ -845,7 +870,7 @@ describe('TaxProcessor', () => {
 
   describe('tax refund and due calculations', () => {
     it('should calculate refund when withholding exceeds tax liability', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 50000;
       incomes.totalAmountWithheld = 10000; // Over-withheld
@@ -858,7 +883,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should calculate amount due when tax liability exceeds withholding', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000;
       incomes.totalAmountWithheld = 5000; // Under-withheld
@@ -900,7 +925,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should exclude primary residence gain under cap (single)', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 200000,
         perAssetData: {
@@ -915,7 +940,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should not exclude gains from non-primary-residence assets', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 200000,
         perAssetData: {
@@ -929,7 +954,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should result in lower taxable gains for primary residence vs non-primary residence', () => {
-      const primaryProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const primaryProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const primaryData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 200000,
         perAssetData: {
@@ -943,7 +968,7 @@ describe('TaxProcessor', () => {
         primaryData
       );
 
-      const otherProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const otherProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const otherData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 200000,
         perAssetData: {
@@ -956,7 +981,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should cap exclusion at single filing status limit ($250k)', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 400000,
         perAssetData: {
@@ -970,7 +995,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should use $500k cap for married filing jointly', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 600000,
         perAssetData: {
@@ -984,7 +1009,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should use $250k cap for head of household', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'headOfHousehold');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'headOfHousehold');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 300000,
         perAssetData: {
@@ -998,7 +1023,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should not exclude negative gains (losses)', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: -50000,
         perAssetData: {
@@ -1012,7 +1037,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should apply exclusion per-home for multiple primary residences (each under cap)', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 400000,
         perAssetData: {
@@ -1029,7 +1054,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should apply per-home cap independently for multiple homes exceeding cap', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 600000,
         perAssetData: {
@@ -1045,7 +1070,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should not exclude gains for unsold asset with zero realized gains', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 0,
         perAssetData: {
@@ -1059,7 +1084,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should exclude primary residence gains but not portfolio gains', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const portfolioData = createEmptyPortfolioData();
       portfolioData.realizedGains = 50000;
       const physicalAssetsData = createEmptyPhysicalAssetsData({
@@ -1076,7 +1101,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should exclude primary residence gain but not other physical asset gain in same year', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 300000, // 200k primary + 100k other
         perAssetData: {
@@ -1094,7 +1119,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should fully exclude gain exactly at single cap boundary ($250k)', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 250000,
         perAssetData: {
@@ -1109,7 +1134,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should fully exclude gain exactly at MFJ cap boundary ($500k)', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'marriedFilingJointly');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly');
       const physicalAssetsData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 500000,
         perAssetData: {
@@ -1125,7 +1150,7 @@ describe('TaxProcessor', () => {
 
     it('should reduce capital gains tax amount via Section 121 exclusion', () => {
       // With exclusion: primary residence gain excluded, no capital gains tax
-      const withExclusionProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const withExclusionProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000; // Enough to fill 0% cap gains bracket
       const primaryData = createEmptyPhysicalAssetsData({
@@ -1142,7 +1167,7 @@ describe('TaxProcessor', () => {
       );
 
       // Without exclusion: same gain as non-primary, full capital gains tax
-      const withoutExclusionProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const withoutExclusionProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const otherData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 200000,
         perAssetData: {
@@ -1163,7 +1188,7 @@ describe('TaxProcessor', () => {
 
     it('should reduce NIIT via Section 121 exclusion for high-income filer', () => {
       // With exclusion: primary residence gain excluded, lower NII and NIIT
-      const withExclusionProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const withExclusionProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 200000; // At NIIT threshold
       const primaryData = createEmptyPhysicalAssetsData({
@@ -1180,7 +1205,7 @@ describe('TaxProcessor', () => {
       );
 
       // Without exclusion: same gain as non-primary, higher NII
-      const withoutExclusionProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const withoutExclusionProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const otherData = createEmptyPhysicalAssetsData({
         totalRealizedGains: 200000,
         perAssetData: {
@@ -1200,7 +1225,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should not affect ordinary income tax via Section 121 exclusion', () => {
-      const withExclusionProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const withExclusionProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 100000;
       const primaryData = createEmptyPhysicalAssetsData({
@@ -1216,7 +1241,7 @@ describe('TaxProcessor', () => {
         primaryData
       );
 
-      const noGainsProcessor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const noGainsProcessor = new TaxProcessor(createMockSimulationState(60), 'single');
       const noGainsResult = noGainsProcessor.process(
         createEmptyPortfolioData(),
         incomes,
@@ -1232,7 +1257,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should exclude gain on one primary residence while loss on another flows through', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 50000;
       const physicalAssetsData = createEmptyPhysicalAssetsData({
@@ -1255,7 +1280,7 @@ describe('TaxProcessor', () => {
     });
 
     it('should interact correctly with capital loss carryover', () => {
-      const processor = new TaxProcessor(createMockSimulationState(65), 'single');
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single');
       const incomes = createEmptyIncomesData();
       incomes.totalIncome = 50000;
 
@@ -1308,7 +1333,7 @@ describe('TaxProcessor', () => {
 
     describe.each(filingStatuses)('$status filing status', ({ status, deduction, firstBracketMax, secondBracketMax }) => {
       it('should correctly split tax across the 10%/12% bracket boundary', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), status);
+        const processor = new TaxProcessor(createMockSimulationState(60), status);
         const incomes = createEmptyIncomesData();
         // Set income so taxable = secondBracketMax (crosses into 12% bracket)
         incomes.totalIncome = secondBracketMax + deduction;
@@ -1334,7 +1359,7 @@ describe('TaxProcessor', () => {
 
     describe.each(filingStatuses)('$status filing status', ({ status, deduction, cgZeroMax }) => {
       it('should stack capital gains on top of ordinary income for bracket determination', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), status);
+        const processor = new TaxProcessor(createMockSimulationState(60), status);
         const incomes = createEmptyIncomesData();
         // Ordinary income fills up to the 0% CG threshold
         incomes.totalIncome = cgZeroMax + deduction;
@@ -1351,7 +1376,7 @@ describe('TaxProcessor', () => {
       });
 
       it('should tax gains at 0% when total income is below the 0% CG threshold', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), status);
+        const processor = new TaxProcessor(createMockSimulationState(60), status);
         const incomes = createEmptyIncomesData();
         // Low ordinary income: only $10,000 after deduction
         incomes.totalIncome = 10000 + deduction;
@@ -1386,7 +1411,7 @@ describe('TaxProcessor', () => {
 
     describe.each(filingStatuses)('$status filing status (threshold=$threshold)', ({ status, deduction, threshold }) => {
       it('should not apply NIIT when AGI is below threshold', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), status);
+        const processor = new TaxProcessor(createMockSimulationState(60), status);
         const incomes = createEmptyIncomesData();
         // Income slightly below threshold (after adjustments, AGI will be below)
         incomes.totalIncome = threshold - 10000;
@@ -1400,7 +1425,7 @@ describe('TaxProcessor', () => {
       });
 
       it('should apply NIIT on investment income when AGI exceeds threshold', () => {
-        const processor = new TaxProcessor(createMockSimulationState(65), status);
+        const processor = new TaxProcessor(createMockSimulationState(60), status);
         const incomes = createEmptyIncomesData();
         // Income well above threshold
         incomes.totalIncome = threshold + 50000;
@@ -1594,6 +1619,232 @@ describe('TaxProcessor', () => {
     });
   });
 
+  /**
+   * Itemized deductions, the SALT cap, the senior deduction and the standard-vs-itemized choice
+   * (P3-P3). All hand-worked on the 2026 ruleset; the SALT cap's own schedule is tested separately
+   * in `tax-data/salt-cap.test.ts`.
+   */
+  describe('itemized deductions and the deduction choice', () => {
+    const single = (age: number, totalIncome: number, settings?: Parameters<typeof deductionSettings>[0], taxYear = 2026) =>
+      new TaxProcessor(createMockSimulationState(age), 'single', taxYear, undefined, deductionSettings(settings));
+
+    const run = (processor: TaxProcessor, totalIncome: number) =>
+      processor.process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome, totalWageIncome: 0 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+    it('takes the standard deduction when the itemized total is smaller, and says so', () => {
+      // AGI 100,000, itemized: SALT 5,000 + mortgage interest 2,000 = $7,000 < the $16,100 standard.
+      const result = run(single(40, 100000, { stateAndLocalTaxes: 5000, mortgageInterest: 2000 }), 100000);
+
+      expect(result.deduction.type).toBe('standard');
+      expect(result.deduction.itemized.total).toBeCloseTo(7000);
+      expect(result.deduction.standardDeduction).toBeCloseTo(16100);
+      expect(result.deduction.seniorDeduction).toBe(0);
+      expect(result.deduction.total).toBeCloseTo(16100);
+      // The itemized lines are still reported — the return computed them and chose not to take them.
+      expect(result.deductions).toMatchObject({ standardDeduction: 16100, seniorDeduction: 0 });
+      expect(result.deductions).not.toHaveProperty('stateAndLocalTaxes');
+      expect(result.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBeCloseTo(83900);
+    });
+
+    it('takes the itemized deduction when it is larger, capping SALT and flooring medical', () => {
+      // AGI 200,000, single, 2026:
+      //   SALT    min(50,000, 40,400 cap)                   = $40,400
+      //   medical 30,000 − 7.5% × 200,000 = 30,000 − 15,000 = $15,000
+      //   mortgage interest                                 = $20,000
+      //   charitable                                        = $10,000
+      //   itemized total                                    = $85,400  > $16,100 standard
+      //   taxable ordinary = 200,000 − 85,400               = $114,600
+      //   regular tax = 1,240 + 4,560 + 12,166 + 8,900 × 24% = $20,102
+      const result = run(
+        single(40, 200000, { stateAndLocalTaxes: 50000, mortgageInterest: 20000, charitable: 10000, medicalExpenses: 30000 }),
+        200000
+      );
+
+      expect(result.deduction.type).toBe('itemized');
+      expect(result.deduction.itemized).toMatchObject({
+        stateAndLocalTaxes: 40400,
+        medicalExpenses: 15000,
+        mortgageInterest: 20000,
+        charitable: 10000,
+      });
+      expect(result.deduction.itemized.total).toBeCloseTo(85400);
+      expect(result.deduction.saltCap).toMatchObject({ entered: 50000, allowed: 40400, phaseDown: 9600, resolvedYear: 2026 });
+      expect(result.deduction.total).toBeCloseTo(85400);
+      expect(result.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBeCloseTo(114600);
+      expect(result.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(20102);
+      // The record names the lines taken, which is what the AMT addback reads.
+      expect(result.deductions).toMatchObject({ stateAndLocalTaxes: 40400, mortgageInterest: 20000, charitable: 10000 });
+      expect(result.deductions).not.toHaveProperty('standardDeduction');
+    });
+
+    it('phases the SALT cap down above the MAGI threshold and never below the floor', () => {
+      // AGI 600,000: 40,400 − 30% × (600,000 − 505,000) = 40,400 − 28,500 = $11,900 of SALT.
+      const phased = run(single(40, 600000, { stateAndLocalTaxes: 60000, mortgageInterest: 20000 }), 600000);
+      expect(phased.deduction.saltCap.allowed).toBeCloseTo(11900);
+      expect(phased.deduction.saltCap.phaseDown).toBeCloseTo(48100);
+      expect(phased.deduction.type).toBe('itemized'); // 11,900 + 20,000 = 31,900 > 16,100
+
+      // AGI 700,000: the phase-down would go negative, so the $10,000 floor applies.
+      const floored = run(single(40, 700000, { stateAndLocalTaxes: 60000, mortgageInterest: 20000 }), 700000);
+      expect(floored.deduction.saltCap.allowed).toBe(10000);
+    });
+
+    it('adds the senior deduction on top, phased out by 6% of MAGI, and sunsets after 2028', () => {
+      // Age 67, AGI 80,000: 6,000 − 6% × (80,000 − 75,000) = $5,700, on top of the $16,100 standard.
+      const senior = run(single(67, 80000), 80000);
+      expect(senior.deduction.seniorDeduction).toBeCloseTo(5700);
+      expect(senior.deduction.total).toBeCloseTo(16100 + 5700);
+      expect(senior.deduction.type).toBe('standard');
+      expect(senior.deductions.seniorDeduction).toBeCloseTo(5700);
+
+      // The same plan at 64 gets nothing: the deduction needs age 65 by the end of the year.
+      expect(run(single(64, 80000), 80000).deduction.seniorDeduction).toBe(0);
+
+      // A 2029 return gets nothing either: the statute ends the deduction after 2028, and the
+      // table's `lastTaxYear` is what says so rather than the ruleset's fallback.
+      expect(run(single(67, 80000, undefined, 2029), 80000).deduction.seniorDeduction).toBe(0);
+    });
+
+    it('counts a qualifying spouse only when the plan says so, and phases the joint amount once', () => {
+      // MFJ, age 67, AGI 200,000: 2 × 6,000 − 6% × (200,000 − 150,000) = 12,000 − 3,000 = $9,000.
+      const withSpouse = new TaxProcessor(createMockSimulationState(67), 'marriedFilingJointly', 2026, undefined, {
+        spouseQualifiesForSeniorDeduction: true,
+      }).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 200000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(withSpouse.deduction.seniorDeduction).toBeCloseTo(9000);
+
+      // Without the flag the spouse is under 65: 6,000 − 3,000 = $3,000.
+      const withoutSpouse = new TaxProcessor(createMockSimulationState(67), 'marriedFilingJointly', 2026).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 200000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+      expect(withoutSpouse.deduction.seniorDeduction).toBeCloseTo(3000);
+    });
+  });
+
+  describe('the AMT and itemized preferences', () => {
+    const withItemized = (totalIncome: number, settings: Parameters<typeof deductionSettings>[0], exemption?: number) => {
+      const base = getRules(2026);
+      const ruleset: FederalTaxRuleset =
+        exemption === undefined
+          ? base
+          : {
+              ...base,
+              tables: {
+                ...base.tables,
+                alternativeMinimumTax: {
+                  ...base.tables.alternativeMinimumTax,
+                  values: {
+                    ...base.tables.alternativeMinimumTax.values,
+                    exemption: { single: exemption, marriedFilingJointly: exemption * 2, headOfHousehold: exemption },
+                  },
+                },
+              },
+            };
+
+      return new TaxProcessor(createMockSimulationState(40), 'single', 2026, ruleset, deductionSettings(settings)).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+    };
+
+    it('adds the itemized SALT back into AMTI, with no itemized-specific code', () => {
+      // AGI 200,000, itemized total $85,400 of which $40,400 is SALT (§56(b)(1) disallows it):
+      //   AMTI = 114,600 (taxable) + 40,400 (addback) = $155,000
+      //   AMT base = 155,000 − 90,100 = 64,900 × 26% = $16,874
+      //   regular tax $20,102 wins → applied 'regular', no charge
+      const result = withItemized(200000, {
+        stateAndLocalTaxes: 50000,
+        mortgageInterest: 20000,
+        charitable: 10000,
+        medicalExpenses: 30000,
+      });
+
+      expect(result.deduction.type).toBe('itemized');
+      expect(result.amt.addbacks).toBeCloseTo(40400);
+      expect(result.amt.amtIncome).toBeCloseTo(155000);
+      expect(result.amt.tentativeMinimumTax).toBeCloseTo(16874);
+      expect(result.amt.topUp).toBe(0);
+      expect(result.amt.applied).toBe('regular');
+    });
+
+    it('cannot beat the regular tax at 2026 parameters, even with the largest SALT addback', () => {
+      // The closest realistic case: AGI 250,000 with nothing but the capped SALT deducted.
+      //   taxable 209,600 → regular = 1,240 + 4,560 + 12,166 + 23,058 + 2,504 = $43,528
+      //   AMTI 250,000 − 90,100 = 159,900 × 26% = $41,574 → the regular tax wins by $1,954
+      const closest = withItemized(250000, { stateAndLocalTaxes: 40400 });
+      expect(closest.deduction.type).toBe('itemized');
+      expect(closest.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(43528);
+      expect(closest.amt.tentativeMinimumTax).toBeCloseTo(41574);
+      expect(closest.amt.applied).toBe('regular');
+
+      // At a high income the SALT phase-down has done its work: $40,400 of entered SALT is capped
+      // to $10,000 (the floor), which is *below* the $16,100 standard deduction, so the return takes
+      // the standard deduction again and the AMT addback is that standard deduction instead.
+      //   taxable 983,900 → regular $320,000.25; AMTI 1,000,000 (exemption phased to 0) → $276,500.
+      const high = withItemized(1000000, { stateAndLocalTaxes: 40400 });
+      expect(high.deduction.type).toBe('standard');
+      expect(high.amt.addbacks).toBeCloseTo(16100);
+      expect(high.amt.exemption).toBe(0);
+      expect(high.amt.tentativeMinimumTax).toBeCloseTo(276500);
+      expect(high.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(320000.25);
+      expect(high.amt.applied).toBe('regular');
+
+      // Adding mortgage interest keeps this filer itemizing at the same income, and the regular tax
+      // still wins: taxable 970,000 → $314,857.25; AMTI 980,000 → $270,900.
+      const itemizing = withItemized(1000000, { stateAndLocalTaxes: 60000, mortgageInterest: 20000 });
+      expect(itemizing.deduction.type).toBe('itemized');
+      expect(itemizing.deduction.saltCap.allowed).toBe(10000);
+      expect(itemizing.amt.addbacks).toBeCloseTo(10000);
+      expect(itemizing.amt.tentativeMinimumTax).toBeCloseTo(270900);
+      expect(itemizing.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(314857.25);
+      expect(itemizing.amt.applied).toBe('regular');
+    });
+
+    it('charges the AMT through the itemized addback when the exemption is below current law', () => {
+      // Same year, a $50,000 exemption instead of $90,100: the SALT addback is what puts the AMT
+      // over the regular tax.
+      //   AMT base = 155,000 − 50,000 = 105,000 × 26% = $27,300
+      //   regular tax $20,102 → topUp = $7,198, and it lands in totalTaxLiability.
+      const result = withItemized(
+        200000,
+        { stateAndLocalTaxes: 50000, mortgageInterest: 20000, charitable: 10000, medicalExpenses: 30000 },
+        50000
+      );
+
+      expect(result.amt.addbacks).toBeCloseTo(40400);
+      expect(result.amt.tentativeMinimumTax).toBeCloseTo(27300);
+      expect(result.amt.topUp).toBeCloseTo(7198);
+      expect(result.amt.applied).toBe('amt');
+      expect(result.amt.netCharge).toBeCloseTo(7198);
+      expect(result.totalTaxLiability).toBeCloseTo(20102 + 7198 + result.fica.total);
+      // The reconciliation invariant still holds with the charge in it.
+      expect(result.totalTaxLiability).toBeCloseTo(
+        result.federalIncomeTaxes.federalIncomeTaxAmount +
+          result.capitalGainsTaxes.capitalGainsTaxAmount +
+          result.amt.netCharge +
+          result.niit.niitAmount +
+          result.irmaa.total +
+          result.earlyWithdrawalPenalties.totalPenaltyAmount +
+          result.fica.total
+      );
+    });
+  });
+
   describe('Medicare IRMAA', () => {
     /**
      * 2026 CMS table, single: tiers at >$109,000 / >$137,000 / … with Part B adjustments of
@@ -1603,7 +1854,7 @@ describe('TaxProcessor', () => {
     const year = (totalIncome: number) => createEmptyIncomesData({ totalIncome, totalWageIncome: totalIncome });
 
     it('charges nothing until two years of MAGI exist, then bills the lookback tier', () => {
-      const processor = new TaxProcessor(createMockSimulationState(70), 'single', 2026);
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2026);
       const run = (taxYear: number, totalIncome: number) => {
         processor.setTaxYear(taxYear);
         return processor.process(createEmptyPortfolioData(), year(totalIncome), createEmptyReturnsData(), createEmptyPhysicalAssetsData());
@@ -1669,7 +1920,7 @@ describe('TaxProcessor', () => {
 
     it('uses the joint thresholds for a joint return', () => {
       // MFJ: the first tier starts above $218,000, so $200,000 is still the standard premium.
-      const processor = new TaxProcessor(createMockSimulationState(70), 'marriedFilingJointly', 2026);
+      const processor = new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly', 2026);
       processor.process(
         createEmptyPortfolioData(),
         createEmptyIncomesData({ totalIncome: 200000 }),
@@ -1812,7 +2063,7 @@ describe('TaxProcessor', () => {
 
     it('adds exactly one payroll line to a year with no wages and no self-employment income', () => {
       // A retiree year: no payroll tax at all, so the invariant collapses to the old total.
-      const processor = new TaxProcessor(createMockSimulationState(70), 'single', 2026);
+      const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2026);
       const incomes = createEmptyIncomesData({ totalIncome: 0 });
 
       const result = processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());

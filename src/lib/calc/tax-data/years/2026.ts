@@ -199,6 +199,27 @@ export const FEDERAL_2026: FederalTaxRuleset = {
         },
       },
     },
+    // The temporary senior deduction, IRC §151(d)(5)(C), added by P.L. 119-21 §70103: "$6,000 for
+    // each qualified individual", reduced by 6% of MAGI over $75,000 ($150,000 joint), for taxable
+    // years beginning before January 1, 2029. Fixed by statute, not indexed.
+    seniorDeduction: {
+      indexing: 'fixed',
+      source:
+        'IRC §151(d)(5)(C), added by P.L. 119-21 §70103: $6,000 per individual aged 65+, reduced by 6% of MAGI over ' +
+        '$75,000 ($150,000 joint), taxable years beginning before January 1, 2029.',
+      values: {
+        perIndividual: 6000,
+        phaseOutThreshold: { single: 75000, marriedFilingJointly: 150000, headOfHousehold: 75000 },
+        phaseOutRate: 0.06,
+        lastTaxYear: 2028,
+      },
+    },
+    // IRC §213(a): medical expenses are deductible only above 7.5% of AGI. A rate, so `fixed`.
+    medicalExpenseFloor: {
+      indexing: 'fixed',
+      source: 'IRC §213(a): the medical-expense deduction is limited to expenses above 7.5% of adjusted gross income.',
+      values: 0.075,
+    },
     // Additional Medicare Tax thresholds. Statutory amounts in IRC §3101(b)(2)(A) and
     // §1401(b)(2)(A), fixed since 2013 and deliberately not indexed. The employer withholding
     // threshold is $200,000 regardless of filing status; the liability these thresholds describe

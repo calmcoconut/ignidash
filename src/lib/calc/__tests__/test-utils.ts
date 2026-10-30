@@ -18,7 +18,7 @@ import type { DebtInputs } from '@/lib/schemas/inputs/debt-form-schema';
 import type { SimulationState, SimulationContext } from '../simulation-engine';
 import type { PortfolioData } from '../portfolio';
 import type { IncomesData } from '../incomes';
-import type { AlternativeMinimumTaxesData, IrmaaData } from '../taxes';
+import type { AlternativeMinimumTaxesData, DeductionData, IrmaaData } from '../taxes';
 import type { ExpensesData } from '../expenses';
 import type { ReturnsData } from '../returns';
 import type { PhysicalAssetsData } from '../physical-assets';
@@ -540,6 +540,17 @@ export const createZeroIrmaaData = (overrides: Partial<IrmaaData> = {}): IrmaaDa
   tier: 0,
   partBMonthly: 0,
   partDMonthly: 0,
+  total: 0,
+  ...overrides,
+});
+
+/** A zeroed deduction block (the standard deduction path) for fixtures that do not exercise it. */
+export const createZeroDeductionData = (overrides: Partial<DeductionData> = {}): DeductionData => ({
+  type: 'standard',
+  standardDeduction: 0,
+  itemized: { mortgageInterest: 0, charitable: 0, stateAndLocalTaxes: 0, medicalExpenses: 0, total: 0 },
+  saltCap: { entered: 0, allowed: 0, phaseDown: 0, resolvedYear: 0 },
+  seniorDeduction: 0,
   total: 0,
   ...overrides,
 });

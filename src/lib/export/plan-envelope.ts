@@ -41,12 +41,12 @@ import {
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 6 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8 and P1-P3).
+ * Export/import envelope, version 7 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3 and P3-P3).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 6, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 6, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 7, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 7, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -78,6 +78,16 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       member age means "inherit the plan-level timeline value" (the primary's own), never an
  *       error and never zero. Nothing is written back on import; the file keeps what it had.
  *
+ *   7 — P3-P3 itemized deductions: optional `taxSettings.itemizedDeductions`
+ *       (`mortgageInterest`, `charitable`, `stateAndLocalTaxes`, `medicalExpenses`) and
+ *       `taxSettings.spouseQualifiesForSeniorDeduction`. A version 6 file **cannot** carry the
+ *       block: no build ever wrote it into a v6 file. In a v6 file the absence means *the plan does
+ *       not itemize* — the return takes the standard deduction — and emphatically **not** "itemized
+ *       deductions of zero": a file that itemized nothing and a file that never knew about
+ *       itemizing are the same arithmetic but different data, and the reader must not invent a
+ *       block the file did not have. Nothing is written back on import, so re-exporting a v6 plan
+ *       unchanged writes a v7 file with the block still absent, which reads the same way.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -89,7 +99,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 6;
+export const EXPORT_SCHEMA_VERSION = 7;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

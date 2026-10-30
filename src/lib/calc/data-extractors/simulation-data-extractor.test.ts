@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { createZeroAmtData, createZeroIrmaaData } from '../__tests__/test-utils';
+import { createZeroAmtData, createZeroDeductionData, createZeroIrmaaData } from '../__tests__/test-utils';
 
 import { SimulationDataExtractor } from './simulation-data-extractor';
 import { ChartDataExtractor } from './chart-data-extractor';
@@ -478,6 +478,7 @@ const createTaxDataPoint = (options: {
     },
     amt: createZeroAmtData(),
     irmaa: createZeroIrmaaData(),
+    deduction: createZeroDeductionData(),
     totalTaxLiability:
       (options.federalIncomeTax ?? 0) +
       (options.capitalGainsTax ?? 0) +
@@ -722,6 +723,7 @@ const createCashFlowDataPoint = (options: {
     },
     amt: createZeroAmtData(),
     irmaa: createZeroIrmaaData(),
+    deduction: createZeroDeductionData(),
     totalTaxLiability: options.totalTaxesAndPenalties,
     totalTaxesDue: options.totalTaxesAndPenalties,
     totalTaxesRefund: 0,
@@ -1093,6 +1095,7 @@ const createNetCashFlowDataPoint = (options: {
     },
     amt: createZeroAmtData(),
     irmaa: createZeroIrmaaData(),
+    deduction: createZeroDeductionData(),
     totalTaxLiability: options.totalTaxes ?? 0,
     totalTaxesDue: options.totalTaxes ?? 0,
     totalTaxesRefund: 0,
@@ -1770,6 +1773,7 @@ const createCashFlowInvariantDataPoint = (options: {
     },
     amt: createZeroAmtData(),
     irmaa: createZeroIrmaaData(),
+    deduction: createZeroDeductionData(),
     totalTaxLiability: options.totalTaxes ?? 0,
     totalTaxesDue: options.totalTaxes ?? 0,
     totalTaxesRefund: 0,

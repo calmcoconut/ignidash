@@ -323,7 +323,16 @@ export class FinancialSimulationEngine {
     // timezone-free calendar arithmetic as the result dates, not from a Date getter (a locally built
     // Jan 1 is still Dec 31 in UTC, so `getUTCFullYear()` would pick the prior year's ruleset in a
     // UTC+ zone). It is re-resolved below for every year.
-    let taxProcessor = new TaxProcessor(simulationState, filingStatus, settlementTaxYearForPeriod(startCalendarDate, 0));
+    // The plan's deduction settings travel with the processor: the itemized lines, and the spouse-65
+    // flag for the senior deduction. Without this argument the tax layer computes itemized
+    // deductions nobody enters — see the `simulate()` test that asserts the difference.
+    let taxProcessor = new TaxProcessor(
+      simulationState,
+      filingStatus,
+      settlementTaxYearForPeriod(startCalendarDate, 0),
+      undefined,
+      this.inputs.taxSettings
+    );
 
     // Init phase identifier
     const phaseIdentifier = new PhaseIdentifier(simulationState, timeline, workingIncomeBindings);
@@ -448,10 +457,14 @@ export class FinancialSimulationEngine {
         const nextPeriodFilingStatus = survivorFilingStatus(baseFilingStatus, simulationContext.firstDeath, simulationState.time.age + 1);
         if (nextPeriodFilingStatus !== filingStatus) {
           filingStatus = nextPeriodFilingStatus;
+          // The replacement must carry the same deduction settings as the processor it replaces:
+          // a survivor who itemizes keeps itemizing, and the senior-deduction flag survives too.
           taxProcessor = new TaxProcessor(
             simulationState,
             filingStatus,
-            settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month)
+            settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month),
+            undefined,
+            this.inputs.taxSettings
           );
           payrollTaxProcessor = new PayrollTaxProcessor(
             settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month),
