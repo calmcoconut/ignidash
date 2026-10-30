@@ -690,9 +690,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                             <option value="wage">Wages & Salary (W-2)</option>
                             <option value="socialSecurity">Social Security</option>
                             <option value="exempt">Tax-Free (gifts, inheritances, etc.)</option>
-                            <option value="selfEmployment" disabled>
-                              Self-Employment (1099) (coming soon!)
-                            </option>
+                            <option value="selfEmployment">Self-Employment (1099)</option>
                             <option value="pension">Pension</option>
                           </Select>
                           {errors.taxes?.incomeType && <ErrorMessage>{errors.taxes?.incomeType?.message}</ErrorMessage>}

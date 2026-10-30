@@ -2,13 +2,20 @@
  * Federal tax calculation engine
  *
  * Computes income tax, capital gains tax, NIIT, Social Security taxation,
- * and early withdrawal penalties. Handles progressive bracket stacking,
- * capital loss carryover, and Section 121 primary residence exclusion.
+ * payroll taxes (FICA, self-employment tax, California SDI) and early withdrawal penalties.
+ * Handles progressive bracket stacking, capital loss carryover, and Section 121 primary
+ * residence exclusion.
  *
  * Every amount comes from the ruleset for the tax year being settled
  * (`getRules(taxYear)` in `./tax-data`), never from a module-level constant, so a future year's
  * rules only apply to returns filed under them. The year is passed in explicitly by the engine
  * from its clock; see `setTaxYear`.
+ *
+ * Payroll tax moved here in P3-P4: the wage half arrives already withheld (see `PayrollTaxProcessor`
+ * in `./payroll-taxes`, which the engine passes in per year) and the self-employment half is
+ * computed here, because it is settled with the return. `totalTaxLiability` is the one reconciled
+ * total: it equals the sum of the lines below it, and `totalTaxesDue` is that total less what was
+ * already withheld from the paycheques.
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
@@ -20,6 +27,7 @@ import type { PortfolioData } from './portfolio';
 import type { ReturnsData } from './returns';
 import type { PhysicalAssetsData } from './physical-assets';
 import { sumFlows } from './asset';
+import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import type {
   CapitalGainsTaxBracket,
@@ -59,11 +67,22 @@ export interface TaxesData {
   niit: NIITData;
   earlyWithdrawalPenalties: EarlyWithdrawalPenaltyData;
   socialSecurityTaxes: SocialSecurityTaxesData;
+  /** FICA and SDI withheld from wages, plus the self-employment tax settled with the return. */
+  fica: FicaTaxesData;
   incomeSources: IncomeSourcesData;
+  /**
+   * Everything the year owes: the sum of every line in this object that is a tax, i.e.
+   * `federalIncomeTaxes.federalIncomeTaxAmount + capitalGainsTaxes.capitalGainsTaxAmount +
+   * niit.niitAmount + earlyWithdrawalPenalties.totalPenaltyAmount + fica.total`. The
+   * reconciliation test asserts exactly that equality, so a new line cannot be added without
+   * being counted (or a line cannot be counted twice).
+   */
+  totalTaxLiability: number;
+  /** Liability that still has to be paid: `totalTaxLiability` less income-tax and payroll withholding. */
   totalTaxesDue: number;
   totalTaxesRefund: number;
   totalTaxableIncome: number;
-  /** Above-the-line adjustments: tax-deferred contributions (401k/IRA/HSA), capital loss deduction, Section 121 exclusion */
+  /** Above-the-line adjustments: tax-deferred contributions (401k/IRA/HSA), capital loss deduction, Section 121 exclusion, half of the SE tax */
   adjustments: Record<string, number>;
   /** Below-the-line deductions: standard deduction (itemized deductions not modeled) */
   deductions: Record<string, number>;
@@ -163,19 +182,25 @@ export class TaxProcessor {
    * @param annualIncomesData - Aggregated annual income data
    * @param annualReturnsData - Annual investment return data
    * @param annualPhysicalAssetsData - Annual physical asset data
-   * @returns Complete tax breakdown including income, capital gains, NIIT, and penalties
+   * @param annualWagePayrollTaxes - Payroll tax already withheld from this year's wages, from
+   *   `PayrollTaxProcessor`. Omitted means "no wages were paid" and every wage line is zero.
+   * @returns Complete tax breakdown including income, capital gains, NIIT, FICA/SE and penalties
    */
   process(
     annualPortfolioDataBeforeTaxes: PortfolioData,
     annualIncomesData: IncomesData,
     annualReturnsData: ReturnsData,
-    annualPhysicalAssetsData: PhysicalAssetsData
+    annualPhysicalAssetsData: PhysicalAssetsData,
+    annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes()
   ): TaxesData {
+    const fica = this.processPayrollTaxes(annualIncomesData, annualWagePayrollTaxes);
+
     const incomeData = this.getTaxableIncomeData(
       annualPortfolioDataBeforeTaxes,
       annualIncomesData,
       annualReturnsData,
-      annualPhysicalAssetsData
+      annualPhysicalAssetsData,
+      fica.selfEmployment.halfDeduction
     );
 
     const socialSecurityTaxes: SocialSecurityTaxesData = {
@@ -222,12 +247,19 @@ export class TaxProcessor {
 
     const earlyWithdrawalPenalties = this.processEarlyWithdrawalPenalties(incomeData.earlyWithdrawals);
 
-    const totalTaxLiabilityExcludingFICA =
+    // The one reconciled total. Every tax line is added here and nowhere else, and the
+    // reconciliation test in `taxes.test.ts` asserts this equality line by line.
+    const totalTaxLiability =
       federalIncomeTaxes.federalIncomeTaxAmount +
       capitalGainsTaxes.capitalGainsTaxAmount +
       niit.niitAmount +
-      earlyWithdrawalPenalties.totalPenaltyAmount;
-    const difference = totalTaxLiabilityExcludingFICA - annualIncomesData.totalAmountWithheld;
+      earlyWithdrawalPenalties.totalPenaltyAmount +
+      fica.total;
+
+    // Payroll tax on wages was withheld from the paycheque as the year went by, so only the
+    // self-employment tax inside `fica` is still owed (plus or minus the income-tax true-up).
+    const withheld = annualIncomesData.totalAmountWithheld + fica.wages.total;
+    const difference = totalTaxLiability - withheld;
 
     return {
       federalIncomeTaxes,
@@ -235,7 +267,9 @@ export class TaxProcessor {
       niit,
       earlyWithdrawalPenalties,
       socialSecurityTaxes,
+      fica,
       incomeSources: incomeData,
+      totalTaxLiability,
       totalTaxesDue: difference > 0 ? difference : 0,
       totalTaxesRefund: difference < 0 ? Math.abs(difference) : 0,
       totalTaxableIncome: taxableIncomeTaxedAsOrdinary + taxableIncomeTaxedAsCapitalGains,
@@ -243,9 +277,34 @@ export class TaxProcessor {
         taxDeductibleContributions: incomeData.taxDeductibleContributions,
         capitalLossDeduction: incomeData.capitalLossDeduction,
         section121Exclusion: incomeData.section121Exclusion,
+        selfEmploymentTaxDeduction: fica.selfEmployment.halfDeduction,
       },
       deductions: { standardDeduction },
     };
+  }
+
+  /**
+   * Assembles the payroll-tax group: wages already withheld, plus the self-employment tax on the
+   * year's net self-employment earnings.
+   *
+   * Hand check (2026, single, no wages, $100,000 of net self-employment earnings):
+   *   SE tax   = 92,350 × 15.3%  = $14,129.55
+   *   half     = $7,064.775      → above-the-line deduction
+   *   fica.total = 0 + 14,129.55 = $14,129.55, of which `fica.wages.total` is 0 (nothing withheld)
+   */
+  private processPayrollTaxes(annualIncomesData: IncomesData, annualWagePayrollTaxes: WagePayrollTaxes): FicaTaxesData {
+    const wages = { ...annualWagePayrollTaxes };
+
+    // The OASDI wage base is shared between wages and self-employment earnings, and the Additional
+    // Medicare threshold is a combined one, so the SE calculation needs the year's wage total.
+    const selfEmployment = computeSelfEmploymentTaxes({
+      netEarnings: annualIncomesData.totalSelfEmploymentIncome ?? 0,
+      wages: annualIncomesData.totalWageIncome ?? 0,
+      filingStatus: this.filingStatus,
+      taxYear: this.ruleset.year,
+    });
+
+    return { wages, selfEmployment, total: wages.total + selfEmployment.total };
   }
 
   /** Assembles all income sources and computes adjusted gross income */
@@ -253,7 +312,8 @@ export class TaxProcessor {
     annualPortfolioDataBeforeTaxes: PortfolioData,
     annualIncomesData: IncomesData,
     annualReturnsData: ReturnsData,
-    annualPhysicalAssetsData: PhysicalAssetsData
+    annualPhysicalAssetsData: PhysicalAssetsData,
+    selfEmploymentTaxDeduction: number
   ): IncomeSourcesData {
     const age = this.simulationState.time.age;
 
@@ -321,7 +381,7 @@ export class TaxProcessor {
       taxDeferredAccountTypes
     );
 
-    const totalAdjustments = taxDeductibleContributions + capitalLossDeduction;
+    const totalAdjustments = taxDeductibleContributions + capitalLossDeduction + selfEmploymentTaxDeduction;
     const adjustmentsAppliedToOrdinary = Math.min(totalAdjustments, incomeTaxedAsOrdinaryExceptSocSec);
     const adjustmentsAppliedToCapitalGains = totalAdjustments - adjustmentsAppliedToOrdinary;
 

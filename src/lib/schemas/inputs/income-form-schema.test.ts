@@ -97,12 +97,17 @@ describe('incomeFormSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('should reject selfEmployment (not yet supported)', () => {
+  it('should accept selfEmployment income (P3-P4: the gate is gone)', () => {
+    // Self-employment income was rejected between Wave 0 and P3-P4 because the engine had no
+    // self-employment tax: it would have been taxed as an ordinary wage and under-taxed by ~15.3%.
+    // The tax now exists (`computeSelfEmploymentTaxes`), so the form accepts it and charges no
+    // withholding (nothing is withheld from a self-employed paycheque — the SE tax is annual).
     const result = incomeFormSchema.safeParse({
       ...validIncome,
+      amount: 50000,
       taxes: { incomeType: 'selfEmployment' },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it('should accept pension income without withholding', () => {

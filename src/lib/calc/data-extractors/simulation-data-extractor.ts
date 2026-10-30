@@ -309,15 +309,19 @@ export class SimulationDataExtractor {
 
   /**
    * Extracts tax amounts broken down by type (income, FICA, cap gains, NIIT, penalties)
+   *
+   * FICA comes from `TaxesData.fica` and nowhere else (PLAN-parity R10). It used to be read from
+   * `incomes.totalFicaTax`; once payroll tax has a home in the tax layer, summing an income-side
+   * copy as well would double count it. The income copy no longer exists, so the hazard is
+   * structural rather than a convention: there is one field to read.
+   *
    * @param dp - A single simulation data point
    * @returns Individual and total tax amounts for the year
    */
   static getTaxAmountsByType(dp: SimulationDataPoint): TaxAmountsByType {
-    const incomesData = dp.incomes;
-    const ficaTax = incomesData?.totalFicaTax ?? 0;
-
     const taxesData = dp.taxes;
     const federalIncomeTax = taxesData?.federalIncomeTaxes.federalIncomeTaxAmount ?? 0;
+    const ficaTax = taxesData?.fica.total ?? 0;
     const capitalGainsTax = taxesData?.capitalGainsTaxes.capitalGainsTaxAmount ?? 0;
     const niit = taxesData?.niit.niitAmount ?? 0;
     const totalTaxes = federalIncomeTax + capitalGainsTax + niit + ficaTax;

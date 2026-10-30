@@ -416,6 +416,8 @@ const createTaxDataPoint = (options: {
     totalIncomeAfterPayrollDeductions: 72350,
     totalSocialSecurityIncome: 0,
     totalTaxFreeIncome: 0,
+    totalWageIncome: 80000,
+    totalSelfEmploymentIncome: 0,
     perIncomeData: {},
   },
   expenses: null,
@@ -453,6 +455,31 @@ const createTaxDataPoint = (options: {
       taxFreePenaltyAmount: 0,
       totalPenaltyAmount: options.earlyWithdrawalPenalties ?? 0,
     },
+    fica: {
+      wages: {
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        stateDisability: 0,
+        total: options.ficaTax ?? 0,
+      },
+      selfEmployment: {
+        netEarnings: 0,
+        taxableEarnings: 0,
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        total: 0,
+        halfDeduction: 0,
+      },
+      total: options.ficaTax ?? 0,
+    },
+    totalTaxLiability:
+      (options.federalIncomeTax ?? 0) +
+      (options.capitalGainsTax ?? 0) +
+      (options.niit ?? 0) +
+      (options.earlyWithdrawalPenalties ?? 0) +
+      (options.ficaTax ?? 0),
     totalTaxesDue: 0,
     totalTaxesRefund: 0,
     totalTaxableIncome: 65400,
@@ -504,6 +531,19 @@ describe('SimulationDataExtractor.getTaxAmountsByType', () => {
     expect(taxes.capitalGainsTax).toBe(3000);
     expect(taxes.niit).toBe(500);
     expect(taxes.earlyWithdrawalPenalties).toBe(1000);
+  });
+
+  it('reads FICA from TaxesData and never from the income side (PLAN-parity R10)', () => {
+    // The hazard R10 describes: once payroll tax is reported in two places, an extractor that sums
+    // both double counts it. The extractor reads `TaxesData.fica` only, so a stale income-side
+    // copy must change nothing.
+    const dp = createTaxDataPoint({ ficaTax: 5000 });
+    dp.incomes = { ...dp.incomes!, totalFicaTax: 7650 };
+
+    const taxes = SimulationDataExtractor.getTaxAmountsByType(dp);
+
+    expect(taxes.ficaTax).toBe(5000);
+    expect(taxes.totalTaxes).toBe(5000);
   });
 
   it('calculates totalTaxes correctly (excluding penalties)', () => {
@@ -599,6 +639,8 @@ const createCashFlowDataPoint = (options: {
     totalIncomeAfterPayrollDeductions: options.totalIncome,
     totalSocialSecurityIncome: options.socialSecurityIncome ?? 0,
     totalTaxFreeIncome: options.taxFreeIncome ?? 0,
+    totalWageIncome: 0,
+    totalSelfEmploymentIncome: 0,
     perIncomeData: {},
   },
   expenses: {
@@ -639,6 +681,20 @@ const createCashFlowDataPoint = (options: {
       taxFreePenaltyAmount: 0,
       totalPenaltyAmount: 0,
     },
+    fica: {
+      wages: { socialSecurity: 0, medicare: 0, additionalMedicare: 0, stateDisability: 0, total: 0 },
+      selfEmployment: {
+        netEarnings: 0,
+        taxableEarnings: 0,
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        total: 0,
+        halfDeduction: 0,
+      },
+      total: 0,
+    },
+    totalTaxLiability: options.totalTaxesAndPenalties,
     totalTaxesDue: options.totalTaxesAndPenalties,
     totalTaxesRefund: 0,
     totalTaxableIncome: options.totalIncome - 14600,
@@ -919,6 +975,8 @@ const createNetCashFlowDataPoint = (options: {
     totalIncomeAfterPayrollDeductions: options.totalIncome ?? 0,
     totalSocialSecurityIncome: 0,
     totalTaxFreeIncome: 0,
+    totalWageIncome: 0,
+    totalSelfEmploymentIncome: 0,
     perIncomeData: {},
   },
   expenses: {
@@ -992,6 +1050,20 @@ const createNetCashFlowDataPoint = (options: {
       taxFreePenaltyAmount: 0,
       totalPenaltyAmount: 0,
     },
+    fica: {
+      wages: { socialSecurity: 0, medicare: 0, additionalMedicare: 0, stateDisability: 0, total: 0 },
+      selfEmployment: {
+        netEarnings: 0,
+        taxableEarnings: 0,
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        total: 0,
+        halfDeduction: 0,
+      },
+      total: 0,
+    },
+    totalTaxLiability: options.totalTaxes ?? 0,
     totalTaxesDue: options.totalTaxes ?? 0,
     totalTaxesRefund: 0,
     totalTaxableIncome: 0,
@@ -1578,6 +1650,8 @@ const createCashFlowInvariantDataPoint = (options: {
     totalIncomeAfterPayrollDeductions: options.totalIncome ?? 0,
     totalSocialSecurityIncome: 0,
     totalTaxFreeIncome: 0,
+    totalWageIncome: 0,
+    totalSelfEmploymentIncome: 0,
     perIncomeData: {},
   },
   expenses: {
@@ -1651,6 +1725,20 @@ const createCashFlowInvariantDataPoint = (options: {
       taxFreePenaltyAmount: 0,
       totalPenaltyAmount: 0,
     },
+    fica: {
+      wages: { socialSecurity: 0, medicare: 0, additionalMedicare: 0, stateDisability: 0, total: 0 },
+      selfEmployment: {
+        netEarnings: 0,
+        taxableEarnings: 0,
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        total: 0,
+        halfDeduction: 0,
+      },
+      total: 0,
+    },
+    totalTaxLiability: options.totalTaxes ?? 0,
     totalTaxesDue: options.totalTaxes ?? 0,
     totalTaxesRefund: 0,
     totalTaxableIncome: 0,

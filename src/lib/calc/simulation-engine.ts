@@ -8,6 +8,7 @@
  */
 
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
+import type { HistoricalBacktestMode } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 import { type TimelineInputs, type RetirementStrategyInputs, calculatePreciseAge } from '@/lib/schemas/inputs/timeline-form-schema';
 
 import { type CalendarDate, type Clock, type ISODateString, addMonths, formatISODate, parseISODateString, toSimulationDate } from './clock';
@@ -22,6 +23,7 @@ import { ContributionRules } from './contribution-rules';
 import { PhaseIdentifier, type PhaseData } from './phase';
 import { ReturnsProcessor, type ReturnsData } from './returns';
 import { Incomes, IncomesProcessor, type IncomesData } from './incomes';
+import { PayrollTaxProcessor, type WagePayrollTaxes } from './payroll-taxes';
 import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
@@ -77,6 +79,17 @@ export interface SimulationResult {
     retirementStrategy: RetirementStrategyInputs;
     rmdAge: number;
     historicalRanges?: Array<{ startYear: number; endYear: number }>;
+    /**
+     * Present only when the run ran past the last vendored year and restarted at its beginning
+     * (`historicalBacktest.mode: 'looping'`). Absent on a no-wrap run, so those results keep their
+     * original shape.
+     */
+    historicalWrapped?: boolean;
+    /**
+     * Present only when a `'truncate'` run needed more data than the vendored range holds: the last
+     * vendored year it had, so the UI can disclose where the data ran out.
+     */
+    truncatedAtYear?: number;
   };
 }
 
@@ -142,7 +155,14 @@ export class FinancialSimulationEngine {
 
     // Init simulation processors
     const returnsProcessor = new ReturnsProcessor(simulationState, returnsProvider);
-    const incomesProcessor = new IncomesProcessor(simulationState, incomes);
+    // Payroll withholding has its own state (year-to-date wages, so the OASDI wage base can stop
+    // mid-year), so it is created once and shared: the incomes processor applies each paycheque's
+    // withholding and the tax processor reports the same year's total.
+    const payrollTaxProcessor = new PayrollTaxProcessor(
+      taxYearFor(startCalendarDate, simulationState.time.month),
+      this.inputs.taxSettings.filingStatus
+    );
+    const incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
     const expensesProcessor = new ExpensesProcessor(simulationState, expenses);
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
@@ -210,7 +230,8 @@ export class FinancialSimulationEngine {
           annualPortfolioDataBeforeTaxes,
           annualIncomesData,
           annualReturnsData,
-          annualPhysicalAssetsData
+          annualPhysicalAssetsData,
+          payrollTaxProcessor.getAnnualData()
         );
 
         // Process expenses last to account for discretionary expenses from tax refunds
@@ -235,13 +256,18 @@ export class FinancialSimulationEngine {
           returns: annualReturnsData,
         });
 
-        // Reset monthly data for next iteration
+        // Reset monthly data for next iteration. The payroll year advances with the annual
+        // settlement boundary, which is the rolling 12-month year this engine settles taxes on, so
+        // the OASDI wage base and the SDI rate reset here rather than on January 1. A plan whose
+        // year straddles a calendar boundary therefore applies one year's payroll table to the
+        // whole settlement year, exactly as it applies one year's income-tax brackets.
         returnsProcessor.resetMonthlyData();
         incomesProcessor.resetMonthlyData();
         expensesProcessor.resetMonthlyData();
         debtsProcessor.resetMonthlyData();
         physicalAssetsProcessor.resetMonthlyData();
         portfolioProcessor.resetMonthlyData();
+        payrollTaxProcessor.startNewYear(taxYearFor(startCalendarDate, simulationState.time.month));
       }
     }
 
@@ -282,7 +308,8 @@ export class FinancialSimulationEngine {
     portfolioDataBeforeTaxes: PortfolioData,
     incomesData: IncomesData,
     returnsData: ReturnsData,
-    physicalAssetsData: PhysicalAssetsData
+    physicalAssetsData: PhysicalAssetsData,
+    wagePayrollTaxes: WagePayrollTaxes
   ): {
     taxesData: TaxesData;
     portfolioData: PortfolioData;
@@ -290,7 +317,7 @@ export class FinancialSimulationEngine {
   } {
     taxProcessor.saveCarryoverSnapshot();
 
-    const initialTaxesData = taxProcessor.process(portfolioDataBeforeTaxes, incomesData, returnsData, physicalAssetsData);
+    const initialTaxesData = taxProcessor.process(portfolioDataBeforeTaxes, incomesData, returnsData, physicalAssetsData, wagePayrollTaxes);
     const { totalTaxesDue, totalTaxesRefund } = initialTaxesData;
 
     const { portfolioData: initialPortfolioData, discretionaryExpense } = portfolioProcessor.processTaxes(portfolioDataBeforeTaxes, {
@@ -306,7 +333,7 @@ export class FinancialSimulationEngine {
       for (let i = 0; i < 10; i++) {
         taxProcessor.restoreCarryoverSnapshot();
 
-        taxesData = taxProcessor.process(portfolioData, incomesData, returnsData, physicalAssetsData);
+        taxesData = taxProcessor.process(portfolioData, incomesData, returnsData, physicalAssetsData, wagePayrollTaxes);
 
         const remainingTaxesDue = taxesData.totalTaxesDue - totalTaxesPaid;
         if (Math.abs(remainingTaxesDue) < TAX_CONVERGENCE_THRESHOLD) break;
@@ -553,20 +580,48 @@ export class LcgHistoricalBacktestSimulationEngine extends FinancialSimulationEn
     startYearOverride: number | undefined,
     retirementStartYearOverride: number | undefined
   ): SimulationResult {
-    const returnsProvider = new LcgHistoricalBacktestReturnsProvider(seed, startYearOverride, retirementStartYearOverride);
+    const returnsProvider = new LcgHistoricalBacktestReturnsProvider(
+      seed,
+      startYearOverride,
+      retirementStartYearOverride,
+      this.historicalBacktestMode()
+    );
 
     const timeline = this.inputs.timeline;
     if (!timeline) throw new Error('Must have timeline data for simulation');
 
     const result = this.runSimulation(returnsProvider, timeline);
-    const historicalRanges = returnsProvider.getHistoricalRanges();
 
     return {
       ...result,
       context: {
         ...result.context,
-        historicalRanges,
+        ...this.historicalBacktestContext(returnsProvider),
       },
+    };
+  }
+
+  /** The plan's historical-backtest mode; absent means the pre-P2-P4 behaviour (`'looping'`). */
+  private historicalBacktestMode(): HistoricalBacktestMode {
+    return this.inputs.simulationSettings.historicalBacktest?.mode ?? 'looping';
+  }
+
+  /**
+   * The historical context a result carries: always the ranges walked, plus the disclosure fields
+   * only when they apply. A no-wrap run therefore keeps exactly the context shape it had before
+   * P2-P4 (the frozen corpus depends on that).
+   */
+  private historicalBacktestContext(returnsProvider: LcgHistoricalBacktestReturnsProvider): {
+    historicalRanges: Array<{ startYear: number; endYear: number }>;
+    historicalWrapped?: boolean;
+    truncatedAtYear?: number;
+  } {
+    const report = returnsProvider.getHistoricalReport();
+
+    return {
+      historicalRanges: report.ranges,
+      ...(report.wrapped ? { historicalWrapped: true as const } : {}),
+      ...(report.truncatedAtYear !== null ? { truncatedAtYear: report.truncatedAtYear } : {}),
     };
   }
 
@@ -583,17 +638,16 @@ export class LcgHistoricalBacktestSimulationEngine extends FinancialSimulationEn
     const simulations: Array<[number, SimulationResult]> = [];
     for (let i = 0; i < numSimulations; i++) {
       const simulationSeed = this.baseSeed + i * 1009; // Prime spacing avoids seed correlation between simulations
-      const returnsProvider = new LcgHistoricalBacktestReturnsProvider(simulationSeed, undefined, undefined);
+      const returnsProvider = new LcgHistoricalBacktestReturnsProvider(simulationSeed, undefined, undefined, this.historicalBacktestMode());
 
       const result = this.runSimulation(returnsProvider, timeline);
-      const historicalRanges = returnsProvider.getHistoricalRanges();
       simulations.push([
         simulationSeed,
         {
           ...result,
           context: {
             ...result.context,
-            historicalRanges,
+            ...this.historicalBacktestContext(returnsProvider),
           },
         },
       ]);

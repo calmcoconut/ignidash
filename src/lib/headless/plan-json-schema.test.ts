@@ -102,7 +102,9 @@ describe('the document states its own limits', () => {
       expect(comment, `$comment is missing "${ruleClass.label}"`).toContain(ruleClass.label);
       expect(HEADLESS_DOC_FLAT, `docs/HEADLESS.md is missing "${ruleClass.label}"`).toContain(ruleClass.label);
     }
-    expect(UNVALIDATED_RULE_CLASSES.map((entry) => entry.id)).toEqual(['cross-field', 'enum-policy', 'clock', 'unknown-keys']);
+    // P3-P4 retired `enum-policy`: its only member was the self-employment income gate, which
+    // the app now accepts. An empty class is not kept for the taxonomy's shape.
+    expect(UNVALIDATED_RULE_CLASSES.map((entry) => entry.id)).toEqual(['cross-field', 'clock', 'unknown-keys']);
   });
 
   it('keeps the clock-relative rules listed for readers', () => {

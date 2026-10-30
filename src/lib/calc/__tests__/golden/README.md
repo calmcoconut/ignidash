@@ -68,3 +68,31 @@ What the corpus never calls is `ChartDataExtractor.extractMultiSimulationPhasesD
 **yearly row index** and throw when a fixture has fewer runs than years. Avoiding that quirk is
 the reason the corpus contains no Monte Carlo fixture — not "no multi-simulation extractor at
 all".
+
+## Change log — regenerations, with the reason
+
+### P3-P4: FICA/SE tax moved into the tax layer; California SDI added
+
+Regenerated once, deliberately. **Every wage-earning fixture moves, and only because payroll
+tax now includes California SDI** (1.3% of wages in the first simulated year, which settles under
+2026's rate; 1.4% in later years, which settle under the published 2027 row). FICA did not change
+for these plans — all wages stay under the $184,500 OASDI wage base and under the $200,000
+Additional Medicare threshold — and none of them has self-employment income.
+
+What a diff in this direction means: take-home pay falls by 1.3%-1.4% of wages. That reduces the
+401(k) employee contribution, which raises AGI by the same amount and the federal income tax by
+roughly 22% of it; the year-end refund falls by that tax; the rest of the portfolio cascade is
+that smaller contribution compounding. Nothing else may move: the year-end bill changes by the
+income tax only, because the payroll tax was already withheld from the paycheque (the P3-P4
+invariant, asserted in `taxes.test.ts`).
+
+| fixture              | lifetime FICA                 | lifetime tax                            | final portfolio                         | why                                                                                                                                                                                                                                              |
+| -------------------- | ----------------------------- | --------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `steady-saver`       | +$38,390.00 (all three modes) | +$46,844.74 / +$46,200.80 / +$47,109.57 | −$90,590.74 / −$89,956.55 / −$66,567.36 | Wages of $110,000 for 25 simulated years: SDI is $1,430 in the first year and $1,540 after. The tax delta is larger than the SDI delta because each year's 401(k) contribution falls by the SDI, raising AGI by the same amount.                 |
+| `marginal-retiree`   | +$4,140.00                    | +$4,568.35                              | unchanged (0.00, bankrupt)              | Wages of $60,000 for five working years: $780 in the first year and $840 after. The extra payroll cost deepens the shortfall, so the plan still ends at zero — it cannot end lower.                                                              |
+| `time-binding-mixed` | +$27,835.00                   | +$20,029.77                             | −$103,855.44                            | Wages of $95,000 for 21 simulated years: $1,235 in the first year and $1,330 after. Lifetime tax moves less than lifetime FICA here because the smaller portfolio also means less taxable interest in retirement.                                |
+| `shortfall-repaid`   | 0.00                          | 0.00                                    | 0.00                                    | Pension income only: no wages, no self-employment income, so no payroll tax and no SDI. The snapshot changes only by the added fields (`taxes.fica`, `taxes.totalTaxLiability`, `incomes.totalWageIncome`, `incomes.totalSelfEmploymentIncome`). |
+
+A cross-check that ran before regenerating (and is cheap to repeat): at all 187 frozen annual data
+points, `incomes.totalFicaTax` equals `taxes.fica.wages.total`, `taxes.totalTaxLiability` equals the
+sum of its lines, and the year-end settlement moves by the income-tax difference alone.

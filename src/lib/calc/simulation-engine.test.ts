@@ -19,6 +19,7 @@ import {
 import { FixedReturnsProvider } from './returns-providers/fixed-returns-provider';
 import { Portfolio } from './portfolio';
 import { Incomes, IncomesProcessor } from './incomes';
+import { PayrollTaxProcessor } from './payroll-taxes';
 import { Expenses, ExpensesProcessor } from './expenses';
 import { PhaseIdentifier } from './phase';
 import { SeededRandom } from './returns-providers/seeded-random';
@@ -290,18 +291,23 @@ describe('Incomes', () => {
   });
 
   describe('wage income processing', () => {
+    // Payroll withholding lives in the tax layer now, so the processor needs the shared
+    // `PayrollTaxProcessor` (the engine creates one per run).
+    const payrollTaxProcessor = () => new PayrollTaxProcessor(2026, 'single');
+
     it('should calculate monthly wage income correctly', () => {
       const incomes = new Incomes([createWageIncome({ amount: 120000, frequency: 'yearly' })]);
-      const processor = new IncomesProcessor(createMockState(35), incomes);
+      const processor = new IncomesProcessor(createMockState(35), incomes, payrollTaxProcessor());
       expect(processor.process().totalIncome).toBe(10000);
     });
 
-    it('should calculate withholding and FICA taxes', () => {
+    it('should calculate withholding and payroll taxes', () => {
       const incomes = new Incomes([createWageIncome({ amount: 120000, taxes: { incomeType: 'wage', withholding: 22 } })]);
-      const processor = new IncomesProcessor(createMockState(35), incomes);
+      const processor = new IncomesProcessor(createMockState(35), incomes, payrollTaxProcessor());
       const result = processor.process();
       expect(result.totalAmountWithheld).toBe(2200);
-      expect(result.totalFicaTax).toBe(765);
+      // $10,000 of monthly wages: 7.65% FICA = $765.00 plus 1.3% California SDI = $130.00.
+      expect(result.totalFicaTax).toBe(895);
     });
   });
 
@@ -488,6 +494,68 @@ describe('FinancialSimulationEngine', () => {
       const result = engine.runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
       expect(result.data[0].portfolio.totalValue).toBe(100000);
       expect(result.data[result.data.length - 1].portfolio.totalValue).toBeGreaterThan(0);
+    });
+  });
+
+  describe('payroll taxes (P3-P4)', () => {
+    it('runs a self-employment income plan and charges the SE tax at year end', () => {
+      // The income form accepts `selfEmployment` now (it was gated while the engine had no SE tax),
+      // so the engine has to tax it. Nothing is withheld from a self-employed paycheque: the tax is
+      // settled annually on 92.35% of the year's net earnings.
+      //   $100,000 of net SE earnings → base 92,350
+      //   OASDI 92,350 × 12.4% = $11,451.40, Medicare 92,350 × 2.9% = $2,678.15
+      //   SE tax = $14,129.55, half of it ($7,064.775) deductible above the line
+      const inputs = createSimulatorInputs({
+        timeline: createDefaultTimeline(),
+        accounts: {},
+        incomes: {
+          'se-1': { ...createWageIncome({ id: 'se-1', name: 'Consulting', amount: 100000 }), taxes: { incomeType: 'selfEmployment' } },
+        },
+        expenses: {},
+      });
+
+      const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+      const firstYear = result.data[1];
+
+      expect(firstYear.incomes?.totalSelfEmploymentIncome).toBeCloseTo(100000);
+      expect(firstYear.incomes?.totalWageIncome).toBe(0);
+      // Nothing withheld from the paycheque, and no SDI (it is an employee withholding).
+      expect(firstYear.incomes?.totalFicaTax).toBe(0);
+      expect(firstYear.taxes?.fica.wages.total).toBe(0);
+      expect(firstYear.taxes?.fica.selfEmployment.netEarnings).toBeCloseTo(100000);
+      expect(firstYear.taxes?.fica.selfEmployment.taxableEarnings).toBeCloseTo(92350);
+      expect(firstYear.taxes?.fica.selfEmployment.total).toBeCloseTo(14129.55);
+      expect(firstYear.taxes?.fica.total).toBeCloseTo(14129.55);
+      // The half deduction reaches the income-tax side.
+      expect(firstYear.taxes?.adjustments.selfEmploymentTaxDeduction).toBeCloseTo(7064.775);
+      // Nothing withheld it, so the year-end bill carries the whole SE tax.
+      expect(firstYear.taxes?.totalTaxesDue).toBeGreaterThanOrEqual(14129.55);
+    });
+
+    it('withholds California SDI from wages and reports it inside TaxesData.fica', () => {
+      // $100,000 of wages, 2026 single, no income-tax withholding:
+      //   OASDI 6.2% = $6,200.00, Medicare 1.45% = $1,450.00, SDI 1.3% = $1,300.00
+      //   payroll withheld = $8,950.00, all of it credited against the annual liability
+      const inputs = createSimulatorInputs({
+        timeline: createDefaultTimeline(),
+        accounts: {},
+        incomes: { 'wage-1': createWageIncome({ id: 'wage-1', amount: 100000, taxes: { incomeType: 'wage', withholding: 0 } }) },
+        expenses: {},
+      });
+
+      const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+      const firstYear = result.data[1];
+
+      expect(firstYear.taxes?.fica.wages.socialSecurity).toBeCloseTo(6200);
+      expect(firstYear.taxes?.fica.wages.medicare).toBeCloseTo(1450);
+      expect(firstYear.taxes?.fica.wages.stateDisability).toBeCloseTo(1300);
+      expect(firstYear.taxes?.fica.wages.total).toBeCloseTo(8950);
+      expect(firstYear.incomes?.totalFicaTax).toBeCloseTo(8950);
+      // Take-home is gross less income-tax withholding (0) and payroll tax.
+      expect(firstYear.incomes?.totalIncomeAfterPayrollDeductions).toBeCloseTo(100000 - 8950);
+      // The year-end bill is the income tax alone: the payroll tax was already withheld.
+      expect(firstYear.taxes?.totalTaxesDue).toBeCloseTo(firstYear.taxes!.federalIncomeTaxes.federalIncomeTaxAmount);
+      expect(firstYear.taxes?.totalTaxesRefund).toBe(0);
     });
   });
 

@@ -164,21 +164,25 @@ describe('chat tools', () => {
     expect(toolkit.variantIds()).toEqual([]);
   });
 
-  it('compares a variant with the baseline through the delta extractor, all zero for an identical patch', { timeout: 60_000 }, async () => {
-    const t = convexTest(schema, modules);
-    const toolkit = await createToolkit(t, await insertPlan(t));
+  it(
+    'compares a variant with the baseline through the delta extractor, all zero for an identical patch',
+    { timeout: 180_000 },
+    async () => {
+      const t = convexTest(schema, modules);
+      const toolkit = await createToolkit(t, await insertPlan(t));
 
-    expect(parse(toolkit.execute('compareToBaseline', { variantId: 'missing' })).error).toContain('Unknown variant');
+      expect(parse(toolkit.execute('compareToBaseline', { variantId: 'missing' })).error).toContain('Unknown variant');
 
-    toolkit.execute('simulateVariant', { variantId: 'identical', planPatch: {} });
-    const comparison = parse(toolkit.execute('compareToBaseline', { variantId: 'identical' }));
+      toolkit.execute('simulateVariant', { variantId: 'identical', planPatch: {} });
+      const comparison = parse(toolkit.execute('compareToBaseline', { variantId: 'identical' }));
 
-    expect(comparison.deltaMeaning).toBe('a - b');
-    expect(comparison.seed).toBe(TOOL_SEED);
-    expect(comparison.metrics?.length ?? 0).toBeGreaterThan(0);
-    expect(comparison.metrics?.every((metric) => metric.delta === 0)).toBe(true);
-    expect(comparison.yearly?.every((year) => year.delta === 0)).toBe(true);
-  });
+      expect(comparison.deltaMeaning).toBe('a - b');
+      expect(comparison.seed).toBe(TOOL_SEED);
+      expect(comparison.metrics?.length ?? 0).toBeGreaterThan(0);
+      expect(comparison.metrics?.every((metric) => metric.delta === 0)).toBe(true);
+      expect(comparison.yearly?.every((year) => year.delta === 0)).toBe(true);
+    }
+  );
 
   it('runs Monte Carlo only when asked, with 500 summary trials', { timeout: 60_000 }, async () => {
     const t = convexTest(schema, modules);

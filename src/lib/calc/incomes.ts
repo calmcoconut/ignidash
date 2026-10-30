@@ -2,12 +2,18 @@
  * Income processing for the simulation engine
  *
  * Handles multiple income sources with varying frequencies, time frames,
- * growth rates, and tax treatments (wage, exempt, Social Security).
- * Processes FICA tax (7.65%) and withholding at the income level.
+ * growth rates, and tax treatments (wage, exempt, Social Security) and applies
+ * the payroll withholding this month's paycheques carry.
+ *
+ * Payroll tax is *not* computed here any more (P3-P4): FICA, the Additional Medicare Tax, the
+ * self-employment tax and California SDI live in `./payroll-taxes`, which reads the tax ruleset.
+ * This module only applies the withholding that layer returns, so the wage base, the Additional
+ * Medicare threshold and the SDI rate have exactly one home.
  */
 
 import type { IncomeInputs, IncomeType } from '@/lib/schemas/inputs/income-form-schema';
 
+import type { PayrollTaxProcessor } from './payroll-taxes';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
@@ -18,7 +24,8 @@ export class IncomesProcessor {
 
   constructor(
     private simulationState: SimulationState,
-    private incomes: Incomes
+    private incomes: Incomes,
+    private payrollTaxProcessor: PayrollTaxProcessor
   ) {}
 
   /**
@@ -28,7 +35,19 @@ export class IncomesProcessor {
   process(): IncomesData {
     const activeIncomes = this.incomes.getActiveIncomesByTimeFrame(this.simulationState);
 
-    const processedIncomes = activeIncomes.map((income) => income.processMonthlyAmount(this.simulationState.time.year));
+    // Payroll withholding is applied per income, in order, so two wage incomes in the same month
+    // share one annual OASDI wage base instead of each getting a fresh one.
+    const processedIncomes: IncomeData[] = activeIncomes.map((income) => {
+      const monthly = income.processMonthlyAmount(this.simulationState.time.year);
+      const payrollTax = income.getIncomeType() === 'wage' ? this.payrollTaxProcessor.processMonthlyWages(monthly.income) : null;
+      const ficaTax = payrollTax?.total ?? 0;
+
+      return {
+        ...monthly,
+        ficaTax,
+        incomeAfterPayrollDeductions: monthly.income - monthly.amountWithheld - ficaTax,
+      };
+    });
 
     const totals = processedIncomes.reduce(
       (acc, curr) => {
@@ -47,11 +66,28 @@ export class IncomesProcessor {
         totalIncomeAfterPayrollDeductions: 0,
         totalTaxFreeIncome: 0,
         totalSocialSecurityIncome: 0,
+        totalWageIncome: 0,
+        totalSelfEmploymentIncome: 0,
       }
     );
+
+    const wageIncome = activeIncomes.reduce(
+      (total, income, index) => (income.getIncomeType() === 'wage' ? total + processedIncomes[index].income : total),
+      0
+    );
+    const selfEmploymentIncome = activeIncomes.reduce(
+      (total, income, index) => (income.getIncomeType() === 'selfEmployment' ? total + processedIncomes[index].income : total),
+      0
+    );
+
     const perIncomeData = Object.fromEntries(processedIncomes.map((income) => [income.id, income]));
 
-    const result = { ...totals, perIncomeData };
+    const result = {
+      ...totals,
+      totalWageIncome: wageIncome,
+      totalSelfEmploymentIncome: selfEmploymentIncome,
+      perIncomeData,
+    };
 
     this.monthlyData.push(result);
     return result;
@@ -70,6 +106,8 @@ export class IncomesProcessor {
         acc.totalIncomeAfterPayrollDeductions += curr.totalIncomeAfterPayrollDeductions;
         acc.totalTaxFreeIncome += curr.totalTaxFreeIncome;
         acc.totalSocialSecurityIncome += curr.totalSocialSecurityIncome;
+        acc.totalWageIncome += curr.totalWageIncome;
+        acc.totalSelfEmploymentIncome += curr.totalSelfEmploymentIncome;
 
         for (const [incomeID, incomeData] of Object.entries(curr.perIncomeData)) {
           const existing = acc.perIncomeData[incomeID];
@@ -93,6 +131,8 @@ export class IncomesProcessor {
         totalIncomeAfterPayrollDeductions: 0,
         totalTaxFreeIncome: 0,
         totalSocialSecurityIncome: 0,
+        totalWageIncome: 0,
+        totalSelfEmploymentIncome: 0,
         perIncomeData: {},
       } satisfies IncomesData
     );
@@ -102,10 +142,20 @@ export class IncomesProcessor {
 export interface IncomesData {
   totalIncome: number;
   totalAmountWithheld: number;
+  /**
+   * Payroll tax withheld from this year's wages, i.e. what `PayrollTaxProcessor` reported. The
+   * authoritative payroll-tax figure for reporting is `TaxesData.fica`, which also carries the
+   * self-employment tax and the half deduction; this field is the per-income cash-flow detail that
+   * explains the difference between `totalIncome` and `totalIncomeAfterPayrollDeductions`.
+   */
   totalFicaTax: number;
   totalIncomeAfterPayrollDeductions: number;
   totalTaxFreeIncome: number;
   totalSocialSecurityIncome: number;
+  /** Wages subject to payroll tax this year; the OASDI wage base is applied to this total. */
+  totalWageIncome: number;
+  /** Net self-employment earnings; the base for the annual self-employment tax. */
+  totalSelfEmploymentIncome: number;
   perIncomeData: Record<string, IncomeData>;
 }
 
@@ -168,12 +218,17 @@ export class Income {
     this.withholdingRate = data.taxes.withholding ?? 0;
   }
 
+  /** The tax treatment this income is declared under; payroll tax applies to `wage` only. */
+  getIncomeType(): IncomeType {
+    return this.incomeType;
+  }
+
   /**
-   * Calculates this income's monthly amount with growth, withholding, and FICA
+   * Calculates this income's monthly amount with growth and income-tax withholding
    * @param year - Current simulation year (fractional)
-   * @returns Income data including gross, withholding, and FICA amounts
+   * @returns Income data before payroll withholding, which `IncomesProcessor` applies
    */
-  processMonthlyAmount(year: number): IncomeData {
+  processMonthlyAmount(year: number): Omit<IncomeData, 'ficaTax' | 'incomeAfterPayrollDeductions'> {
     const rawAmount = this.amount;
 
     const timesToApplyPerYear = this.getTimesToApplyPerYear();
@@ -205,8 +260,6 @@ export class Income {
         name: this.name,
         income: 0,
         amountWithheld: 0,
-        ficaTax: 0,
-        incomeAfterPayrollDeductions: 0,
         taxFreeIncome: 0,
         socialSecurityIncome: 0,
       };
@@ -215,13 +268,11 @@ export class Income {
     const income = Math.max((annualAmount / timesToApplyPerYear) * timesToApplyPerMonth, 0);
 
     let amountWithheld: number = 0;
-    let ficaTax: number = 0;
     let taxFreeIncome: number = 0;
     let socialSecurityIncome: number = 0;
     switch (this.incomeType) {
       case 'wage':
         amountWithheld = income * (this.withholdingRate / 100);
-        ficaTax = income * 0.0765; // FICA: 6.2% Social Security + 1.45% Medicare
         break;
       case 'exempt':
         taxFreeIncome = income;
@@ -236,14 +287,13 @@ export class Income {
         // and no `socialSecurityIncome`, so it never feeds the provisional-income calculation as SS).
         break;
       case 'selfEmployment':
-        // Gated in the income schema until self-employment tax ships. Treated as ordinary income
-        // with no FICA for now, which is why the gate exists.
+        // The gross amount is ordinary income here; the self-employment tax on it is an annual
+        // settlement in `TaxProcessor`, because the 92.35% base and the half deduction are
+        // year-level facts. Nothing is withheld from a self-employed paycheque.
         break;
       default:
         break;
     }
-
-    const incomeAfterPayrollDeductions = income - amountWithheld - ficaTax;
 
     if (this.frequency === 'oneTime') {
       this.hasOneTimeIncomeOccurred = true;
@@ -254,8 +304,6 @@ export class Income {
       name: this.name,
       income,
       amountWithheld,
-      ficaTax,
-      incomeAfterPayrollDeductions,
       taxFreeIncome,
       socialSecurityIncome,
     };

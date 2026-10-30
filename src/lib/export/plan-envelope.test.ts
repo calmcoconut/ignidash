@@ -621,15 +621,19 @@ describe('the semantic layer blocks only what the engine cannot run', () => {
     expect(imported.finances).toStrictEqual(toFinancesExport(makeFinancesDoc()));
   });
 
-  it('imports a self-employment income with a warning instead of refusing it', () => {
-    // PLAN-parity R8 keeps the engine path alive and gates only the form, so this must not
-    // be a refusal either.
+  it('imports a self-employment income just like any other supported type', () => {
+    // PLAN-parity R8 gated `selfEmployment` until P3-P4 shipped the self-employment tax: without
+    // that tax the engine would have taxed SE income as an ordinary wage, under-taxing it by about
+    // 15.3%. The gate is gone, so the assertion is now the absence of one: a reinstated gate would
+    // add an `incomeType` warning here and fail this test.
     const warnings = warningsFor((envelope) => {
       const incomes = (envelope.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
       incomes[0] = { ...incomes[0], taxes: { incomeType: 'selfEmployment' } };
     });
 
-    expect(warnings).toContainEqual({ path: 'plan.incomes[0].taxes.incomeType', message: 'This income type is not yet supported' });
+    expect(warnings.filter((warning) => warning.path === 'plan.incomes[0].taxes.incomeType')).toStrictEqual([]);
+    // Nothing at all is wrong with the file: the SE plan is an ordinary plan now.
+    expect(warnings).toStrictEqual([]);
   });
 
   it('warns, without refusing, about policy values the engine copes with', () => {

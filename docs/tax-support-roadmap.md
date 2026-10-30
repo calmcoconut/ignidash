@@ -26,20 +26,17 @@ Tax-free return-of-basis for pensions with after-tax employee contributions (com
 
 Annual tax on physical assets (primarily real estate). `PhysicalAsset` already tracks market value and appreciation — property tax is a percentage of assessed value applied annually. Add a `propertyTaxRate` field to `PhysicalAssetInputs`, compute in `PhysicalAssetsProcessor`, and include in tax output. Feeds into itemized deductions (SALT) once that feature lands.
 
-**FICA accuracy (SS wage base cap + Additional Medicare Tax)** — Priority: High | Difficulty: 2
+**FICA accuracy (SS wage base cap + Additional Medicare Tax)** — **Shipped (P3-P4)**
 
-Two fixes to the existing FICA calculation in `incomes.ts`:
-
-1. Cap the 6.2% Social Security portion at the annual wage base (~$176,100 for 2025). Requires tracking cumulative wages across all income sources within a year.
-2. Add the 0.9% Additional Medicare Tax on wages exceeding $200k (single/HOH) / $250k (MFJ). Requires filing status awareness in `IncomesProcessor`, which currently doesn't have it.
+FICA now lives in `src/lib/calc/payroll-taxes.ts` and is no longer computed in `incomes.ts`. The 6.2% OASDI share stops at the indexed wage base ($184,500 for 2026, re-issued every year), the 0.9% Additional Medicare Tax starts at $200k single/HOH and $250k MFJ, and California SDI (1.3% for 2026, no wage cap since SB 951 removed it in 2024) is a payroll line. Withholding is tracked year-to-date, so a December bonus is not taxed past the base. The reconciled total is `TaxesData.totalTaxLiability`; `TaxesData.fica` is the payroll group.
 
 **Medicare IRMAA surcharges** — Priority: High | Difficulty: 3
 
 Bracket-based Medicare premium surcharge on Parts B and D based on MAGI from 2 years prior. Annual `resultData` already stores historical data so the 2-year lookback is available. Contained calculation — new step after `TaxProcessor.process()`. Five IRMAA brackets per filing status. Important for retirees doing Roth conversions (conversions spike MAGI, triggering surcharges two years later).
 
-**Self-employment income & SE tax** — Priority: High | Difficulty: 4
+**Self-employment income & SE tax** — **Shipped (P3-P4)**
 
-`selfEmployment` already exists as `IncomeType` but blocked by a validation refine in `income-form-schema.ts`. SE tax: 12.4% Social Security + 2.9% Medicare on 92.35% of net SE income. SS portion subject to wage base cap (combined with any W-2 wages). 0.9% Additional Medicare Tax applies above $200k/$250k. Half of SE tax is an above-the-line AGI deduction — add to `TaxProcessor` adjustments. Depends on FICA accuracy fixes above.
+`selfEmployment` is no longer gated by `income-form-schema.ts`: the form accepts it and the engine taxes it. 12.4% OASDI + 2.9% Medicare on 92.35% of net SE earnings, with the OASDI share capped by whatever is left of the wage base after W-2 wages, the 0.9% Additional Medicare Tax on the combined excess over the threshold, and half of the tax as an above-the-line deduction (IRC §164(f)). See `computeSelfEmploymentTaxes` in `src/lib/calc/payroll-taxes.ts`. Still missing: SE income is taxed on the year's net figure only — business expenses, retirement-plan contributions for the self-employed (SEP/Solo 401k) and the quarterly estimated-payment schedule are not modelled.
 
 **Itemized deductions** — Priority: High | Difficulty: 5
 

@@ -27,4 +27,27 @@ describe('simulationSettingsSchema asOfDate', () => {
       expect(result.success, asOfDate).toBe(false);
     }
   });
+
+  it('leaves the historical backtest on its default (looping) when absent', () => {
+    const result = simulationSettingsSchema.parse(validSettings);
+
+    // Absent, not defaulted into the plan: a plan saved before P2-P4 keeps the wrapping behaviour
+    // the engine applied by default, and `historicalBacktestMode()` reads the absence as 'looping'.
+    expect('historicalBacktest' in result).toBe(false);
+  });
+
+  it('accepts both historical backtest modes', () => {
+    for (const mode of ['looping', 'truncate'] as const) {
+      const result = simulationSettingsSchema.safeParse({ ...validSettings, historicalBacktest: { mode } });
+      expect(result.success, mode).toBe(true);
+      expect(result.data?.historicalBacktest?.mode).toBe(mode);
+    }
+  });
+
+  it('rejects an unknown historical backtest mode', () => {
+    for (const mode of ['wrap', 'truncated', '', null]) {
+      const result = simulationSettingsSchema.safeParse({ ...validSettings, historicalBacktest: { mode } });
+      expect(result.success, String(mode)).toBe(false);
+    }
+  });
 });

@@ -19,7 +19,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
   year: 2026,
   source:
     'IRS 2026 inflation adjustments to the Internal Revenue Code, including the OBBBA amendments; ' +
-    'NIIT, §86 base amounts and the §121 exclusion are statutory and not indexed for 2026.',
+    'NIIT, §86 base amounts and the §121 exclusion are statutory and not indexed for 2026; ' +
+    'the OASDI wage base is the SSA 2026 determination (90 FR 49047, Nov 3 2025).',
   tables: {
     incomeTaxBrackets: {
       indexing: 'indexed',
@@ -94,6 +95,51 @@ export const FEDERAL_2026: FederalTaxRuleset = {
           marriedFilingJointly: 250000,
           headOfHousehold: 200000,
         },
+      },
+    },
+    // The OASDI contribution and benefit base for 2026 (the "Social Security wage base").
+    // Source: SSA, "Cost-of-Living Increase and Other Determinations for 2026", 90 FR 49047
+    // (Nov 3, 2025): "The OASDI contribution and benefit base is $184,500 for remuneration paid in
+    // 2026 and self-employment income earned in tax years beginning in 2026." Rounded by SSA from
+    // $184,548.71 to the nearest $300 under §230(b). It is indexed every year: this row must be
+    // re-issued, never copied forward.
+    socialSecurityWageBase: {
+      indexing: 'indexed',
+      source: 'IRC §230(b); SSA 2026 determination, 90 FR 49047 (Nov 3, 2025): $184,500.',
+      values: 184500,
+    },
+    // The combined 6.2% employee OASDI + 1.45% employee Hospital Insurance (Medicare) share is
+    // 7.65%, which is what `incomes.ts` used to hard-code. The self-employment shares are double
+    // the employee shares (12.4% + 2.9% = 15.3%) because a self-employed earner pays both halves,
+    // applied to 92.35% of net SE earnings (IRC §1402(a)(12)); half of the resulting tax is
+    // deductible above the line (IRC §164(f)). All of these are statutory, not indexed.
+    payrollTaxRates: {
+      indexing: 'fixed',
+      source:
+        'IRC §3101(a) (6.2% OASDI), §3101(b) (1.45% Medicare), §3101(b)(2) (0.9% Additional Medicare), ' +
+        '§1401(a)-(b) (12.4% + 2.9% self-employment), §1402(a)(12) (92.35% of net SE earnings) and §164(f) (half of SE tax deductible).',
+      values: {
+        socialSecurity: 0.062,
+        medicare: 0.0145,
+        additionalMedicare: 0.009,
+        selfEmploymentTaxablePercentage: 0.9235,
+        selfEmploymentSocialSecurity: 0.124,
+        selfEmploymentMedicare: 0.029,
+        selfEmploymentDeduction: 0.5,
+      },
+    },
+    // Additional Medicare Tax thresholds. Statutory amounts in IRC §3101(b)(2)(A) and
+    // §1401(b)(2)(A), fixed since 2013 and deliberately not indexed. The employer withholding
+    // threshold is $200,000 regardless of filing status; the liability these thresholds describe
+    // is filing-status dependent, and this engine models the liability (there is no Form 8959
+    // true-up), so the filing status wins.
+    additionalMedicareThreshold: {
+      indexing: 'fixed',
+      source: 'IRC §3101(b)(2)(A), §1401(b)(2)(A): $200,000 single/HOH, $250,000 MFJ; not indexed since 2013.',
+      values: {
+        single: 200000,
+        marriedFilingJointly: 250000,
+        headOfHousehold: 200000,
       },
     },
     socialSecurityTaxation: {

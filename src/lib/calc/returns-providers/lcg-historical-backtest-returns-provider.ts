@@ -1,11 +1,23 @@
 /**
  * Historical backtest returns provider using LCG-seeded random start years
  *
- * Walks through actual historical return data (NYU/Shiller datasets) starting
- * from a randomly selected or user-specified year. Wraps around to the beginning
- * of the dataset when the end is reached. Optionally resets to a different start
- * year at the retirement phase transition.
+ * Walks through actual historical return data (NYU/Shiller datasets) starting from a randomly
+ * selected or user-specified year, and resets to a different start year at the retirement phase
+ * transition when one is configured.
+ *
+ * What happens when the horizon reaches past the last vendored year is an explicit choice
+ * (`historicalBacktest.mode`, P2-P4):
+ *
+ * - `'looping'` (default) restarts at the oldest vendored year. The run keeps its full length, and
+ *   `getHistoricalReport().wrapped` says the data looped.
+ * - `'truncate'` holds at the last vendored year instead of wrapping, and the report carries
+ *   `truncatedAtYear` so the result can disclose that the data ran out (a truncated backtest must
+ *   not look like a normal one).
+ *
+ * The vendored end year is read from the dataset (`getNyuDataRange()`), never hard-coded.
  */
+
+import type { HistoricalBacktestMode } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 
 import { ReturnsProvider, type ReturnsProviderData } from './returns-provider';
 import { nyuHistoricalData, type NyuHistoricalYearData, getNyuDataRange } from '../historical-data/nyu-returns';
@@ -13,6 +25,19 @@ import { shillerHistoricalData, type ShillerHistoricalYearData } from '../histor
 import type { AssetReturnRates } from '../asset';
 import { SeededRandom } from './seeded-random';
 import type { PhaseData, PhaseName } from '../phase';
+
+/** What a completed or in-progress historical run did with the vendored data. */
+export interface HistoricalBacktestReport {
+  mode: HistoricalBacktestMode;
+  /** True when the run ran past the last vendored year and restarted at the beginning. */
+  wrapped: boolean;
+  /** The last vendored year used, once the run needed more data than exists; otherwise null. */
+  truncatedAtYear: number | null;
+  /** The vendored range this build ships. */
+  vendoredRange: { startYear: number; endYear: number };
+  /** The sequence of year ranges the run walked. */
+  ranges: Array<{ startYear: number; endYear: number }>;
+}
 
 /** Replays historical market data sequentially from a seeded random start year */
 export class LcgHistoricalBacktestReturnsProvider implements ReturnsProvider {
@@ -24,16 +49,20 @@ export class LcgHistoricalBacktestReturnsProvider implements ReturnsProvider {
   private currentHistoricalYear: number;
   private historicalRanges: Array<{ startYear: number; endYear: number }> = [];
   private phaseName: PhaseName | null = null;
+  private wrapped = false;
+  private truncatedAtYear: number | null = null;
 
   /**
    * @param seed - Seed for LCG random start year selection
    * @param startYearOverride - If set, use this historical year instead of random
    * @param retirementStartYearOverride - If set, reset to this year when entering retirement phase
+   * @param mode - What to do past the last vendored year: loop (default) or truncate
    */
   constructor(
     seed: number,
     startYearOverride: number | undefined,
-    private retirementStartYearOverride: number | undefined
+    private retirementStartYearOverride: number | undefined,
+    private mode: HistoricalBacktestMode = 'looping'
   ) {
     this.historicalDataRange = getNyuDataRange();
     this.historicalReturnsByYear = new Map(nyuHistoricalData.map((d) => [d.year, d]));
@@ -69,8 +98,14 @@ export class LcgHistoricalBacktestReturnsProvider implements ReturnsProvider {
       this.historicalRanges.push({ startYear: this.currentHistoricalYear, endYear: this.currentHistoricalYear });
     } else if (this.currentHistoricalYear <= this.historicalDataRange.endYear) {
       this.historicalRanges[this.historicalRanges.length - 1].endYear = this.currentHistoricalYear;
+    } else if (this.mode === 'truncate') {
+      // Hold at the last vendored year instead of wrapping, and remember where the data ended so
+      // the result can say the run was truncated rather than silently shortened.
+      this.truncatedAtYear ??= this.historicalDataRange.endYear;
+      this.currentHistoricalYear = this.historicalDataRange.endYear;
     } else {
       // Wrap around to beginning of historical dataset
+      this.wrapped = true;
       this.currentHistoricalYear = this.historicalDataRange.startYear;
       this.historicalRanges.push({ startYear: this.currentHistoricalYear, endYear: this.currentHistoricalYear });
     }
@@ -95,5 +130,16 @@ export class LcgHistoricalBacktestReturnsProvider implements ReturnsProvider {
   /** Returns the sequence of historical year ranges used during the simulation */
   getHistoricalRanges(): Array<{ startYear: number; endYear: number }> {
     return [...this.historicalRanges];
+  }
+
+  /** Reports what the run actually did: its mode, whether it looped, and where the data ran out. */
+  getHistoricalReport(): HistoricalBacktestReport {
+    return {
+      mode: this.mode,
+      wrapped: this.wrapped,
+      truncatedAtYear: this.truncatedAtYear,
+      vendoredRange: { ...this.historicalDataRange },
+      ranges: [...this.historicalRanges],
+    };
   }
 }

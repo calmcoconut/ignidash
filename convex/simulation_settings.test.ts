@@ -55,6 +55,39 @@ describe('simulation_settings.update asOfDate', () => {
     expect(stored.simulationSeed).toBe(basicTemplate.simulationSettings.simulationSeed);
   });
 
+  it('persists a historical backtest mode (P2-P4)', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await createPlan(t);
+    const asUser = t.withIdentity({ subject: TEST_USER });
+
+    await asUser.mutation(api.simulation_settings.update, {
+      planId,
+      simulationSettings: { ...basicTemplate.simulationSettings, historicalBacktest: { mode: 'truncate' } },
+    });
+
+    const stored = await t.run(async (ctx) => (await ctx.db.get(planId))!.simulationSettings);
+    expect((stored as { historicalBacktest?: { mode: string } }).historicalBacktest).toEqual({ mode: 'truncate' });
+    await expect(asUser.query(api.simulation_settings.get, { planId })).resolves.toMatchObject({
+      historicalBacktest: { mode: 'truncate' },
+    });
+  });
+
+  it('rejects an unknown historical backtest mode', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await createPlan(t);
+    const asUser = t.withIdentity({ subject: TEST_USER });
+
+    await expect(
+      asUser.mutation(api.simulation_settings.update, {
+        planId,
+        simulationSettings: {
+          ...basicTemplate.simulationSettings,
+          historicalBacktest: { mode: 'wrap' as unknown as 'looping' },
+        },
+      })
+    ).rejects.toThrow();
+  });
+
   it('rejects a non-string as-of date', async () => {
     const t = convexTest(schema, modules);
     const planId = await createPlan(t);

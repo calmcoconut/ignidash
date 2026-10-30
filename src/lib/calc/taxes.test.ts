@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import { TaxProcessor } from './taxes';
 import { Portfolio } from './portfolio';
+import { computeWagePayrollTaxes } from './payroll-taxes';
 import {
   STANDARD_DEDUCTION_SINGLE,
   STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY,
@@ -1410,6 +1411,147 @@ describe('TaxProcessor', () => {
         expect(result.niit.niitAmount).toBeGreaterThan(0);
         expect(result.niit.threshold).toBe(threshold);
       });
+    });
+  });
+
+  /**
+   * P3-P4's single reconciliation invariant. Every tax line is added in exactly one place in
+   * `TaxProcessor.process()`, and this asserts that the total is that sum — no line omitted, no
+   * line counted twice (the old double-counting hazard R10 describes).
+   */
+  describe('totalTaxLiability reconciliation', () => {
+    const sumOfLines = (result: ReturnType<TaxProcessor['process']>) =>
+      result.federalIncomeTaxes.federalIncomeTaxAmount +
+      result.capitalGainsTaxes.capitalGainsTaxAmount +
+      result.niit.niitAmount +
+      result.earlyWithdrawalPenalties.totalPenaltyAmount +
+      result.fica.total;
+
+    it('equals the sum of federal income, capital gains, NIIT, penalties and FICA lines', () => {
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+
+      const portfolioData = createEmptyPortfolioData();
+      portfolioData.realizedGains = 30000;
+
+      const incomes = createEmptyIncomesData({
+        totalIncome: 220000,
+        totalWageIncome: 220000,
+        totalAmountWithheld: 30000,
+      });
+      const wagePayroll = computeWagePayrollTaxes({ wages: 220000, filingStatus: 'single', taxYear: 2026 });
+
+      const result = processor.process(portfolioData, incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData(), wagePayroll);
+
+      expect(result.totalTaxLiability).toBeCloseTo(sumOfLines(result));
+      expect(result.totalTaxLiability).toBeGreaterThan(0);
+      // A line that is present but zero still belongs to the sum, so the identity is not vacuous.
+      expect(result.earlyWithdrawalPenalties.totalPenaltyAmount).toBe(0);
+      expect(result.niit.niitAmount).toBeGreaterThan(0);
+    });
+
+    it('equals the sum of its own sub-lines', () => {
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+      const incomes = createEmptyIncomesData({
+        totalIncome: 120000,
+        totalWageIncome: 120000,
+        totalSelfEmploymentIncome: 50000,
+      });
+      const wagePayroll = computeWagePayrollTaxes({ wages: 120000, filingStatus: 'single', taxYear: 2026 });
+
+      const result = processor.process(
+        createEmptyPortfolioData(),
+        incomes,
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData(),
+        wagePayroll
+      );
+
+      const { wages, selfEmployment } = result.fica;
+      expect(wages.total).toBeCloseTo(wages.socialSecurity + wages.medicare + wages.additionalMedicare + wages.stateDisability);
+      expect(selfEmployment.total).toBeCloseTo(selfEmployment.socialSecurity + selfEmployment.medicare + selfEmployment.additionalMedicare);
+      expect(result.fica.total).toBeCloseTo(wages.total + selfEmployment.total);
+    });
+
+    it('does not collect payroll tax that was already withheld from the paycheque', () => {
+      // $120,000 of wages, single, 2026, with no income-tax withholding:
+      //   payroll withheld = OASDI 7,440.00 + Medicare 1,740.00 + SDI 1,560.00 = $10,740.00
+      // Nothing is left for the annual settlement to collect *for payroll*: the year-end bill is
+      // the income tax alone (AGI 120,000 − 16,100 standard deduction = 103,900 taxable).
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+      const incomes = createEmptyIncomesData({
+        totalIncome: 120000,
+        totalWageIncome: 120000,
+        totalAmountWithheld: 0,
+      });
+      const wagePayroll = computeWagePayrollTaxes({ wages: 120000, filingStatus: 'single', taxYear: 2026 });
+
+      const result = processor.process(
+        createEmptyPortfolioData(),
+        incomes,
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData(),
+        wagePayroll
+      );
+
+      expect(result.fica.wages.total).toBeCloseTo(10740);
+      expect(result.fica.wages.socialSecurity).toBeCloseTo(7440);
+      expect(result.fica.wages.medicare).toBeCloseTo(1740);
+      expect(result.fica.wages.stateDisability).toBeCloseTo(1560);
+      expect(result.totalTaxesDue).toBeCloseTo(result.federalIncomeTaxes.federalIncomeTaxAmount);
+      expect(result.totalTaxLiability).toBeCloseTo(result.federalIncomeTaxes.federalIncomeTaxAmount + 10740);
+    });
+
+    it('settles the self-employment tax with the return and deducts half of it above the line', () => {
+      // $100,000 of net self-employment earnings, single, 2026, no wages and no withholding:
+      //   SE base         = 100,000 × 92.35%  = $92,350.00
+      //   SE tax          = 92,350 × 15.3%    = $14,129.55   (OASDI 11,451.40 + Medicare 2,678.15)
+      //   half deduction  = $7,064.775
+      //   AGI             = 100,000 − 7,064.775 = $92,935.225
+      // Nothing withheld the SE tax, so the whole liability is due at year end.
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+      const incomes = createEmptyIncomesData({
+        totalIncome: 100000,
+        totalWageIncome: 0,
+        totalSelfEmploymentIncome: 100000,
+        totalAmountWithheld: 0,
+      });
+
+      const result = processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+
+      expect(result.fica.selfEmployment.taxableEarnings).toBeCloseTo(92350);
+      expect(result.fica.selfEmployment.total).toBeCloseTo(14129.55);
+      expect(result.fica.selfEmployment.halfDeduction).toBeCloseTo(7064.775);
+      expect(result.fica.wages.total).toBe(0);
+      expect(result.fica.total).toBeCloseTo(14129.55);
+
+      expect(result.adjustments.selfEmploymentTaxDeduction).toBeCloseTo(7064.775);
+      expect(result.incomeSources.adjustedIncomeTaxedAsOrdinary).toBeCloseTo(92935.225);
+      expect(result.totalTaxLiability).toBeCloseTo(sumOfLines(result));
+      expect(result.totalTaxesDue).toBeCloseTo(result.totalTaxLiability);
+    });
+
+    it('adds exactly one payroll line to a year with no wages and no self-employment income', () => {
+      // A retiree year: no payroll tax at all, so the invariant collapses to the old total.
+      const processor = new TaxProcessor(createMockSimulationState(70), 'single', 2026);
+      const incomes = createEmptyIncomesData({ totalIncome: 0 });
+
+      const result = processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+
+      expect(result.fica).toStrictEqual({
+        wages: { socialSecurity: 0, medicare: 0, additionalMedicare: 0, stateDisability: 0, total: 0 },
+        selfEmployment: {
+          netEarnings: 0,
+          taxableEarnings: 0,
+          socialSecurity: 0,
+          medicare: 0,
+          additionalMedicare: 0,
+          total: 0,
+          halfDeduction: 0,
+        },
+        total: 0,
+      });
+      expect(result.totalTaxLiability).toBeCloseTo(sumOfLines(result));
+      expect(result.totalTaxesDue).toBe(0);
     });
   });
 });

@@ -4,6 +4,11 @@
  * Supports wage, socialSecurity, exempt, selfEmployment, and pension income types.
  * Includes withholding validation (required for wages, constrained rates for Social Security)
  * and helper functions for withholding support checks and defaults.
+ *
+ * Every type in the enum is accepted (P3-P4): `selfEmployment` was gated while the engine had no
+ * self-employment tax, which would have taxed SE income as an ordinary wage and under-taxed it by
+ * ~15.3%. The payroll-tax layer (`payroll-taxes.ts`) now charges the SE tax, so the gate is gone
+ * and nothing may be re-gated without a matching tax.
  */
 
 import { z } from 'zod';
@@ -42,17 +47,6 @@ export const incomeTaxSchema = z
     {
       message: 'Social Security withholding must be 0%, 7%, 10%, 12%, or 22%',
       path: ['withholding'],
-    }
-  )
-  .refine(
-    // Pension income is supported (ordinary income, no FICA). Self-employment stays gated until
-    // self-employment tax ships: without SE tax it would be taxed as a wage and under-taxed by ~15.3%.
-    (data) => {
-      return data.incomeType !== 'selfEmployment';
-    },
-    {
-      message: 'This income type is not yet supported',
-      path: ['incomeType'],
     }
   );
 

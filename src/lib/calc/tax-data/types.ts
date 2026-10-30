@@ -84,6 +84,32 @@ export interface NetInvestmentIncomeTaxTable {
   readonly thresholds: ByFilingStatus<number>;
 }
 
+/**
+ * The employee-share payroll rates and the self-employment equivalents (IRC §3101, §1401).
+ *
+ * Every rate here is statutory and none is indexed, which is why the whole group is one table
+ * with `indexing: 'fixed'`: only the wage base below moves with inflation. The self-employment
+ * figures are the *combined* employee-plus-employer shares, because a self-employed earner pays
+ * both halves; `selfEmploymentDeduction` is the share of the resulting tax that IRC §164(f)
+ * allows as an above-the-line deduction.
+ */
+export interface PayrollTaxRates {
+  /** Employee OASDI share (IRC §3101(a)). */
+  readonly socialSecurity: number;
+  /** Employee Hospital Insurance share (IRC §3101(b)). */
+  readonly medicare: number;
+  /** Additional Medicare Tax on wages above the filing-status threshold (IRC §3101(b)(2)). */
+  readonly additionalMedicare: number;
+  /** Share of net self-employment earnings that is subject to SE tax (IRC §1402(a)(12)). */
+  readonly selfEmploymentTaxablePercentage: number;
+  /** Self-employed OASDI share: both halves (IRC §1401(a)). */
+  readonly selfEmploymentSocialSecurity: number;
+  /** Self-employed Hospital Insurance share: both halves (IRC §1401(b)). */
+  readonly selfEmploymentMedicare: number;
+  /** Share of the SE tax deductible above the line (IRC §164(f)). */
+  readonly selfEmploymentDeduction: number;
+}
+
 /** Table groups every jurisdiction has. */
 export interface TaxTables {
   /** Progressive ordinary-income schedule (federal: IRC §1). */
@@ -96,6 +122,20 @@ export interface TaxTables {
 export interface FederalTaxTables extends TaxTables {
   /** Long-term capital-gains and qualified-dividend schedule (IRC §1(h)). */
   readonly capitalGainsTaxBrackets: TableMeta<ByFilingStatus<ProgressiveBracket[]>>;
+  /**
+   * The OASDI contribution and benefit base (the "Social Security wage base", IRC §230). Indexed
+   * every year by the national average wage index, so it must be re-issued annually and must
+   * never be borrowed from a later year.
+   */
+  readonly socialSecurityWageBase: TableMeta<number>;
+  /** Employee-share payroll rates and the self-employment equivalents. Statutory, not indexed. */
+  readonly payrollTaxRates: TableMeta<PayrollTaxRates>;
+  /**
+   * Additional Medicare Tax thresholds (IRC §3101(b)(2), §1401(b)(2)). Fixed by statute since
+   * 2013 — deliberately *not* indexed — and they differ by filing status, so a filing status
+   * added later is a compile error here rather than a silently missing threshold.
+   */
+  readonly additionalMedicareThreshold: TableMeta<ByFilingStatus<number>>;
   /** Net investment income tax (IRC §1411). */
   readonly netInvestmentIncomeTax: TableMeta<NetInvestmentIncomeTaxTable>;
   /** Social Security benefit taxation tiers (IRC §86). */

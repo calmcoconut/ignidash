@@ -70,6 +70,8 @@ const createDataPoint = (options: {
     totalIncomeAfterPayrollDeductions: 72350,
     totalSocialSecurityIncome: 0,
     totalTaxFreeIncome: 0,
+    totalWageIncome: 80000,
+    totalSelfEmploymentIncome: 0,
     perIncomeData: {},
   },
   expenses: {
@@ -110,6 +112,26 @@ const createDataPoint = (options: {
       taxFreePenaltyAmount: 0,
       totalPenaltyAmount: 0,
     },
+    fica: {
+      wages: {
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        stateDisability: 0,
+        total: options.ficaTax ?? 7650,
+      },
+      selfEmployment: {
+        netEarnings: 0,
+        taxableEarnings: 0,
+        socialSecurity: 0,
+        medicare: 0,
+        additionalMedicare: 0,
+        total: 0,
+        halfDeduction: 0,
+      },
+      total: options.ficaTax ?? 7650,
+    },
+    totalTaxLiability: (options.federalIncomeTax ?? 10000) + (options.ficaTax ?? 7650),
     totalTaxesDue: (options.federalIncomeTax ?? 10000) + (options.ficaTax ?? 7650),
     totalTaxesRefund: 0,
     totalTaxableIncome: 65400,
@@ -673,8 +695,6 @@ describe('retirement age / chance of retirement source', () => {
     const retiresWithShortfall = () =>
       createSimulationResult({ startAge: 30, years: 5, retirementAge: 33, shortfallYear: 2, finalPortfolioValue: 1_000_000 });
 
-    // The phases extractor walks simulation index against yearly row index, so a fixture has to
-    // supply at least as many runs as the horizon has rows (production runs 500 runs over ~50).
     const multi: MultiSimulationResult = {
       simulations: [
         [1, retires()],

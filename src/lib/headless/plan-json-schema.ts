@@ -15,19 +15,22 @@ import { simulatorSchema } from '@/lib/schemas/inputs/simulator-schema';
  *
  * `z.toJSONSchema()` emits types, required keys, enum values and numeric bounds — and it
  * **silently drops every `.refine()` / `.superRefine()`**. The document is therefore *looser*
- * than the app, not equal to it: it accepts files the app refuses. Four classes of rule do not
+ * than the app, not equal to it: it accepts files the app refuses. Three classes of rule do not
  * reach the file (each with one example; the full list is in `UNVALIDATED_RULE_CLASSES` and
  * `docs/HEADLESS.md`):
+ *
+ * There used to be a fourth class, **enum-policy gates** — an enum member the document publishes
+ * and the app's refine refuses. Its only member was `taxes.incomeType: "selfEmployment"`, released
+ * by P3-P4 once the engine could charge the self-employment tax, so the class is gone rather than
+ * kept alive with an invented example.
  *
  * 1. **Cross-field refinements** — e.g. `marketAssumptions.stockYield` above `stockReturn`, a
  *    wage income with no `withholding`, a `customDate` frame with no month/year, historical
  *    start-year overrides outside `historicalReturns`.
- * 2. **Enum-policy gates** — e.g. `taxes.incomeType: "selfEmployment"` is in the enum this
- *    document publishes, and the app's refine refuses it until self-employment tax ships.
- * 3. **Clock-relative timeline rules** — current age 18-100, life expectancy above current age,
+ * 2. **Clock-relative timeline rules** — current age 18-100, life expectancy above current age,
  *    retirement age between the two. They live in `createTimelineFormSchema(now)`; a static
  *    document could only encode them with a reference date that would go stale.
- * 4. **Unknown-key strictness** — this document accepts unknown nested keys; the app's import
+ * 3. **Unknown-key strictness** — this document accepts unknown nested keys; the app's import
  *    rejects them, and `scripts/headless-simulate.ts` warns about them.
  *
  * Two differences run the other way, and both are deliberate: `debts` and `physicalAssets` are
@@ -69,11 +72,6 @@ export const UNVALIDATED_RULE_CLASSES = [
     id: 'cross-field',
     label: 'cross-field refinements',
     example: 'marketAssumptions.stockYield above stockReturn; wage income with no withholding; customDate with no month/year',
-  },
-  {
-    id: 'enum-policy',
-    label: 'enum-policy gates',
-    example: 'taxes.incomeType: "selfEmployment", which the enum lists but the app refuses until self-employment tax ships',
   },
   {
     id: 'clock',

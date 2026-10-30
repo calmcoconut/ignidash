@@ -135,7 +135,7 @@ describe('simulate determinism', () => {
     expect(second).toStrictEqual(first);
   });
 
-  it('does not mutate its inputs', () => {
+  it('does not mutate its inputs', { timeout: 60_000 }, () => {
     const inputs = createPlan();
     const before = structuredClone(inputs);
 

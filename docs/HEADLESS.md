@@ -139,19 +139,24 @@ in the same release — so a single number keeps them from drifting apart. `plan
 fails if the committed file differs from what the generator produces, or if an older
 `ignidash-plan.v*.schema.json` is left behind.
 
-### What it validates — and the four classes of rule it does not
+### What it validates — and the three classes of rule it does not
 
 `z.toJSONSchema()` emits **shape and per-field bounds only**: types, required keys, enum values
 and numeric limits. It **silently drops every `.refine()` / `.superRefine()`**, so this document
-is _looser_ than the app, not equal to it: it accepts files the app refuses. Four classes of rule
+is _looser_ than the app, not equal to it: it accepts files the app refuses. Three classes of rule
 do not reach the file.
 
 | Class of rule                 | One example                                                                                                            | Document | Import                                  | `headless:simulate`      |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------- | ------------------------ |
 | cross-field refinements       | `marketAssumptions.stockYield` above `stockReturn`; wage income with no `withholding`; `customDate` with no month/year | accepts  | rejects                                 | rejects                  |
-| enum-policy gates             | `taxes.incomeType: "selfEmployment"` — in the enum the document publishes, refused by the app until SE tax ships       | accepts  | rejects                                 | rejects                  |
 | clock-relative timeline rules | `timeline.birthYear` giving an age outside 18–100 as of the run date                                                   | accepts  | accepts (a file must import on any day) | rejects, using `--as-of` |
 | unknown-key strictness        | an unknown nested key, e.g. `incomes.income-1.disabeld`                                                                | accepts  | rejects                                 | warns, then runs         |
+
+A fourth class, **enum-policy gates** (an enum member the document publishes and the app's refine
+refuses), was retired in P3-P4: its only member was `taxes.incomeType: "selfEmployment"`, which
+the app now accepts because the engine charges the self-employment tax. Should another such gate
+ever exist, it belongs in `UNVALIDATED_RULE_CLASSES` and back in this table — the class is gone
+because it is empty, not because the phenomenon is impossible.
 
 Exactly which clock rules are meant:
 

@@ -21,6 +21,18 @@ export const simulationModes = [
 
 export type SimulationMode = (typeof simulationModes)[number];
 
+/**
+ * What a historical backtest does when its horizon reaches past the vendored data.
+ *
+ * `'looping'` restarts at the oldest vendored year (today's behaviour, and the default: a
+ * truncated run would silently shorten the user's horizon). `'truncate'` holds at the last
+ * vendored year instead of wrapping, and the result reports `truncatedAtYear` so the UI can say
+ * where the data ran out.
+ */
+export const historicalBacktestModes = ['looping', 'truncate'] as const;
+
+export type HistoricalBacktestMode = (typeof historicalBacktestModes)[number];
+
 export const simulationSettingsSchema = z
   .object({
     simulationSeed: coerceNumber(z.number().positive('Seed must be greater than 0').max(99999, 'Seed must be less than or equal to 99999')),
@@ -37,6 +49,11 @@ export const simulationSettingsSchema = z
      * so the same plan produces the same ages and numbers on any day.
      */
     asOfDate: z.string().refine(isISODateString, { message: 'As-of date must be a valid ISO date (YYYY-MM-DD)' }).optional(),
+    /**
+     * Historical backtest behaviour. Absent means `{ mode: 'looping' }`, so plans saved before this
+     * setting existed keep their old (wrapping) behaviour; only the historical modes read it.
+     */
+    historicalBacktest: z.object({ mode: z.enum(historicalBacktestModes) }).optional(),
   })
   .refine(
     (data) => {

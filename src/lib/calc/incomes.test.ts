@@ -3,7 +3,16 @@ import { describe, it, expect } from 'vitest';
 import type { IncomeInputs } from '@/lib/schemas/inputs/income-form-schema';
 
 import { Income, Incomes, IncomesProcessor } from './incomes';
+import { PayrollTaxProcessor } from './payroll-taxes';
 import type { SimulationState } from './simulation-engine';
+
+/**
+ * Payroll withholding is applied by `IncomesProcessor` from the tax layer's
+ * `PayrollTaxProcessor`, so every processor in this file needs one. 2026 is the tax year with a
+ * ruleset; the wage base, the Additional Medicare threshold and the 1.3% SDI rate all come from
+ * it.
+ */
+const createPayrollTaxProcessor = () => new PayrollTaxProcessor(2026, 'single');
 
 /**
  * Income Processing Tests
@@ -336,7 +345,7 @@ describe('Income Growth Rate Tests', () => {
 });
 
 describe('Income Type Tax Handling', () => {
-  it('wage income: applies withholding and FICA', () => {
+  it('wage income: applies withholding here and payroll tax in the processor', () => {
     const income = new Income(
       createIncomeInput({
         amount: 10000,
@@ -347,12 +356,23 @@ describe('Income Type Tax Handling', () => {
 
     const result = income.processMonthlyAmount(2024);
 
+    // `Income` reports gross and income-tax withholding only; payroll tax is the tax layer's job.
     expect(result.income).toBe(10000);
     expect(result.amountWithheld).toBeCloseTo(2200); // 22% of $10k
-    expect(result.ficaTax).toBeCloseTo(765); // 7.65% FICA
-    expect(result.incomeAfterPayrollDeductions).toBeCloseTo(10000 - 2200 - 765);
+    expect(result).not.toHaveProperty('ficaTax');
     expect(result.taxFreeIncome).toBe(0);
     expect(result.socialSecurityIncome).toBe(0);
+
+    // Payroll withholding on $10,000 (2026 rules, single):
+    //   OASDI 6.2% + Medicare 1.45% = 7.65%  → $765.00
+    //   California SDI 1.3% (no wage cap)    → $130.00
+    //   total                                → $895.00
+    const processor = new IncomesProcessor(createSimulationState(), new Incomes([createIncomeInput()]), createPayrollTaxProcessor());
+    const processed = processor.process();
+    expect(processed.totalFicaTax).toBeCloseTo(895);
+    expect(processed.perIncomeData['income-1'].ficaTax).toBeCloseTo(895);
+    // Net: 10,000 − 2,200 withheld − 895 payroll = 6,905
+    expect(processed.totalIncomeAfterPayrollDeductions).toBeCloseTo(6905);
   });
 
   it('social security income: applies withholding, tracks as SS income', () => {
@@ -368,7 +388,6 @@ describe('Income Type Tax Handling', () => {
 
     expect(result.income).toBe(2500);
     expect(result.amountWithheld).toBeCloseTo(250); // 10%
-    expect(result.ficaTax).toBe(0); // No FICA on SS
     expect(result.socialSecurityIncome).toBe(2500); // Tracked for provisional income
     expect(result.taxFreeIncome).toBe(0);
   });
@@ -386,27 +405,43 @@ describe('Income Type Tax Handling', () => {
 
     expect(result.income).toBe(3000);
     expect(result.amountWithheld).toBe(0);
-    expect(result.ficaTax).toBe(0);
     expect(result.taxFreeIncome).toBe(3000);
     expect(result.socialSecurityIncome).toBe(0);
-    expect(result.incomeAfterPayrollDeductions).toBe(3000);
+
+    const processed = new IncomesProcessor(
+      createSimulationState(),
+      new Incomes([
+        createIncomeInput({
+          amount: 3000,
+          frequency: 'monthly',
+          taxes: { incomeType: 'exempt' },
+        }),
+      ]),
+      createPayrollTaxProcessor()
+    ).process();
+    // No payroll tax on tax-free income, so take-home is the gross amount.
+    expect(processed.totalFicaTax).toBe(0);
+    expect(processed.totalIncomeAfterPayrollDeductions).toBe(3000);
   });
 
-  it('zero withholding rate on wage income still applies FICA', () => {
-    const income = new Income(
-      createIncomeInput({
-        amount: 10000,
-        frequency: 'monthly',
-        taxes: { incomeType: 'wage', withholding: 0 },
-      })
-    );
+  it('zero withholding rate on wage income still applies payroll tax', () => {
+    const processed = new IncomesProcessor(
+      createSimulationState(),
+      new Incomes([
+        createIncomeInput({
+          amount: 10000,
+          frequency: 'monthly',
+          taxes: { incomeType: 'wage', withholding: 0 },
+        }),
+      ]),
+      createPayrollTaxProcessor()
+    ).process();
 
-    const result = income.processMonthlyAmount(2024);
-
-    expect(result.income).toBe(10000);
-    expect(result.amountWithheld).toBe(0);
-    expect(result.ficaTax).toBeCloseTo(765); // 7.65% FICA
-    expect(result.incomeAfterPayrollDeductions).toBeCloseTo(9235); // 10000 - 0 - 765
+    expect(processed.totalIncome).toBe(10000);
+    expect(processed.totalAmountWithheld).toBe(0);
+    // 7.65% FICA ($765.00) + 1.3% SDI ($130.00) = $895.00
+    expect(processed.totalFicaTax).toBeCloseTo(895);
+    expect(processed.totalIncomeAfterPayrollDeductions).toBeCloseTo(9105); // 10,000 − 0 − 895
   });
 
   it('mixed income types produce correct aggregate deductions', () => {
@@ -435,20 +470,20 @@ describe('Income Type Tax Handling', () => {
     ]);
 
     const simState = createSimulationState();
-    const processor = new IncomesProcessor(simState, incomes);
+    const processor = new IncomesProcessor(simState, incomes, createPayrollTaxProcessor());
     const result = processor.process();
 
     // Gross: 10000 + 2500 + 3000 = 15500
     expect(result.totalIncome).toBeCloseTo(15500);
     // Withheld: 10000*0.22 + 2500*0.10 = 2200 + 250 = 2450
     expect(result.totalAmountWithheld).toBeCloseTo(2450);
-    // FICA: only on wage = 10000*0.0765 = 765
-    expect(result.totalFicaTax).toBeCloseTo(765);
-    // Net: 15500 - 2450 - 765 = 12285
-    expect(result.totalIncomeAfterPayrollDeductions).toBeCloseTo(12285);
+    // Payroll: only on the wage = 7.65% ($765.00) + 1.3% SDI ($130.00) = $895.00
+    expect(result.totalFicaTax).toBeCloseTo(895);
+    // Net: 15500 - 2450 - 895 = 12155
+    expect(result.totalIncomeAfterPayrollDeductions).toBeCloseTo(12155);
   });
 
-  it('pension income: ordinary income with no FICA', () => {
+  it('pension income: ordinary income with no payroll tax', () => {
     const income = new Income(
       createIncomeInput({
         amount: 4000,
@@ -463,10 +498,22 @@ describe('Income Type Tax Handling', () => {
     // (Social Security income feeds the provisional-income calculation in taxes.ts).
     expect(result.income).toBe(4000);
     expect(result.amountWithheld).toBe(0);
-    expect(result.ficaTax).toBe(0);
     expect(result.taxFreeIncome).toBe(0);
     expect(result.socialSecurityIncome).toBe(0);
-    expect(result.incomeAfterPayrollDeductions).toBe(4000);
+
+    const processed = new IncomesProcessor(
+      createSimulationState(),
+      new Incomes([
+        createIncomeInput({
+          amount: 4000,
+          frequency: 'monthly',
+          taxes: { incomeType: 'pension' },
+        }),
+      ]),
+      createPayrollTaxProcessor()
+    ).process();
+    expect(processed.totalFicaTax).toBe(0);
+    expect(processed.totalIncomeAfterPayrollDeductions).toBe(4000);
   });
 
   it('pension and wage income: FICA is charged on the wage only', () => {
@@ -487,13 +534,14 @@ describe('Income Type Tax Handling', () => {
       }),
     ]);
 
-    const processor = new IncomesProcessor(createSimulationState(), incomes);
+    const processor = new IncomesProcessor(createSimulationState(), incomes, createPayrollTaxProcessor());
     const result = processor.process();
 
     // Pension flows into total income...
     expect(result.totalIncome).toBeCloseTo(14000);
-    // ...but carries no payroll tax: FICA is wage-only (10000 * 0.0765).
-    expect(result.totalFicaTax).toBeCloseTo(765);
+    // ...but carries no payroll tax: payroll tax is wage-only
+    // (10,000 × 7.65% FICA = $765.00 + 10,000 × 1.3% SDI = $130.00 = $895.00).
+    expect(result.totalFicaTax).toBeCloseTo(895);
     expect(result.perIncomeData['pension'].ficaTax).toBe(0);
     // ...and is not mistaken for Social Security or tax-free income.
     expect(result.totalSocialSecurityIncome).toBe(0);
@@ -649,13 +697,18 @@ describe('IncomesProcessor Tests', () => {
     ]);
 
     const simState = createSimulationState();
-    const processor = new IncomesProcessor(simState, incomes);
+    const processor = new IncomesProcessor(simState, incomes, createPayrollTaxProcessor());
     const result = processor.process();
 
     expect(result.totalIncome).toBeCloseTo(12000);
     expect(Object.keys(result.perIncomeData).length).toBe(2);
     expect(result.perIncomeData['salary'].income).toBeCloseTo(10000);
     expect(result.perIncomeData['side-gig'].income).toBeCloseTo(2000);
+    // Self-employment income is reported as its own total; nothing is withheld from it here —
+    // the self-employment tax is settled annually by `TaxProcessor`.
+    expect(result.totalWageIncome).toBeCloseTo(10000);
+    expect(result.totalSelfEmploymentIncome).toBeCloseTo(2000);
+    expect(result.perIncomeData['side-gig'].ficaTax).toBe(0);
   });
 
   it('tracks Social Security income separately for provisional income', () => {
@@ -677,7 +730,7 @@ describe('IncomesProcessor Tests', () => {
     ]);
 
     const simState = createSimulationState();
-    const processor = new IncomesProcessor(simState, incomes);
+    const processor = new IncomesProcessor(simState, incomes, createPayrollTaxProcessor());
     const result = processor.process();
 
     expect(result.totalIncome).toBeCloseTo(5500);
@@ -696,7 +749,7 @@ describe('IncomesProcessor Tests', () => {
     ]);
 
     const simState = createSimulationState();
-    const processor = new IncomesProcessor(simState, incomes);
+    const processor = new IncomesProcessor(simState, incomes, createPayrollTaxProcessor());
 
     // Process 12 months
     for (let month = 0; month < 12; month++) {
@@ -706,8 +759,13 @@ describe('IncomesProcessor Tests', () => {
     const annualData = processor.getAnnualData();
     expect(annualData.totalIncome).toBeCloseTo(120000);
     expect(annualData.totalAmountWithheld).toBeCloseTo(26400); // 22% of $120k
-    expect(annualData.totalFicaTax).toBeCloseTo(9180); // 7.65% of $120k
-    // Net: 120000 - 26400 - 9180 = 84420
-    expect(annualData.totalIncomeAfterPayrollDeductions).toBeCloseTo(84420);
+    // Payroll on $120,000 for 2026 (single), all twelve months below the $184,500 wage base:
+    //   OASDI 6.2%  = $7,440.00
+    //   Medicare 1.45% = $1,740.00
+    //   SDI 1.3%    = $1,560.00
+    //   total       = $10,740.00
+    expect(annualData.totalFicaTax).toBeCloseTo(10740);
+    // Net: 120000 - 26400 - 10740 = 82860
+    expect(annualData.totalIncomeAfterPayrollDeductions).toBeCloseTo(82860);
   });
 });
