@@ -14,6 +14,8 @@ import { useChartInterval } from '@/hooks/use-chart-interval';
 import type { SingleSimulationTaxesChartDataPoint } from '@/lib/types/chart-data-points';
 import type { TaxesDataView } from '@/lib/types/chart-data-views';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import { getMetricValueFormatter, resolveDataView } from '@/lib/charts/metric-registry';
+import { applySeriesSigns, resolveSeries, toBarSeriesProps, toLineSeriesProps } from '@/lib/charts/plot-types';
 import { Divider } from '@/components/catalyst/divider';
 
 import {
@@ -191,145 +193,27 @@ export default function SingleSimulationTaxesLineChart({
 
   let chartData: SingleSimulationTaxesChartDataPoint[] = useChartDataSlice(rawChartData, 'single');
 
-  const lineDataKeys: (keyof SingleSimulationTaxesChartDataPoint)[] = [];
-  const strokeColors: string[] = [];
+  // Series come from the metric registry (P4-P6). The keys, colours, plots, signs, stack ids
+  // and formatter below are the ones this chart's deleted switch used; the registry tests freeze
+  // them. Taxes has no `custom` view, so there is no escape hatch to keep here.
+  const resolution = resolveDataView('taxes', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+  const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
 
-  const barDataKeys: (keyof SingleSimulationTaxesChartDataPoint)[] = [];
-  const barColors: string[] = [];
+  const lineProps = toLineSeriesProps(resolvedSeries);
+  const barProps = toBarSeriesProps(resolvedSeries);
 
-  let formatter = undefined;
-  let stackId: string | undefined = 'barStack';
-  let stackOffset: 'sign' | undefined = undefined;
+  const lineDataKeys: string[] = [...lineProps.dataKeys];
+  const strokeColors: string[] = [...lineProps.strokeColors];
 
-  switch (dataView) {
-    case 'marginalRates':
-      formatter = (value: number) => formatPercentage(value);
+  const barDataKeys: string[] = [...barProps.dataKeys];
+  const barColors: string[] = [...barProps.barColors];
+  const stackId: string | undefined = barProps.stackId;
 
-      lineDataKeys.push('topMarginalFederalIncomeTaxRate', 'topMarginalCapitalGainsTaxRate');
-      strokeColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'effectiveRates':
-      formatter = (value: number) => formatPercentage(value);
+  const formatter = getMetricValueFormatter(metric?.format);
+  const stackOffset: 'sign' | undefined = metric?.stackOffset;
 
-      lineDataKeys.push('effectiveFederalIncomeTaxRate', 'effectiveCapitalGainsTaxRate');
-      strokeColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'annualAmounts':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('annualFederalIncomeTax', 'annualFicaTax', 'annualCapitalGainsTax', 'annualNiit', 'annualEarlyWithdrawalPenalties');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)');
-      break;
-    case 'cumulativeAmounts':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push(
-        'cumulativeFederalIncomeTax',
-        'cumulativeFicaTax',
-        'cumulativeCapitalGainsTax',
-        'cumulativeNiit',
-        'cumulativeEarlyWithdrawalPenalties'
-      );
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)');
-      break;
-    case 'taxableIncome':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      lineDataKeys.push('taxableIncome');
-      strokeColors.push('var(--foreground)');
-
-      barDataKeys.push(
-        'incomeTaxedAsOrdinary',
-        'incomeTaxedAsLtcg',
-        'taxDeductibleContributions',
-        'standardDeduction',
-        'capitalLossDeduction'
-      );
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)');
-
-      chartData = chartData.map((entry) => ({
-        ...entry,
-        taxDeductibleContributions: -entry.taxDeductibleContributions,
-        standardDeduction: -entry.standardDeduction,
-        capitalLossDeduction: -entry.capitalLossDeduction,
-      }));
-
-      stackOffset = 'sign';
-      break;
-    case 'adjustedGrossIncome':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      lineDataKeys.push('adjustedGrossIncome');
-      strokeColors.push('var(--foreground)');
-
-      barDataKeys.push('incomeTaxedAsOrdinary', 'incomeTaxedAsLtcg', 'taxDeductibleContributions', 'capitalLossDeduction');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-5)');
-
-      chartData = chartData.map((entry) => ({
-        ...entry,
-        taxDeductibleContributions: -entry.taxDeductibleContributions,
-        capitalLossDeduction: -entry.capitalLossDeduction,
-      }));
-
-      stackOffset = 'sign';
-      break;
-    case 'investmentIncome':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('taxableInterestIncome', 'taxableDividendIncome', 'realizedGains');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'retirementDistributions':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('taxDeferredWithdrawals', 'earlyRothEarningsWithdrawals');
-      barColors.push('var(--chart-1)', 'var(--chart-2)');
-      break;
-    case 'taxFreeIncome':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      lineDataKeys.push('taxFreeIncome');
-      strokeColors.push('var(--chart-2)');
-      break;
-    case 'ordinaryIncome':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('earnedIncome', 'taxableSocialSecurityIncome', 'taxableInterestIncome', 'taxableRetirementDistributions');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'capitalGainsAndDividends':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('realizedGains', 'taxableDividendIncome');
-      barColors.push('var(--chart-1)', 'var(--chart-2)');
-      break;
-    case 'earlyWithdrawalPenalties':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-      stackId = undefined;
-
-      barDataKeys.push('annualEarlyWithdrawalPenalties', 'cumulativeEarlyWithdrawalPenalties');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'adjustmentsAndDeductions':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      barDataKeys.push('taxDeductibleContributions', 'capitalLossDeduction', 'standardDeduction');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'socialSecurityIncome':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-      stackId = undefined;
-
-      barDataKeys.push('socialSecurityIncome', 'taxableSocialSecurityIncome');
-      barColors.push('var(--chart-1)', 'var(--chart-2)');
-      break;
-    case 'socialSecurityTaxablePercentage':
-      formatter = (value: number) => formatPercentage(value);
-
-      lineDataKeys.push('maxTaxablePercentage', 'actualTaxablePercentage');
-      strokeColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-  }
+  if (metric) chartData = applySeriesSigns(chartData, resolvedSeries);
 
   const interval = useChartInterval(chartData.length);
 

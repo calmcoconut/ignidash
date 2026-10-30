@@ -29,6 +29,7 @@ import {
   toPieSlices,
 } from './plot-types';
 import type { ChartKind, MetricDataPoint } from './plot-types';
+import { formatChartString } from '@/lib/utils';
 
 // ============================================================================
 // FROZEN CONTRACTS
@@ -227,6 +228,364 @@ describe('metric registry integrity', () => {
   });
 });
 
+/**
+ * Frozen series of the five categories P4-P6 migrated, in the order the old switch declared
+ * them: `[key, colour, plot, sign, stackId?]`. These are the OLD values, transcribed from each
+ * chart's `switch (dataView)` before it was deleted; the test below also pins each metric's id,
+ * formatter and `stackOffset`, and asserts every label is `formatChartString(key)` (the same
+ * humaniser the chart tooltips use).
+ */
+type FrozenLineSeries = readonly [key: string, color: string, plot: string, sign: 1 | -1, stackId?: string];
+
+const FROZEN_LINE_METRICS: Record<string, { format: 'currency' | 'percent'; stackOffset?: 'sign'; series: readonly FrozenLineSeries[] }> = {
+  'taxes.marginalRates': {
+    format: 'percent',
+    series: [
+      ['topMarginalFederalIncomeTaxRate', 'var(--chart-2)', 'line', 1],
+      ['topMarginalCapitalGainsTaxRate', 'var(--chart-4)', 'line', 1],
+    ],
+  },
+  'taxes.effectiveRates': {
+    format: 'percent',
+    series: [
+      ['effectiveFederalIncomeTaxRate', 'var(--chart-2)', 'line', 1],
+      ['effectiveCapitalGainsTaxRate', 'var(--chart-4)', 'line', 1],
+    ],
+  },
+  'taxes.annualAmounts': {
+    format: 'currency',
+    series: [
+      ['annualFederalIncomeTax', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['annualFicaTax', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualCapitalGainsTax', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['annualNiit', 'var(--chart-4)', 'bar', 1, 'barStack'],
+      ['annualEarlyWithdrawalPenalties', 'var(--chart-5)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.cumulativeAmounts': {
+    format: 'currency',
+    series: [
+      ['cumulativeFederalIncomeTax', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['cumulativeFicaTax', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['cumulativeCapitalGainsTax', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['cumulativeNiit', 'var(--chart-4)', 'bar', 1, 'barStack'],
+      ['cumulativeEarlyWithdrawalPenalties', 'var(--chart-5)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.taxableIncome': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['taxableIncome', 'var(--foreground)', 'line', 1],
+      ['incomeTaxedAsOrdinary', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['incomeTaxedAsLtcg', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['taxDeductibleContributions', 'var(--chart-3)', 'bar', -1, 'barStack'],
+      ['standardDeduction', 'var(--chart-4)', 'bar', -1, 'barStack'],
+      ['capitalLossDeduction', 'var(--chart-5)', 'bar', -1, 'barStack'],
+    ],
+  },
+  'taxes.adjustedGrossIncome': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['adjustedGrossIncome', 'var(--foreground)', 'line', 1],
+      ['incomeTaxedAsOrdinary', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['incomeTaxedAsLtcg', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['taxDeductibleContributions', 'var(--chart-3)', 'bar', -1, 'barStack'],
+      ['capitalLossDeduction', 'var(--chart-5)', 'bar', -1, 'barStack'],
+    ],
+  },
+  'taxes.investmentIncome': {
+    format: 'currency',
+    series: [
+      ['taxableInterestIncome', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['taxableDividendIncome', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['realizedGains', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.retirementDistributions': {
+    format: 'currency',
+    series: [
+      ['taxDeferredWithdrawals', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['earlyRothEarningsWithdrawals', 'var(--chart-2)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.taxFreeIncome': { format: 'currency', series: [['taxFreeIncome', 'var(--chart-2)', 'line', 1]] },
+  'taxes.ordinaryIncome': {
+    format: 'currency',
+    series: [
+      ['earnedIncome', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['taxableSocialSecurityIncome', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['taxableInterestIncome', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['taxableRetirementDistributions', 'var(--chart-4)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.capitalGainsAndDividends': {
+    format: 'currency',
+    series: [
+      ['realizedGains', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['taxableDividendIncome', 'var(--chart-2)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.earlyWithdrawalPenalties': {
+    format: 'currency',
+    series: [
+      ['annualEarlyWithdrawalPenalties', 'var(--chart-2)', 'bar', 1],
+      ['cumulativeEarlyWithdrawalPenalties', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'taxes.adjustmentsAndDeductions': {
+    format: 'currency',
+    series: [
+      ['taxDeductibleContributions', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['capitalLossDeduction', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['standardDeduction', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'taxes.socialSecurityIncome': {
+    format: 'currency',
+    series: [
+      ['socialSecurityIncome', 'var(--chart-1)', 'bar', 1],
+      ['taxableSocialSecurityIncome', 'var(--chart-2)', 'bar', 1],
+    ],
+  },
+  'taxes.socialSecurityTaxablePercentage': {
+    format: 'percent',
+    series: [
+      ['maxTaxablePercentage', 'var(--chart-2)', 'line', 1],
+      ['actualTaxablePercentage', 'var(--chart-4)', 'line', 1],
+    ],
+  },
+  'returns.rates': {
+    format: 'percent',
+    series: [
+      ['realStockReturnRate', 'var(--chart-2)', 'line', 1],
+      ['realBondReturnRate', 'var(--chart-3)', 'line', 1],
+      ['realCashReturnRate', 'var(--chart-4)', 'line', 1],
+      ['inflationRate', 'var(--chart-8)', 'line', 1],
+    ],
+  },
+  'returns.cagr': {
+    format: 'percent',
+    series: [
+      ['realStockCagr', 'var(--chart-2)', 'line', 1],
+      ['realBondCagr', 'var(--chart-3)', 'line', 1],
+      ['realCashCagr', 'var(--chart-4)', 'line', 1],
+    ],
+  },
+  'returns.annualAmounts': {
+    format: 'currency',
+    series: [
+      ['totalAnnualGains', 'var(--foreground)', 'line', 1],
+      ['annualStockGain', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualBondGain', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['annualCashGain', 'var(--chart-4)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'returns.cumulativeAmounts': {
+    format: 'currency',
+    series: [
+      ['totalCumulativeGains', 'var(--foreground)', 'line', 1],
+      ['cumulativeStockGain', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['cumulativeBondGain', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['cumulativeCashGain', 'var(--chart-4)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'returns.taxCategory': {
+    format: 'currency',
+    series: [
+      ['totalAnnualGains', 'var(--foreground)', 'line', 1],
+      ['taxableGains', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['taxDeferredGains', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['taxFreeGains', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['cashSavingsGains', 'var(--chart-4)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'returns.appreciation': {
+    format: 'currency',
+    series: [
+      ['annualAssetAppreciation', 'var(--chart-2)', 'bar', 1],
+      ['cumulativeAssetAppreciation', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'contributions.annualAmounts': {
+    format: 'currency',
+    series: [
+      ['annualStockContributions', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['annualBondContributions', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualCashContributions', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'contributions.cumulativeAmounts': {
+    format: 'currency',
+    series: [
+      ['cumulativeStockContributions', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['cumulativeBondContributions', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['cumulativeCashContributions', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'contributions.taxCategory': {
+    format: 'currency',
+    series: [
+      ['taxableContributions', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['taxDeferredContributions', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['taxFreeContributions', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['cashSavingsContributions', 'var(--chart-4)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'contributions.employerMatch': {
+    format: 'currency',
+    series: [
+      ['annualEmployerMatch', 'var(--chart-2)', 'bar', 1],
+      ['cumulativeEmployerMatch', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'contributions.shortfall': {
+    format: 'currency',
+    series: [
+      ['annualShortfallRepaid', 'var(--chart-2)', 'bar', 1],
+      ['outstandingShortfall', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'withdrawals.annualAmounts': {
+    format: 'currency',
+    series: [
+      ['annualStockWithdrawals', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['annualBondWithdrawals', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualCashWithdrawals', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'withdrawals.cumulativeAmounts': {
+    format: 'currency',
+    series: [
+      ['cumulativeStockWithdrawals', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['cumulativeBondWithdrawals', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['cumulativeCashWithdrawals', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'withdrawals.taxCategory': {
+    format: 'currency',
+    series: [
+      ['taxableWithdrawals', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['taxDeferredWithdrawals', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['taxFreeWithdrawals', 'var(--chart-3)', 'bar', 1, 'barStack'],
+      ['cashSavingsWithdrawals', 'var(--chart-4)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'withdrawals.realizedGains': {
+    format: 'currency',
+    series: [
+      ['annualRealizedGains', 'var(--chart-2)', 'bar', 1],
+      ['cumulativeRealizedGains', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'withdrawals.requiredMinimumDistributions': {
+    format: 'currency',
+    series: [
+      ['annualRequiredMinimumDistributions', 'var(--chart-2)', 'bar', 1],
+      ['cumulativeRequiredMinimumDistributions', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'withdrawals.earlyWithdrawals': {
+    format: 'currency',
+    series: [
+      ['annualEarlyWithdrawals', 'var(--chart-2)', 'bar', 1],
+      ['cumulativeEarlyWithdrawals', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'withdrawals.shortfall': {
+    format: 'currency',
+    series: [
+      ['annualShortfall', 'var(--chart-2)', 'bar', 1],
+      ['outstandingShortfall', 'var(--chart-4)', 'bar', 1],
+    ],
+  },
+  'withdrawals.withdrawalRate': { format: 'percent', series: [['withdrawalRate', 'var(--chart-2)', 'line', 1]] },
+  'netWorth.assetClass': {
+    format: 'currency',
+    series: [
+      ['stockHoldings', 'var(--chart-1)', 'area', 1, 'areaStack'],
+      ['bondHoldings', 'var(--chart-2)', 'area', 1, 'areaStack'],
+      ['cashHoldings', 'var(--chart-3)', 'area', 1, 'areaStack'],
+    ],
+  },
+  'netWorth.taxCategory': {
+    format: 'currency',
+    series: [
+      ['taxableValue', 'var(--chart-1)', 'area', 1, 'areaStack'],
+      ['taxDeferredValue', 'var(--chart-2)', 'area', 1, 'areaStack'],
+      ['taxFreeValue', 'var(--chart-3)', 'area', 1, 'areaStack'],
+      ['cashSavings', 'var(--chart-4)', 'area', 1, 'areaStack'],
+    ],
+  },
+  'netWorth.netPortfolioChange': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['netPortfolioChange', 'var(--foreground)', 'line', 1],
+      ['annualReturns', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['annualContributions', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualWithdrawals', 'var(--chart-3)', 'bar', -1, 'barStack'],
+    ],
+  },
+  'netWorth.netWorth': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['netWorth', 'var(--foreground)', 'line', 1],
+      ['portfolioValue', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['assetValue', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['debtBalance', 'var(--chart-3)', 'bar', -1, 'barStack'],
+    ],
+  },
+  'netWorth.netWorthChange': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['netWorthChange', 'var(--foreground)', 'line', 1],
+      ['netPortfolioChange', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['netAssetChange', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['netDebtReduction', 'var(--chart-3)', 'bar', 1, 'barStack'],
+    ],
+  },
+  'netWorth.assetEquity': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['assetEquity', 'var(--foreground)', 'line', 1],
+      ['assetValue', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['securedDebtBalance', 'var(--chart-2)', 'bar', -1, 'barStack'],
+    ],
+  },
+  'netWorth.netAssetChange': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['netAssetChange', 'var(--foreground)', 'line', 1],
+      ['annualAssetAppreciation', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['annualPurchasedAssetValue', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualSoldAssetValue', 'var(--chart-3)', 'bar', -1, 'barStack'],
+    ],
+  },
+  'netWorth.debts': {
+    format: 'currency',
+    series: [
+      ['unsecuredDebtBalance', 'var(--chart-1)', 'area', 1, 'areaStack'],
+      ['securedDebtBalance', 'var(--chart-2)', 'area', 1, 'areaStack'],
+    ],
+  },
+  'netWorth.netDebtReduction': {
+    format: 'currency',
+    stackOffset: 'sign',
+    series: [
+      ['netDebtReduction', 'var(--foreground)', 'line', 1],
+      ['annualDebtPaydown', 'var(--chart-1)', 'bar', 1, 'barStack'],
+      ['annualDebtPayoff', 'var(--chart-2)', 'bar', 1, 'barStack'],
+      ['annualDebtIncurred', 'var(--chart-3)', 'bar', -1, 'barStack'],
+    ],
+  },
+};
+
 // ============================================================================
 // PERSISTED DATA VIEWS
 // ============================================================================
@@ -272,18 +631,26 @@ describe('persisted data view resolution', () => {
     expect(custom.metricId).toBe('cashFlow.custom');
   });
 
-  it('keeps every unported category on its legacy switch', () => {
+  it('migrates every non-custom view and leaves only the per-entity escape hatches legacy', () => {
+    // P4-P6 migrated the time-series switch of all five remaining categories, so the only ids
+    // that still resolve to a bespoke switch are the `custom` views (per-account/asset/debt
+    // series, which cannot be expressed as a fixed key list).
+    const legacy: string[] = [];
+
     for (const category of DATA_VIEW_CATEGORIES) {
-      if (category === 'cashFlow') continue;
       for (const dataViewId of dataViewIdsForCategory(category)) {
-        expect(resolveDataView(category, dataViewId).status).toBe('legacy');
+        if (resolveDataView(category, dataViewId).status === 'legacy') legacy.push(`${category}.${dataViewId}`);
       }
     }
+
+    expect(legacy).toEqual(['netWorth.custom', 'cashFlow.custom', 'returns.custom', 'contributions.custom', 'withdrawals.custom']);
   });
 
   it('does not register the net-worth canary as a persisted view', () => {
+    // The canary is a display-only metric with its own id; no persisted `dataView` id maps to it.
     expect(getMetric(REAL_NET_WORTH_METRIC_ID)).toBeDefined();
-    expect(chartKindsForDataView('netWorth', 'netWorth')).toEqual([]);
+    expect(resolveDataView('netWorth', 'realNetWorth').status).toBe('legacy');
+    expect(metricIdForDataView('netWorth', 'netWorth')).not.toBe(REAL_NET_WORTH_METRIC_ID);
   });
 
   it('reports the chart kinds a ported data view supports', () => {
@@ -368,6 +735,40 @@ describe('series key, colour and label parity', () => {
     const bar = resolveSeries(metric, 'bar');
     expect(bar.every((series) => series.stackId === undefined)).toBe(true);
   });
+});
+
+describe('migrated time-series categories: frozen parity', () => {
+  it('freezes every metric the migration added, so none can slip in unfrozen', () => {
+    const migratedIds = METRIC_DEFINITIONS.filter(
+      (metric) =>
+        ['taxes', 'returns', 'contributions', 'withdrawals', 'netWorth'].includes(metric.category) && metric.id !== REAL_NET_WORTH_METRIC_ID
+    )
+      .map((metric) => metric.id)
+      .sort();
+
+    expect(Object.keys(FROZEN_LINE_METRICS).sort()).toEqual(migratedIds);
+  });
+
+  for (const [metricId, expected] of Object.entries(FROZEN_LINE_METRICS)) {
+    it(`freezes ${metricId}`, () => {
+      const metric = getMetric(metricId);
+      if (!metric) throw new Error(`metric ${metricId} is not registered`);
+
+      expect(metric.category).toBe(metricId.split('.')[0]);
+      expect(metric.chartKinds).toEqual(['line']);
+      expect(metric.format).toBe(expected.format);
+      expect(metric.stackOffset).toBe(expected.stackOffset);
+
+      const resolved = resolveSeries(metric, 'line');
+      expect(resolved.map((series) => [series.key, series.color, series.plot, series.sign, series.stackId])).toEqual(
+        expected.series.map(([key, color, plot, sign, stackId]) => [key, color, plot, sign, stackId])
+      );
+
+      // Labels come from the tooltip humaniser, so a label cannot drift from its tooltip.
+      expect(resolved.map((series) => series.label)).toEqual(expected.series.map(([key]) => formatChartString(key)));
+      expect(resolved.map((series) => series.shortLabel)).toEqual(resolved.map((series) => series.label));
+    });
+  }
 });
 
 // ============================================================================

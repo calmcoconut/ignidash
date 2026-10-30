@@ -13,6 +13,8 @@ import type { SingleSimulationWithdrawalsChartDataPoint } from '@/lib/types/char
 import type { WithdrawalsDataView } from '@/lib/types/chart-data-views';
 import type { AccountDataWithFlows } from '@/lib/calc/account';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import { getMetricValueFormatter, resolveDataView } from '@/lib/charts/metric-registry';
+import { applySeriesSigns, resolveSeries, toBarSeriesProps, toLineSeriesProps } from '@/lib/charts/plot-types';
 import { uniformLifetimeMap } from '@/lib/calc/historical-data/rmd-table';
 
 import {
@@ -151,91 +153,62 @@ export default function SingleSimulationWithdrawalsLineChart({
         } & AccountDataWithFlows
       > = useChartDataSlice(rawChartData, 'single');
 
-  const lineDataKeys: (keyof SingleSimulationWithdrawalsChartDataPoint)[] = [];
+  const lineDataKeys: string[] = [];
   const strokeColors: string[] = [];
 
-  const barDataKeys: (keyof SingleSimulationWithdrawalsChartDataPoint)[] = [];
+  const barDataKeys: string[] = [];
   const barColors: string[] = [];
 
   let formatter = undefined;
   let stackId: string | undefined = undefined;
 
-  switch (dataView) {
-    case 'annualAmounts':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-      stackId = 'barStack';
+  // Series come from the metric registry (P4-P6); keys, colours, plots and stack ids are the
+  // ones this chart's deleted switch used, frozen by the registry tests. `custom` keeps its own
+  // per-account series in the switch's remaining case below.
+  const resolution = resolveDataView('withdrawals', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+  const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
 
-      barDataKeys.push('annualStockWithdrawals', 'annualBondWithdrawals', 'annualCashWithdrawals');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'cumulativeAmounts':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-      stackId = 'barStack';
+  if (metric) {
+    const lineProps = toLineSeriesProps(resolvedSeries);
+    const barProps = toBarSeriesProps(resolvedSeries);
 
-      barDataKeys.push('cumulativeStockWithdrawals', 'cumulativeBondWithdrawals', 'cumulativeCashWithdrawals');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'taxCategory':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-      stackId = 'barStack';
+    formatter = getMetricValueFormatter(metric.format);
+    stackId = barProps.stackId;
 
-      barDataKeys.push('taxableWithdrawals', 'taxDeferredWithdrawals', 'taxFreeWithdrawals', 'cashSavingsWithdrawals');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'realizedGains':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+    lineDataKeys.push(...lineProps.dataKeys);
+    strokeColors.push(...lineProps.strokeColors);
+    barDataKeys.push(...barProps.dataKeys);
+    barColors.push(...barProps.barColors);
 
-      barDataKeys.push('annualRealizedGains', 'cumulativeRealizedGains');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'requiredMinimumDistributions':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+    chartData = applySeriesSigns(chartData, resolvedSeries);
+  } else {
+    switch (dataView) {
+      case 'custom':
+        if (!customDataID) {
+          console.warn('Custom data name is required for custom data view');
+          break;
+        }
 
-      barDataKeys.push('annualRequiredMinimumDistributions', 'cumulativeRequiredMinimumDistributions');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'earlyWithdrawals':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+        formatter = (value: number) => formatCompactCurrency(value, 1);
+        stackId = 'barStack';
 
-      barDataKeys.push('annualEarlyWithdrawals', 'cumulativeEarlyWithdrawals');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'shortfall':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+        chartData = chartData.flatMap(({ age, perAccountData }) =>
+          perAccountData
+            .filter((account) => account.id === customDataID)
+            .map((account) => ({
+              age,
+              ...account,
+              annualStockWithdrawals: account.withdrawals.stocks,
+              annualBondWithdrawals: account.withdrawals.bonds,
+              annualCashWithdrawals: account.withdrawals.cash,
+            }))
+        );
 
-      barDataKeys.push('annualShortfall', 'outstandingShortfall');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'withdrawalRate':
-      formatter = (value: number) => formatPercentage(value);
-
-      lineDataKeys.push('withdrawalRate');
-      strokeColors.push('var(--chart-2)');
-      break;
-    case 'custom':
-      if (!customDataID) {
-        console.warn('Custom data name is required for custom data view');
+        barDataKeys.push('annualStockWithdrawals', 'annualBondWithdrawals', 'annualCashWithdrawals');
+        barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
         break;
-      }
-
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-      stackId = 'barStack';
-
-      chartData = chartData.flatMap(({ age, perAccountData }) =>
-        perAccountData
-          .filter((account) => account.id === customDataID)
-          .map((account) => ({
-            age,
-            ...account,
-            annualStockWithdrawals: account.withdrawals.stocks,
-            annualBondWithdrawals: account.withdrawals.bonds,
-            annualCashWithdrawals: account.withdrawals.cash,
-          }))
-      );
-
-      barDataKeys.push('annualStockWithdrawals', 'annualBondWithdrawals', 'annualCashWithdrawals');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
+    }
   }
 
   const interval = useChartInterval(chartData.length);

@@ -16,6 +16,8 @@ import type { ReturnsDataView } from '@/lib/types/chart-data-views';
 import type { AccountDataWithReturns } from '@/lib/calc/returns';
 import type { PhysicalAssetData } from '@/lib/calc/physical-assets';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import { getMetricValueFormatter, resolveDataView } from '@/lib/charts/metric-registry';
+import { applySeriesSigns, resolveSeries, toBarSeriesProps, toLineSeriesProps } from '@/lib/charts/plot-types';
 
 import {
   ChartEmptyState,
@@ -161,10 +163,11 @@ export default function SingleSimulationReturnsLineChart({
       >
     | Array<{ age: number } & PhysicalAssetData> = useChartDataSlice(rawChartData, 'single');
 
-  const lineDataKeys: (keyof SingleSimulationReturnsChartDataPoint | keyof PhysicalAssetData)[] = [];
+  // Registry series keys are plain strings; the custom branch below pushes literal keys too.
+  const lineDataKeys: string[] = [];
   const strokeColors: string[] = [];
 
-  const barDataKeys: (keyof SingleSimulationReturnsChartDataPoint | keyof PhysicalAssetData)[] = [];
+  const barDataKeys: string[] = [];
   const barColors: string[] = [];
 
   let formatter = undefined;
@@ -173,106 +176,82 @@ export default function SingleSimulationReturnsLineChart({
 
   let customDataType: 'account' | 'asset' | undefined = undefined;
 
-  switch (dataView) {
-    case 'rates':
-      formatter = (value: number) => formatPercentage(value);
+  // Series come from the metric registry (P4-P6); the keys, colours, plots, signs and stack ids
+  // below are the ones this chart's deleted switch used, frozen by the registry tests. `custom`
+  // still builds its own per-account/per-asset series in the switch's remaining case — that
+  // escape hatch is not registry metadata and must stay bespoke.
+  const resolution = resolveDataView('returns', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+  const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
 
-      lineDataKeys.push('realStockReturnRate', 'realBondReturnRate', 'realCashReturnRate', 'inflationRate');
-      strokeColors.push('var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-8)');
+  // Rate views plot percentages around zero, where a zero line would be noise.
+  const NO_ZERO_LINE_VIEWS: ReadonlySet<string> = new Set(['rates', 'cagr']);
 
-      showReferenceLineAtZero = false;
-      break;
-    case 'cagr':
-      formatter = (value: number) => formatPercentage(value);
+  if (metric) {
+    const lineProps = toLineSeriesProps(resolvedSeries);
+    const barProps = toBarSeriesProps(resolvedSeries);
 
-      lineDataKeys.push('realStockCagr', 'realBondCagr', 'realCashCagr');
-      strokeColors.push('var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
+    formatter = getMetricValueFormatter(metric.format);
+    stackId = barProps.stackId;
+    showReferenceLineAtZero = !NO_ZERO_LINE_VIEWS.has(dataView);
 
-      showReferenceLineAtZero = false;
-      break;
-    case 'annualAmounts':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+    lineDataKeys.push(...lineProps.dataKeys);
+    strokeColors.push(...lineProps.strokeColors);
+    barDataKeys.push(...barProps.dataKeys);
+    barColors.push(...barProps.barColors);
 
-      lineDataKeys.push('totalAnnualGains');
-      strokeColors.push(LINE_COLOR);
+    chartData = applySeriesSigns(chartData, resolvedSeries);
+  } else {
+    switch (dataView) {
+      case 'custom':
+        if (!customDataID) {
+          console.warn('Custom data name is required for custom data view');
+          break;
+        }
 
-      barDataKeys.push('annualStockGain', 'annualBondGain', 'annualCashGain');
-      barColors.push('var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'cumulativeAmounts':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+        formatter = (value: number) => formatCompactCurrency(value, 1);
 
-      lineDataKeys.push('totalCumulativeGains');
-      strokeColors.push(LINE_COLOR);
+        const perAccountData = chartData.flatMap(({ age, perAccountData }) =>
+          perAccountData
+            .filter((account) => account.id === customDataID)
+            .map((account) => ({
+              age,
+              ...account,
+              annualStockGain: account.returnAmounts.stocks,
+              annualBondGain: account.returnAmounts.bonds,
+              annualCashGain: account.returnAmounts.cash,
+              totalAnnualGains: account.returnAmounts.stocks + account.returnAmounts.bonds + account.returnAmounts.cash,
+            }))
+        );
+        if (perAccountData.length > 0) {
+          customDataType = 'account';
 
-      barDataKeys.push('cumulativeStockGain', 'cumulativeBondGain', 'cumulativeCashGain');
-      barColors.push('var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'taxCategory':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+          lineDataKeys.push('totalAnnualGains');
+          strokeColors.push(LINE_COLOR);
 
-      lineDataKeys.push('totalAnnualGains');
-      strokeColors.push(LINE_COLOR);
+          barDataKeys.push('annualStockGain', 'annualBondGain', 'annualCashGain');
+          barColors.push('var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
 
-      barDataKeys.push('taxableGains', 'taxDeferredGains', 'taxFreeGains', 'cashSavingsGains');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'appreciation':
-      formatter = (value: number) => formatCompactCurrency(value, 1);
+          chartData = perAccountData;
+          break;
+        }
 
-      barDataKeys.push('annualAssetAppreciation', 'cumulativeAssetAppreciation');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
+        const perAssetData = chartData.flatMap(({ age, perAssetData }) =>
+          perAssetData.filter((asset) => asset.id === customDataID).map((asset) => ({ age, ...asset }))
+        );
+        if (perAssetData.length > 0) {
+          customDataType = 'asset';
 
-      stackId = undefined;
-      break;
-    case 'custom':
-      if (!customDataID) {
-        console.warn('Custom data name is required for custom data view');
+          barDataKeys.push('appreciation');
+          barColors.push('var(--chart-2)');
+
+          chartData = perAssetData;
+          showReferenceLineAtZero = false;
+          break;
+        }
+
         break;
-      }
-
-      formatter = (value: number) => formatCompactCurrency(value, 1);
-
-      const perAccountData = chartData.flatMap(({ age, perAccountData }) =>
-        perAccountData
-          .filter((account) => account.id === customDataID)
-          .map((account) => ({
-            age,
-            ...account,
-            annualStockGain: account.returnAmounts.stocks,
-            annualBondGain: account.returnAmounts.bonds,
-            annualCashGain: account.returnAmounts.cash,
-            totalAnnualGains: account.returnAmounts.stocks + account.returnAmounts.bonds + account.returnAmounts.cash,
-          }))
-      );
-      if (perAccountData.length > 0) {
-        customDataType = 'account';
-
-        lineDataKeys.push('totalAnnualGains');
-        strokeColors.push(LINE_COLOR);
-
-        barDataKeys.push('annualStockGain', 'annualBondGain', 'annualCashGain');
-        barColors.push('var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-
-        chartData = perAccountData;
-        break;
-      }
-
-      const perAssetData = chartData.flatMap(({ age, perAssetData }) =>
-        perAssetData.filter((asset) => asset.id === customDataID).map((asset) => ({ age, ...asset }))
-      );
-      if (perAssetData.length > 0) {
-        customDataType = 'asset';
-
-        barDataKeys.push('appreciation');
-        barColors.push('var(--chart-2)');
-
-        chartData = perAssetData;
-        showReferenceLineAtZero = false;
-        break;
-      }
-
-      break;
+    }
   }
 
   const interval = useChartInterval(chartData.length);
@@ -287,8 +266,11 @@ export default function SingleSimulationReturnsLineChart({
   );
 
   const allDataKeys = [...lineDataKeys, ...barDataKeys];
+  // SAFETY: `allDataKeys` holds registry series keys, which name fields of the plotted rows
+  // (the custom branch's keys name fields of the per-account/asset rows it builds).
   const hasNoData =
-    chartData.length === 0 || chartData.every((point) => allDataKeys.every((key) => point[key as keyof typeof point] === 0));
+    chartData.length === 0 ||
+    chartData.every((point) => allDataKeys.every((key) => (point as unknown as Record<string, unknown>)[key] === 0));
   if (hasNoData) {
     return <ChartEmptyState />;
   }

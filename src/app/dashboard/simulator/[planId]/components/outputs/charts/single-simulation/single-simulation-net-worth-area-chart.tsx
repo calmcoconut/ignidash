@@ -5,6 +5,8 @@ import { ComposedChart, Tooltip, ReferenceLine } from 'recharts';
 import { ChartLineIcon } from 'lucide-react';
 
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import { resolveDataView } from '@/lib/charts/metric-registry';
+import { applySeriesSigns, resolveSeries, toAreaSeriesProps, toBarSeriesProps } from '@/lib/charts/plot-types';
 import type { SingleSimulationNetWorthChartDataPoint } from '@/lib/types/chart-data-points';
 import type { NetWorthDataView } from '@/lib/types/chart-data-views';
 import type { AccountDataWithFlows } from '@/lib/calc/account';
@@ -214,27 +216,12 @@ export default function SingleSimulationNetWorthAreaChart({
     | Array<{ age: number } & PhysicalAssetData>
     | Array<{ age: number } & DebtData> = useChartDataSlice(rawChartData, 'single');
 
-  const areaDataKeys: (
-    | keyof SingleSimulationNetWorthChartDataPoint
-    | keyof AccountDataWithFlows
-    | keyof PhysicalAssetData
-    | keyof DebtData
-  )[] = [];
+  const areaDataKeys: string[] = [];
   const areaColors: string[] = [];
 
-  const lineDataKeys: (
-    | keyof SingleSimulationNetWorthChartDataPoint
-    | keyof AccountDataWithFlows
-    | keyof PhysicalAssetData
-    | keyof DebtData
-  )[] = [];
+  const lineDataKeys: string[] = [];
 
-  const barDataKeys: (
-    | keyof SingleSimulationNetWorthChartDataPoint
-    | keyof AccountDataWithFlows
-    | keyof PhysicalAssetData
-    | keyof DebtData
-  )[] = [];
+  const barDataKeys: string[] = [];
   const barColors: string[] = [];
 
   const formatter = (value: number) => formatCompactCurrency(value, 1);
@@ -242,144 +229,96 @@ export default function SingleSimulationNetWorthAreaChart({
 
   let customDataType: 'account' | 'asset' | 'debt' | undefined = undefined;
 
-  switch (dataView) {
-    case 'assetClass':
-      areaDataKeys.push('stockHoldings', 'bondHoldings', 'cashHoldings');
-      areaColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'taxCategory':
-      areaDataKeys.push('taxableValue', 'taxDeferredValue', 'taxFreeValue', 'cashSavings');
-      areaColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'netPortfolioChange':
-      lineDataKeys.push('netPortfolioChange');
+  // Series come from the metric registry (P4-P6); keys, colours, plots, signs and stack ids are
+  // the ones this chart's deleted switch used, frozen by the registry tests. The `custom` branch
+  // below still builds per-account/per-asset/per-debt series: that escape hatch stays bespoke.
+  const resolution = resolveDataView('netWorth', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+  const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
 
-      barDataKeys.push('annualReturns', 'annualContributions', 'annualWithdrawals');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
+  if (metric) {
+    const areaProps = toAreaSeriesProps(resolvedSeries);
+    const barProps = toBarSeriesProps(resolvedSeries);
 
-      chartData = chartData.map((entry) => ({ ...entry, annualWithdrawals: -entry.annualWithdrawals }));
+    stackOffset = metric.stackOffset;
 
-      stackOffset = 'sign';
-      break;
-    case 'netWorth':
-      lineDataKeys.push('netWorth');
+    areaDataKeys.push(...areaProps.dataKeys);
+    areaColors.push(...areaProps.areaColors);
+    lineDataKeys.push(...resolvedSeries.filter((series) => series.plot === 'line').map((series) => series.key));
+    barDataKeys.push(...barProps.dataKeys);
+    barColors.push(...barProps.barColors);
 
-      barDataKeys.push('portfolioValue', 'assetValue', 'debtBalance');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
+    chartData = applySeriesSigns(chartData, resolvedSeries);
+  } else {
+    switch (dataView) {
+      case 'custom':
+        if (!customDataID) {
+          console.warn('Custom data name is required for custom data view');
+          break;
+        }
 
-      chartData = chartData.map((entry) => ({ ...entry, debtBalance: -entry.debtBalance }));
+        const perAccountData = chartData.flatMap(({ age, perAccountData }) =>
+          perAccountData
+            .filter((account) => account.id === customDataID)
+            .map((account) => {
+              const balance = account.balance;
 
-      stackOffset = 'sign';
-      break;
-    case 'netWorthChange':
-      lineDataKeys.push('netWorthChange');
+              const assetAllocation = account.assetAllocation ?? zeroAssetAmounts<AssetAllocation>();
+              const stocksAllocation = assetAllocation.stocks;
+              const bondsAllocation = assetAllocation.bonds;
+              const cashAllocation = assetAllocation.cash;
 
-      barDataKeys.push('netPortfolioChange', 'netAssetChange', 'netDebtReduction');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
+              return {
+                age,
+                ...account,
+                stockHoldings: balance * stocksAllocation,
+                bondHoldings: balance * bondsAllocation,
+                cashHoldings: balance * cashAllocation,
+              };
+            })
+        );
+        if (perAccountData.length > 0) {
+          customDataType = 'account';
 
-      stackOffset = 'sign';
-      break;
-    case 'assetEquity':
-      lineDataKeys.push('assetEquity');
+          areaDataKeys.push('stockHoldings', 'bondHoldings', 'cashHoldings');
+          areaColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
 
-      barDataKeys.push('assetValue', 'securedDebtBalance');
-      barColors.push('var(--chart-1)', 'var(--chart-2)');
+          chartData = perAccountData;
+          break;
+        }
 
-      chartData = chartData.map((entry) => ({ ...entry, securedDebtBalance: -entry.securedDebtBalance }));
+        const perAssetData = chartData.flatMap(({ age, perAssetData }) =>
+          perAssetData.filter((asset) => asset.id === customDataID).map((asset) => ({ age, ...asset, loanBalance: -asset.loanBalance }))
+        );
+        if (perAssetData.length > 0) {
+          customDataType = 'asset';
 
-      stackOffset = 'sign';
-      break;
-    case 'netAssetChange':
-      lineDataKeys.push('netAssetChange');
+          lineDataKeys.push('equity');
 
-      barDataKeys.push('annualAssetAppreciation', 'annualPurchasedAssetValue', 'annualSoldAssetValue');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
+          barDataKeys.push('marketValue', 'loanBalance');
+          barColors.push('var(--chart-1)', 'var(--chart-2)');
 
-      chartData = chartData.map((entry) => ({ ...entry, annualSoldAssetValue: -entry.annualSoldAssetValue }));
+          chartData = perAssetData;
 
-      stackOffset = 'sign';
-      break;
-    case 'debts':
-      areaDataKeys.push('unsecuredDebtBalance', 'securedDebtBalance');
-      areaColors.push('var(--chart-1)', 'var(--chart-2)');
-      break;
-    case 'netDebtReduction':
-      lineDataKeys.push('netDebtReduction');
+          stackOffset = 'sign';
+          break;
+        }
 
-      barDataKeys.push('annualDebtPaydown', 'annualDebtPayoff', 'annualDebtIncurred');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
+        const perDebtData = chartData.flatMap(({ age, perDebtData }) =>
+          perDebtData.filter((debt) => debt.id === customDataID).map((debt) => ({ age, ...debt }))
+        );
+        if (perDebtData.length > 0) {
+          customDataType = 'debt';
 
-      chartData = chartData.map((entry) => ({ ...entry, annualDebtIncurred: -entry.annualDebtIncurred }));
+          areaDataKeys.push('balance');
+          areaColors.push('var(--chart-1)');
 
-      stackOffset = 'sign';
-      break;
-    case 'custom':
-      if (!customDataID) {
-        console.warn('Custom data name is required for custom data view');
+          chartData = perDebtData;
+          break;
+        }
+
         break;
-      }
-
-      const perAccountData = chartData.flatMap(({ age, perAccountData }) =>
-        perAccountData
-          .filter((account) => account.id === customDataID)
-          .map((account) => {
-            const balance = account.balance;
-
-            const assetAllocation = account.assetAllocation ?? zeroAssetAmounts<AssetAllocation>();
-            const stocksAllocation = assetAllocation.stocks;
-            const bondsAllocation = assetAllocation.bonds;
-            const cashAllocation = assetAllocation.cash;
-
-            return {
-              age,
-              ...account,
-              stockHoldings: balance * stocksAllocation,
-              bondHoldings: balance * bondsAllocation,
-              cashHoldings: balance * cashAllocation,
-            };
-          })
-      );
-      if (perAccountData.length > 0) {
-        customDataType = 'account';
-
-        areaDataKeys.push('stockHoldings', 'bondHoldings', 'cashHoldings');
-        areaColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-
-        chartData = perAccountData;
-        break;
-      }
-
-      const perAssetData = chartData.flatMap(({ age, perAssetData }) =>
-        perAssetData.filter((asset) => asset.id === customDataID).map((asset) => ({ age, ...asset, loanBalance: -asset.loanBalance }))
-      );
-      if (perAssetData.length > 0) {
-        customDataType = 'asset';
-
-        lineDataKeys.push('equity');
-
-        barDataKeys.push('marketValue', 'loanBalance');
-        barColors.push('var(--chart-1)', 'var(--chart-2)');
-
-        chartData = perAssetData;
-
-        stackOffset = 'sign';
-        break;
-      }
-
-      const perDebtData = chartData.flatMap(({ age, perDebtData }) =>
-        perDebtData.filter((debt) => debt.id === customDataID).map((debt) => ({ age, ...debt }))
-      );
-      if (perDebtData.length > 0) {
-        customDataType = 'debt';
-
-        areaDataKeys.push('balance');
-        areaColors.push('var(--chart-1)');
-
-        chartData = perDebtData;
-        break;
-      }
-
-      break;
+    }
   }
 
   const interval = useChartInterval(chartData.length);
@@ -394,8 +333,11 @@ export default function SingleSimulationNetWorthAreaChart({
   );
 
   const allDataKeys = [...areaDataKeys, ...lineDataKeys, ...barDataKeys];
+  // SAFETY: `allDataKeys` holds registry series keys, which name fields of the plotted rows
+  // (the custom branch's keys name fields of the per-account/asset/debt rows it builds).
   const hasNoData =
-    chartData.length === 0 || chartData.every((point) => allDataKeys.every((key) => point[key as keyof typeof point] === 0));
+    chartData.length === 0 ||
+    chartData.every((point) => allDataKeys.every((key) => (point as unknown as Record<string, unknown>)[key] === 0));
   if (hasNoData) {
     return <ChartEmptyState />;
   }

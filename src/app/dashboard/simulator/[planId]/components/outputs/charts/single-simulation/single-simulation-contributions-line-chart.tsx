@@ -13,6 +13,8 @@ import type { SingleSimulationContributionsChartDataPoint } from '@/lib/types/ch
 import type { ContributionsDataView } from '@/lib/types/chart-data-views';
 import type { AccountDataWithFlows } from '@/lib/calc/account';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
+import { resolveDataView } from '@/lib/charts/metric-registry';
+import { applySeriesSigns, resolveSeries, toBarSeriesProps } from '@/lib/charts/plot-types';
 
 import {
   ChartEmptyState,
@@ -138,65 +140,57 @@ export default function SingleSimulationContributionsLineChart({
         } & AccountDataWithFlows
       > = useChartDataSlice(rawChartData, 'single');
 
-  const lineDataKeys: (keyof SingleSimulationContributionsChartDataPoint)[] = [];
+  const lineDataKeys: string[] = [];
   const strokeColors: string[] = [];
 
-  const barDataKeys: (keyof SingleSimulationContributionsChartDataPoint)[] = [];
+  const barDataKeys: string[] = [];
   const barColors: string[] = [];
 
   const formatter = (value: number) => formatCompactCurrency(value, 1);
   let stackId: string | undefined = undefined;
 
-  switch (dataView) {
-    case 'annualAmounts':
-      stackId = 'barStack';
+  // Series come from the metric registry (P4-P6); keys, colours, plots and stack ids are the
+  // ones this chart's deleted switch used, frozen by the registry tests. `custom` keeps its own
+  // per-account series in the switch's remaining case below.
+  const resolution = resolveDataView('contributions', dataView);
+  const metric = resolution.status === 'registry' ? resolution.metric : undefined;
+  const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
 
-      barDataKeys.push('annualStockContributions', 'annualBondContributions', 'annualCashContributions');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'cumulativeAmounts':
-      stackId = 'barStack';
+  if (metric) {
+    const barProps = toBarSeriesProps(resolvedSeries);
 
-      barDataKeys.push('cumulativeStockContributions', 'cumulativeBondContributions', 'cumulativeCashContributions');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
-    case 'taxCategory':
-      stackId = 'barStack';
+    stackId = barProps.stackId;
 
-      barDataKeys.push('taxableContributions', 'taxDeferredContributions', 'taxFreeContributions', 'cashSavingsContributions');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)');
-      break;
-    case 'employerMatch':
-      barDataKeys.push('annualEmployerMatch', 'cumulativeEmployerMatch');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'shortfall':
-      barDataKeys.push('annualShortfallRepaid', 'outstandingShortfall');
-      barColors.push('var(--chart-2)', 'var(--chart-4)');
-      break;
-    case 'custom':
-      if (!customDataID) {
-        console.warn('Custom data name is required for custom data view');
+    barDataKeys.push(...barProps.dataKeys);
+    barColors.push(...barProps.barColors);
+
+    chartData = applySeriesSigns(chartData, resolvedSeries);
+  } else {
+    switch (dataView) {
+      case 'custom':
+        if (!customDataID) {
+          console.warn('Custom data name is required for custom data view');
+          break;
+        }
+
+        stackId = 'barStack';
+
+        chartData = chartData.flatMap(({ age, perAccountData }) =>
+          perAccountData
+            .filter((account) => account.id === customDataID)
+            .map((account) => ({
+              age,
+              ...account,
+              annualStockContributions: account.contributions.stocks,
+              annualBondContributions: account.contributions.bonds,
+              annualCashContributions: account.contributions.cash,
+            }))
+        );
+
+        barDataKeys.push('annualStockContributions', 'annualBondContributions', 'annualCashContributions');
+        barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
         break;
-      }
-
-      stackId = 'barStack';
-
-      chartData = chartData.flatMap(({ age, perAccountData }) =>
-        perAccountData
-          .filter((account) => account.id === customDataID)
-          .map((account) => ({
-            age,
-            ...account,
-            annualStockContributions: account.contributions.stocks,
-            annualBondContributions: account.contributions.bonds,
-            annualCashContributions: account.contributions.cash,
-          }))
-      );
-
-      barDataKeys.push('annualStockContributions', 'annualBondContributions', 'annualCashContributions');
-      barColors.push('var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)');
-      break;
+    }
   }
 
   const interval = useChartInterval(chartData.length);
@@ -211,8 +205,11 @@ export default function SingleSimulationContributionsLineChart({
   );
 
   const allDataKeys = [...lineDataKeys, ...barDataKeys];
+  // SAFETY: `allDataKeys` holds registry series keys, which name fields of the plotted rows
+  // (the custom branch's keys name fields of the per-account rows it builds).
   const hasNoData =
-    chartData.length === 0 || chartData.every((point) => allDataKeys.every((key) => point[key as keyof typeof point] === 0));
+    chartData.length === 0 ||
+    chartData.every((point) => allDataKeys.every((key) => (point as unknown as Record<string, unknown>)[key] === 0));
   if (hasNoData) {
     return <ChartEmptyState />;
   }
