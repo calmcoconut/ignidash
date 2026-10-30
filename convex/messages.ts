@@ -7,7 +7,7 @@ import { internal } from './_generated/api';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
 import { getConversationForCurrentUserOrThrow } from './utils/conversation_utils';
 import { getUserIdOrThrow } from './utils/auth_utils';
-import { getCanUseAIFeatures } from './utils/ai_utils';
+import { getCanUseAIFeatures, isToolCallingEnabled } from './utils/ai_utils';
 import { getSystemPrompt } from './utils/sys_prompt_utils';
 import { keyMetricsValidator } from './validators/key_metrics_validator';
 import { simulationResultValidator } from './validators/simulation_result_validator';
@@ -21,6 +21,16 @@ export const canUseChat = query({
   handler: async (ctx): Promise<boolean> => {
     const { canUseAIFeatures } = await getCanUseAIFeatures(ctx);
     return canUseAIFeatures;
+  },
+});
+
+/** F4: the skill's entry point is only shown when the deployment's model supports tool calling. */
+export const canUseTools = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx): Promise<boolean> => {
+    const { canUseAIFeatures } = await getCanUseAIFeatures(ctx);
+    return canUseAIFeatures && isToolCallingEnabled();
   },
 });
 
@@ -103,6 +113,9 @@ export const send = mutation({
       messages,
       assistantMessageId,
       systemPrompt,
+      plan,
+      // One date for the whole turn: the tool loop must not read the clock itself (§7-A1).
+      asOf: new Date().toISOString().slice(0, 10),
     });
 
     return { messages, userMessageId, assistantMessageId, conversationId };

@@ -2,11 +2,14 @@
 
 import { ConvexError } from 'convex/values';
 import { AzureOpenAI, OpenAI } from 'openai';
+import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions';
 import { internalAction } from './_generated/server';
 import type { Id, Doc } from './_generated/dataModel';
 import { internal } from './_generated/api';
 
-import { isAIConfigured } from './utils/ai_utils';
+import { CHAT_TOOL_DEFINITIONS, MAX_TOOL_CALLS_PER_TURN, createChatToolkit } from './chat_tools';
+import { isAIConfigured, isToolCallingEnabled } from './utils/ai_utils';
+import { simulatorFromConvex } from '../src/lib/utils/data-transformers';
 
 const apiKey = process.env.OPENAI_API_KEY;
 const baseUrl = process.env.OPENAI_BASE_URL;
@@ -38,10 +41,50 @@ type StreamChatParams = {
   messages: Doc<'messages'>[];
   assistantMessageId: Id<'messages'>;
   systemPrompt: string;
+  /** The plan the conversation belongs to; its inputs are what the tools simulate. */
+  plan: Doc<'plans'>;
+  /** The turn's clock, resolved once in `messages.send` so no tool reads it. */
+  asOf: string;
 };
 
+/** Token usage summed across the tool rounds of one turn. */
+type UsageTotals = { inputTokens: number; cachedInputTokens: number; outputTokens: number; totalTokens: number };
+
+const emptyUsage = (): UsageTotals => ({ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, totalTokens: 0 });
+
+type PendingToolCall = { id: string; name: string; arguments: string };
+
+/** Shape the tools accept: named arguments, parsed at the boundary. */
+type ToolArguments = Record<string, unknown>;
+
+/** Tool arguments arrive as a JSON string; a malformed one becomes "no arguments", not a throw. */
+function parseToolArguments(raw: string): ToolArguments {
+  if (raw.trim() === '') return {};
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as ToolArguments) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Builds the turn's toolset from the plan's own inputs. If anything about that fails — a plan
+ * mid-migration, an unexpected shape — the turn falls back to plain chat: a broken tool graph must
+ * never break the conversation.
+ */
+function createTurnToolkit(plan: Doc<'plans'>, asOf: string) {
+  try {
+    return createChatToolkit({ inputs: simulatorFromConvex(plan), asOf });
+  } catch (error) {
+    console.error('Chat tools are unavailable for this turn; continuing with plain chat.', error);
+    return null;
+  }
+}
+
 export const streamChat = internalAction({
-  handler: async (ctx, { userId, messages, assistantMessageId, systemPrompt }: StreamChatParams) => {
+  handler: async (ctx, { userId: _userId, messages, assistantMessageId, systemPrompt, plan, asOf }: StreamChatParams) => {
     if (!openaiChat) {
       const errorMessage = NOT_CONFIGURED_MESSAGE;
       console.error(errorMessage);
@@ -52,47 +95,93 @@ export const streamChat = internalAction({
 
     const hasBody = (msg: Doc<'messages'>): msg is Doc<'messages'> & { body: string } => msg.body !== undefined;
 
-    try {
-      const stream = await openaiChat.chat.completions.create({
-        model: CHAT_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...messages.filter(hasBody).map((msg) => ({ role: msg.author, content: msg.body })),
-        ],
-        stream: true,
-        stream_options: { include_usage: true },
-        max_completion_tokens: 1024,
-      });
+    // F4: with tools disabled the request below is exactly the pre-skill one — no `tools`
+    // parameter, no tool loop, same streaming.
+    const toolkit = isToolCallingEnabled() ? createTurnToolkit(plan, asOf) : null;
 
+    const conversation: ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...messages.filter(hasBody).map((msg): ChatCompletionMessageParam => ({ role: msg.author, content: msg.body })),
+    ];
+
+    try {
       let body = '';
       let lastWriteTime = Date.now();
+      const usage = emptyUsage();
 
-      for await (const part of stream) {
-        if (part.choices.length > 0) {
-          const choice = part.choices[0];
+      for (let round = 0; round <= MAX_TOOL_CALLS_PER_TURN; round++) {
+        const callsSoFar = toolkit?.callCount() ?? 0;
+        const budgetExhausted = toolkit !== null && callsSoFar >= MAX_TOOL_CALLS_PER_TURN;
 
-          if (choice.finish_reason === 'content_filter') {
-            body += '\n\n**[Response was cut short by content filter]**';
+        const stream = await openaiChat.chat.completions.create({
+          model: CHAT_MODEL,
+          messages: conversation,
+          stream: true,
+          stream_options: { include_usage: true },
+          max_completion_tokens: 1024,
+          ...(toolkit
+            ? { tools: CHAT_TOOL_DEFINITIONS as ChatCompletionTool[], tool_choice: budgetExhausted ? ('none' as const) : ('auto' as const) }
+            : {}),
+        });
+
+        let roundContent = '';
+        const pendingCalls: PendingToolCall[] = [];
+
+        for await (const part of stream) {
+          if (part.choices.length > 0) {
+            const choice = part.choices[0];
+            const delta = choice.delta;
+
+            if (choice.finish_reason === 'content_filter') {
+              body += '\n\n**[Response was cut short by content filter]**';
+            }
+
+            if (delta?.content) {
+              roundContent += delta.content;
+              body += delta.content;
+
+              const now = Date.now();
+              if (now - lastWriteTime > 1000) {
+                await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body });
+                lastWriteTime = now;
+              }
+            }
+
+            for (const toolCall of delta?.tool_calls ?? []) {
+              const index = toolCall.index ?? 0;
+              const slot = (pendingCalls[index] ??= { id: '', name: '', arguments: '' });
+              if (toolCall.id) slot.id = toolCall.id;
+              if (toolCall.function?.name) slot.name += toolCall.function.name;
+              if (toolCall.function?.arguments) slot.arguments += toolCall.function.arguments;
+            }
           }
 
-          if (choice.delta.content) {
-            body += choice.delta.content;
-            const now = Date.now();
-            if (now - lastWriteTime > 1000) {
-              await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body });
-              lastWriteTime = now;
-            }
+          if (part.usage) {
+            usage.inputTokens += part.usage.prompt_tokens;
+            usage.cachedInputTokens += part.usage.prompt_tokens_details?.cached_tokens ?? 0;
+            usage.outputTokens += part.usage.completion_tokens;
+            usage.totalTokens += part.usage.total_tokens;
           }
         }
 
-        if (part.usage) {
-          await ctx.runMutation(internal.messages.setUsage, {
-            messageId: assistantMessageId,
-            inputTokens: part.usage.prompt_tokens,
-            cachedInputTokens: part.usage.prompt_tokens_details?.cached_tokens ?? 0,
-            outputTokens: part.usage.completion_tokens,
-            totalTokens: part.usage.total_tokens,
-          });
+        await ctx.runMutation(internal.messages.setUsage, { messageId: assistantMessageId, ...usage });
+
+        // No tools offered, or the model answered: this round is the final answer.
+        if (!toolkit || pendingCalls.length === 0) break;
+
+        conversation.push({
+          role: 'assistant',
+          content: roundContent === '' ? null : roundContent,
+          tool_calls: pendingCalls.map((call) => ({
+            id: call.id,
+            type: 'function' as const,
+            function: { name: call.name, arguments: call.arguments },
+          })),
+        });
+
+        for (const call of toolkit.callCount() >= MAX_TOOL_CALLS_PER_TURN ? [] : pendingCalls) {
+          const result = toolkit.execute(call.name, parseToolArguments(call.arguments));
+          conversation.push({ role: 'tool', tool_call_id: call.id, content: result });
         }
       }
 
