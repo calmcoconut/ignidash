@@ -21,6 +21,7 @@ import { sumFlows, sumReturnAmounts, zeroAssetAmounts, type AssetReturnAmounts }
 import type { SimulationResult, MultiSimulationResult } from '../simulation-engine';
 import { SimulationDataExtractor } from './simulation-data-extractor';
 import { getHistoricalYear } from './get-historical-year';
+import { simulationYearCount } from './multi-simulation-shape';
 import { evaluateSuccess } from '../success';
 
 /** Transforms simulation results into table row arrays for data tables */
@@ -730,22 +731,22 @@ export abstract class TableDataExtractor {
   static extractMultiSimulationYearlyAggregateData(simulations: MultiSimulationResult): YearlyAggregateTableRow[] {
     const res: YearlyAggregateTableRow[] = [];
 
-    const simulationLength = simulations.simulations[0][1].data.length;
+    // Runs and years are separate dimensions: iterate years, read every run by year index.
+    const yearCount = simulationYearCount(simulations);
 
-    for (let i = 0; i < simulationLength; i++) {
-      if (simulations.simulations[i][1].data.length !== simulationLength) {
-        throw new Error('All simulations must have the same length for yearly aggregate data extraction.');
-      }
+    for (let yearIndex = 0; yearIndex < yearCount; yearIndex++) {
+      const age = Math.floor(simulations.simulations[0][1].data[yearIndex].age);
 
-      const age = Math.floor(simulations.simulations[0][1].data[i].age);
-
-      const totalPortfolioValues = simulations.simulations.map(([, sim]) => sim.data[i].portfolio.totalValue);
+      const totalPortfolioValues = simulations.simulations.map(([, sim]) => sim.data[yearIndex].portfolio.totalValue);
       const percentiles: Percentiles<number> = StatsUtils.calculatePercentilesFromValues(totalPortfolioValues.sort((a, b) => a - b));
 
-      const { percentAccumulation, percentRetirement, percentBankrupt } = SimulationDataExtractor.getPercentInPhaseForYear(simulations, i);
+      const { percentAccumulation, percentRetirement, percentBankrupt } = SimulationDataExtractor.getPercentInPhaseForYear(
+        simulations,
+        yearIndex
+      );
 
       res.push({
-        year: i,
+        year: yearIndex,
         age,
         percentAccumulation,
         percentRetirement,

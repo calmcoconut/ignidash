@@ -20,6 +20,7 @@ import { LcgHistoricalBacktestReturnsProvider } from '@/lib/calc/returns-provide
 import { KeyMetricsExtractor } from '@/lib/calc/data-extractors/key-metrics-extractor';
 import { ChartDataExtractor } from '@/lib/calc/data-extractors/chart-data-extractor';
 import { TableDataExtractor } from '@/lib/calc/data-extractors/table-data-extractor';
+import type { MonteCarloHistogram } from '@/lib/calc/monte-carlo';
 import { createWorkerPool, releaseWorkerPool } from '@/lib/workers/simulation-worker-api';
 import { getMergeWorker } from '@/lib/workers/merge-worker-api';
 import type {
@@ -454,6 +455,9 @@ export const useMultiSimulationResult = (
   yearlyTableData: YearlyAggregateTableRow[] | undefined;
   chartData: MultiSimulationChartData | undefined;
   keyMetrics: KeyMetrics | undefined;
+  /** Final-value histogram from the Monte Carlo summary (display only; nothing is recomputed). */
+  histogram: MonteCarloHistogram | undefined;
+  trials: number | undefined;
   isLoadingOrValidating: boolean;
   completedSimulations: number;
 } => {
@@ -524,7 +528,7 @@ export const useMultiSimulationResult = (
   const prevHandle = usePrevious(handle);
 
   const sortMode = useMonteCarloSortMode();
-  const { data: { analysis, tableData, yearlyTableData, chartData, keyMetrics } = {} } = useSWR(
+  const { data: { analysis, tableData, yearlyTableData, chartData, keyMetrics, histogram, trials } = {} } = useSWR(
     handle ? ['derived', handle, sortMode] : null,
     () => mergeWorker.getDerivedMultiSimulationData(handle!, sortMode),
     { ...swrOptions, keepPreviousData: prevHandle.current === handle }
@@ -548,6 +552,8 @@ export const useMultiSimulationResult = (
     yearlyTableData,
     chartData,
     keyMetrics,
+    histogram,
+    trials,
     isLoadingOrValidating: isLoading || isValidating,
     completedSimulations,
   };

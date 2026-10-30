@@ -17,6 +17,7 @@ import type { MultiSimulationTableRow, YearlyAggregateTableRow } from '@/lib/sch
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
 import { currentLocalISODate } from '@/lib/utils/system-clock';
 import type { MultiSimulationChartData } from '@/lib/types/chart-data-points';
+import type { MonteCarloHistogram } from '@/lib/calc/monte-carlo';
 import { useResultsState } from '@/hooks/use-results-state';
 import { useActiveSeed, useRemoveActiveSeed } from '@/hooks/use-active-seed';
 import ProgressBar from '@/components/ui/progress-bar';
@@ -29,6 +30,8 @@ interface MultiSimulationResultsSharedProps {
   tableData: MultiSimulationTableRow[];
   yearlyTableData: YearlyAggregateTableRow[];
   chartData: MultiSimulationChartData;
+  histogram: MonteCarloHistogram;
+  trials: number;
   handlePercentileChange: (percentile: 'p10' | 'p25' | 'p50' | 'p75' | 'p90' | null) => void;
   onAgeSelect: (age: number) => void;
   selectedAge: number;
@@ -89,7 +92,7 @@ export default function MultiSimulationResults({ inputs, simulationMode }: Multi
   const startAge = calculateAge(birthMonth, birthYear, currentLocalISODate());
   const { selectedAge, onAgeSelect } = useResultsState(startAge);
 
-  const { analysis, tableData, yearlyTableData, chartData, keyMetrics, isLoadingOrValidating, completedSimulations } =
+  const { analysis, tableData, yearlyTableData, chartData, keyMetrics, histogram, trials, isLoadingOrValidating, completedSimulations } =
     useMultiSimulationResult(inputs, simulationMode);
 
   const updateQuickSelectPercentile = useUpdateQuickSelectPercentile();
@@ -116,7 +119,16 @@ export default function MultiSimulationResults({ inputs, simulationMode }: Multi
   const seed = inputs.simulationSettings.simulationSeed;
   useEffect(() => removeActiveSeed(), [seed, simulationMode, removeActiveSeed]);
 
-  if (!analysis || !keyMetrics || !tableData || !yearlyTableData || !chartData || isLoadingOrValidating) {
+  if (
+    !analysis ||
+    !keyMetrics ||
+    !tableData ||
+    !yearlyTableData ||
+    !chartData ||
+    !histogram ||
+    trials === undefined ||
+    isLoadingOrValidating
+  ) {
     const progressPercent = (completedSimulations / 500) * 100;
 
     return (
@@ -137,6 +149,8 @@ export default function MultiSimulationResults({ inputs, simulationMode }: Multi
     tableData,
     yearlyTableData,
     chartData,
+    histogram,
+    trials,
     handlePercentileChange,
     onAgeSelect,
     selectedAge,

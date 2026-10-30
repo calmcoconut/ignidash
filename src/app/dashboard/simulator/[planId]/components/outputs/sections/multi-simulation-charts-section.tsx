@@ -6,23 +6,27 @@ import { useMultiSimulationCategory } from '@/lib/stores/simulator-store';
 import SectionContainer from '@/components/ui/section-container';
 import { MultiSimulationCategory } from '@/lib/types/simulation-category';
 import type { MultiSimulationChartData } from '@/lib/types/chart-data-points';
+import type { MonteCarloHistogram } from '@/lib/calc/monte-carlo';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 
 import MultiSimulationPortfolioAreaChartCard from '../cards/multi-simulation/multi-simulation-portfolio-area-chart-card';
 import MultiSimulationPortfolioBarChartCard from '../cards/multi-simulation/multi-simulation-portfolio-bar-chart-card';
 import MultiSimulationPhasesAreaChartCard from '../cards/multi-simulation/multi-simulation-phases-area-chart-card';
 import MultiSimulationPhasesBarChartCard from '../cards/multi-simulation/multi-simulation-phases-bar-chart-card';
+import MultiSimulationHistogramChartCard from '../cards/multi-simulation/multi-simulation-histogram-chart-card';
 import MultiSimulationDataListSection from './multi-simulation-data-list-section';
 
 interface ChartsCategoryProps {
   startAge: number;
   chartData: MultiSimulationChartData;
   keyMetrics: KeyMetrics;
+  histogram: MonteCarloHistogram;
+  trials: number;
   onAgeSelect: (age: number) => void;
   selectedAge: number;
 }
 
-function PortfolioCharts({ chartData, onAgeSelect, keyMetrics, selectedAge, startAge }: ChartsCategoryProps) {
+function PortfolioCharts({ chartData, histogram, trials, onAgeSelect, keyMetrics, selectedAge, startAge }: ChartsCategoryProps) {
   return (
     <>
       <MultiSimulationPortfolioAreaChartCard
@@ -33,6 +37,9 @@ function PortfolioCharts({ chartData, onAgeSelect, keyMetrics, selectedAge, star
         startAge={startAge}
       />
       <MultiSimulationPortfolioBarChartCard selectedAge={selectedAge} rawChartData={chartData.portfolioData} />
+      <div className="@[120rem]:col-span-2">
+        <MultiSimulationHistogramChartCard histogram={histogram} trials={trials} />
+      </div>
     </>
   );
 }
@@ -56,14 +63,24 @@ interface MultiSimulationChartsSectionProps {
   startAge: number;
   chartData: MultiSimulationChartData;
   keyMetrics: KeyMetrics;
+  histogram: MonteCarloHistogram;
+  trials: number;
   onAgeSelect: (age: number) => void;
   selectedAge: number;
 }
 
-function MultiSimulationChartsSection({ startAge, chartData, keyMetrics, onAgeSelect, selectedAge }: MultiSimulationChartsSectionProps) {
+function MultiSimulationChartsSection({
+  startAge,
+  chartData,
+  histogram,
+  trials,
+  keyMetrics,
+  onAgeSelect,
+  selectedAge,
+}: MultiSimulationChartsSectionProps) {
   const resultsCategory = useMultiSimulationCategory();
 
-  const props: ChartsCategoryProps = { chartData, keyMetrics, onAgeSelect, selectedAge, startAge };
+  const props: ChartsCategoryProps = { chartData, histogram, trials, keyMetrics, onAgeSelect, selectedAge, startAge };
 
   let chartsComponents = null;
   switch (resultsCategory) {

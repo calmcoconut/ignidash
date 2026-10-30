@@ -38,8 +38,8 @@ const createSimulation = (seed: number, value: number, years: number): [number, 
 };
 
 describe('TableDataExtractor yearly aggregate percentiles', () => {
-  // Ten runs over four yearly rows. Keep runs >= rows: the extractor walks the simulation array by
-  // yearly row index (a known quirk), so a fixture with fewer runs than rows throws.
+  // Ten runs over four yearly rows. Runs and rows are independent now: a fixture with fewer runs
+  // than rows is covered by `multi-simulation-shape.test.ts` (3 runs over 20 years).
   const multi: MultiSimulationResult = {
     simulations: Array.from({ length: 10 }, (_, index) => createSimulation(index + 1, (index + 1) * 1000, 4)),
   };

@@ -16,11 +16,11 @@ import type { MultiSimulationChartData } from '@/lib/types/chart-data-points';
 import { ChartDataExtractor } from '@/lib/calc/data-extractors/chart-data-extractor';
 import { TableDataExtractor } from '@/lib/calc/data-extractors/table-data-extractor';
 import { KeyMetricsExtractor } from '@/lib/calc/data-extractors/key-metrics-extractor';
-import type { MultiSimulationResult } from '@/lib/calc/simulation-engine';
-import { mergeMonteCarloSummaries, type MonteCarloRunResult } from '@/lib/calc/monte-carlo';
+import { mergeMonteCarloSummaries, type MonteCarloHistogram, type MonteCarloRunResult } from '@/lib/calc/monte-carlo';
 import type { KeyMetrics } from '@/lib/types/key-metrics';
 
-type CacheEntry = { handle: string; res: MultiSimulationResult };
+/** The cache keeps the merged run, which is a `MonteCarloRunResult`: full runs plus the summary. */
+type CacheEntry = { handle: string; res: MonteCarloRunResult };
 let cache: CacheEntry | null = null;
 
 /** Chunk results carry the bounded summary alongside whatever full runs retention kept. */
@@ -32,6 +32,13 @@ type DerivedMultiSimulationData = {
   yearlyTableData: YearlyAggregateTableRow[];
   chartData: MultiSimulationChartData;
   keyMetrics: KeyMetrics;
+  /**
+   * Final-value histogram taken straight from the merged summary. It is already binned there, so
+   * the UI needs neither the retained per-trial results nor a second pass over them.
+   */
+  histogram: MonteCarloHistogram;
+  /** Trials in the run, so the chart can caption itself without recounting anything. */
+  trials: number;
 };
 
 const mergeAPI = {
@@ -74,7 +81,15 @@ const mergeAPI = {
     const portfolioData = ChartDataExtractor.extractMultiSimulationPortfolioData(res);
     const phasesData = ChartDataExtractor.extractMultiSimulationPhasesData(res);
 
-    return { analysis, tableData, yearlyTableData, chartData: { portfolioData, phasesData }, keyMetrics };
+    return {
+      analysis,
+      tableData,
+      yearlyTableData,
+      chartData: { portfolioData, phasesData },
+      keyMetrics,
+      histogram: res.summary.histogram,
+      trials: res.summary.trials,
+    };
   },
 
   async reset(): Promise<void> {

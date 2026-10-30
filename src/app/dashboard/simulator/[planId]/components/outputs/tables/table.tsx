@@ -8,15 +8,9 @@ import type { TableColumn } from '@/lib/types/table-column';
 import Pagination from '@/components/ui/pagination';
 import Card from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { buildCopyText, buildCsvText, nextSortState, paginateRows, sortRows, type SortState } from '@/lib/utils/table-logic';
 import { useScrollPreservation } from '@/hooks/use-scroll-preserving-state';
 import { Button } from '@/components/catalyst/button';
-
-type SortDirection = 'asc' | 'desc' | null;
-
-interface SortState<T> {
-  column: keyof T | null;
-  direction: SortDirection;
-}
 
 interface TableProps<T extends Record<string, unknown>> {
   className?: string;
@@ -40,65 +34,22 @@ export default function Table<T extends Record<string, unknown>>({
   exportFilename,
 }: TableProps<T>) {
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortState, setSortState] = useState<SortState<T>>({
-    column: null,
-    direction: null,
-  });
+  const [sortState, setSortState] = useState<SortState<T>>({ column: null, direction: null });
   const [hoveredColumn, setHoveredColumn] = useState<keyof T | null>(null);
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
 
   const withScrollPreservation = useScrollPreservation();
   const handleSort = withScrollPreservation((column: keyof T) => {
-    setSortState((prev) => {
-      if (prev.column === column) {
-        if (prev.direction === 'asc') return { column, direction: 'desc' };
-        if (prev.direction === 'desc') return { column: null, direction: null };
-      }
-      return { column, direction: 'asc' };
-    });
+    setSortState((prev) => nextSortState(prev, column));
     setCurrentPage(1);
   });
 
-  const sortedData = useMemo(() => {
-    if (!sortState.column || !sortState.direction) return data;
+  const sortedData = useMemo(() => sortRows(data, sortState), [data, sortState]);
 
-    return [...data].sort((a, b) => {
-      const aVal = a[sortState.column!];
-      const bVal = b[sortState.column!];
-
-      const aIsNull = aVal == null;
-      const bIsNull = bVal == null;
-
-      if (aIsNull && bIsNull) return 0;
-      if (aIsNull) return 1;
-      if (bIsNull) return -1;
-
-      if (aVal === bVal) return 0;
-
-      let comparison = 0;
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        comparison = aVal - bVal;
-      } else {
-        comparison = String(aVal).localeCompare(String(bVal));
-      }
-
-      return sortState.direction === 'asc' ? comparison : -comparison;
-    });
-  }, [data, sortState]);
-
-  const { paginatedData, totalPages, emptyRows } = useMemo(() => {
-    if (!showPagination) {
-      return { paginatedData: sortedData, totalPages: 1, emptyRows: 0 };
-    }
-
-    const total = Math.ceil(sortedData.length / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const paginated = sortedData.slice(startIndex, endIndex);
-    const emptyRowCount = itemsPerPage - paginated.length;
-
-    return { paginatedData: paginated, totalPages: total, emptyRows: emptyRowCount };
-  }, [sortedData, currentPage, itemsPerPage, showPagination]);
+  const { paginatedData, totalPages, emptyRows } = useMemo(
+    () => paginateRows(sortedData, currentPage, itemsPerPage, showPagination),
+    [sortedData, currentPage, itemsPerPage, showPagination]
+  );
 
   const handlePageChange = withScrollPreservation((page: number) => setCurrentPage(page));
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -106,45 +57,14 @@ export default function Table<T extends Record<string, unknown>>({
 
   const [copied, setCopied] = useState(false);
 
-  const escapeCSVValue = (value: string): string => {
-    if (value.includes(',') || value.includes('"') || value.includes('\n')) return `"${value.replace(/"/g, '""')}"`;
-    return value;
-  };
-
   const handleCopy = async () => {
-    const headers = columns.map((col) => col.title).join('\t');
-    const rows = sortedData
-      .map((row) =>
-        columns
-          .map((col) => {
-            const rawValue = row[col.key];
-            return col.format(rawValue);
-          })
-          .join('\t')
-      )
-      .join('\n');
-
-    await navigator.clipboard.writeText(`${headers}\n${rows}`);
+    await navigator.clipboard.writeText(buildCopyText(columns, sortedData));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleExport = async () => {
-    const BOM = '\uFEFF';
-    const headers = columns.map((col) => escapeCSVValue(col.title)).join(',');
-    const rows = sortedData
-      .map((row) =>
-        columns
-          .map((col) => {
-            const rawValue = row[col.key];
-            const formatted = col.format(rawValue);
-            return escapeCSVValue(formatted);
-          })
-          .join(',')
-      )
-      .join('\n');
-
-    const csvContent = `${BOM}${headers}\n${rows}`;
+    const csvContent = buildCsvText(columns, sortedData);
 
     if ('showSaveFilePicker' in window) {
       try {

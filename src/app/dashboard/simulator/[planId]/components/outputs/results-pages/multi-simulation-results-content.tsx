@@ -6,6 +6,7 @@ import type { MultiSimulationTableRow, YearlyAggregateTableRow } from '@/lib/sch
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 import { SingleSimulationCategory, MultiSimulationCategory } from '@/lib/types/simulation-category';
 import { MultiSimulationChartData } from '@/lib/types/chart-data-points';
+import type { MonteCarloHistogram } from '@/lib/calc/monte-carlo';
 
 import SimulationCategorySelector from '../simulation-category-selector';
 import SingleSimulationChartsSection from '../sections/single-simulation-charts-section';
@@ -19,6 +20,8 @@ interface MultiSimulationResultsContentProps {
   tableData: MultiSimulationTableRow[];
   yearlyTableData: YearlyAggregateTableRow[];
   chartData: MultiSimulationChartData;
+  histogram: MonteCarloHistogram;
+  trials: number;
   handlePercentileChange: (percentile: 'p10' | 'p25' | 'p50' | 'p75' | 'p90' | null) => void;
   removeActiveSeed: () => void;
   activeSeed?: number | undefined;
@@ -35,6 +38,8 @@ export default function MultiSimulationResultsContent({
   tableData,
   yearlyTableData,
   chartData,
+  histogram,
+  trials,
   handlePercentileChange,
   removeActiveSeed,
   activeSeed,
@@ -73,6 +78,8 @@ export default function MultiSimulationResultsContent({
         <MultiSimulationChartsSection
           startAge={startAge}
           chartData={chartData}
+          histogram={histogram}
+          trials={trials}
           keyMetrics={keyMetrics}
           onAgeSelect={onAgeSelect}
           selectedAge={selectedAge}

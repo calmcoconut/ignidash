@@ -21,6 +21,7 @@ import { sumFlows, sumReturnAmounts, zeroAssetAmounts, type AssetReturnAmounts }
 
 import type { SimulationResult, MultiSimulationResult } from '../simulation-engine';
 import { SimulationDataExtractor } from './simulation-data-extractor';
+import { simulationYearCount } from './multi-simulation-shape';
 
 /** Transforms simulation results into chart-ready data point arrays */
 export abstract class ChartDataExtractor {
@@ -435,16 +436,13 @@ export abstract class ChartDataExtractor {
   static extractMultiSimulationPortfolioData(simulations: MultiSimulationResult): MultiSimulationPortfolioChartDataPoint[] {
     const res: MultiSimulationPortfolioChartDataPoint[] = [];
 
-    const simulationLength = simulations.simulations[0][1].data.length;
+    // Runs and years are separate dimensions: iterate years, read every run by year index.
+    const yearCount = simulationYearCount(simulations);
 
-    for (let i = 0; i < simulationLength; i++) {
-      if (simulations.simulations[i][1].data.length !== simulationLength) {
-        throw new Error('All simulations must have the same length for yearly aggregate data extraction.');
-      }
+    for (let yearIndex = 0; yearIndex < yearCount; yearIndex++) {
+      const age = Math.floor(simulations.simulations[0][1].data[yearIndex].age);
 
-      const age = Math.floor(simulations.simulations[0][1].data[i].age);
-
-      const totalPortfolioValues = simulations.simulations.map(([, sim]) => sim.data[i].portfolio.totalValue);
+      const totalPortfolioValues = simulations.simulations.map(([, sim]) => sim.data[yearIndex].portfolio.totalValue);
       const sortedValues = totalPortfolioValues.sort((a, b) => a - b);
       const percentiles: Percentiles<number> = StatsUtils.calculatePercentilesFromValues(sortedValues);
 
@@ -473,7 +471,9 @@ export abstract class ChartDataExtractor {
   static extractMultiSimulationPhasesData(simulations: MultiSimulationResult): MultiSimulationPhasesChartDataPoint[] {
     const res: MultiSimulationPhasesChartDataPoint[] = [];
 
-    const simulationLength = simulations.simulations[0][1].data.length;
+    // Validate the shape before reading run 0: an empty set has no rows to aggregate.
+    const yearCount = simulationYearCount(simulations);
+    if (yearCount === 0) return res;
 
     const startAge = simulations.simulations[0][1].context.startAge;
 
@@ -515,15 +515,11 @@ export abstract class ChartDataExtractor {
     const minBankruptcyAge = StatsUtils.minFromSorted(sortedBankruptcyAge);
     const maxBankruptcyAge = StatsUtils.maxFromSorted(sortedBankruptcyAge);
 
-    for (let i = 0; i < simulationLength; i++) {
-      if (simulations.simulations[i][1].data.length !== simulationLength) {
-        throw new Error('All simulations must have the same length for yearly aggregate data extraction.');
-      }
-
-      const age = Math.floor(simulations.simulations[0][1].data[i].age);
+    for (let yearIndex = 0; yearIndex < yearCount; yearIndex++) {
+      const age = Math.floor(simulations.simulations[0][1].data[yearIndex].age);
 
       const { percentAccumulation, numberAccumulation, percentRetirement, numberRetirement, percentBankrupt, numberBankrupt } =
-        SimulationDataExtractor.getPercentInPhaseForYear(simulations, i);
+        SimulationDataExtractor.getPercentInPhaseForYear(simulations, yearIndex);
 
       res.push({
         age,
