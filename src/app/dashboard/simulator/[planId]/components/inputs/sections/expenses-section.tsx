@@ -6,7 +6,7 @@ import { useState, RefObject, useCallback } from 'react';
 import { BanknoteArrowDownIcon, CreditCardIcon } from 'lucide-react';
 import { PlusIcon } from '@heroicons/react/16/solid';
 
-import { useExpensesData, useDebtsData, useLiabilityData } from '@/hooks/use-convex-data';
+import { useExpensesData, useDebtsData, useLiabilityData, useMarketAssumptionsData } from '@/hooks/use-convex-data';
 import { expenseToConvex, debtToConvex } from '@/lib/utils/data-transformers';
 import DisclosureSection from '@/components/ui/disclosure-section';
 import { Dialog } from '@/components/catalyst/dialog';
@@ -38,8 +38,10 @@ function getExpenseDesc(expense: ExpenseInputs) {
   );
 }
 
-function getDebtDesc(debt: DebtInputs) {
-  const payoffMonths = estimatePayoffMonths(debt);
+function getDebtDesc(debt: DebtInputs, annualInflationRate: number) {
+  // The engine deflates loan payments and interest by the plan's inflation assumption, so the
+  // estimate uses the same assumption to agree with the simulation (and with the debt dialog).
+  const payoffMonths = estimatePayoffMonths({ ...debt, annualInflationRate });
 
   return (
     <>
@@ -80,6 +82,8 @@ export default function ExpensesSection(props: ExpensesSectionProps) {
   const numDebts = Object.keys(debts).length;
 
   const nwLiabilities = useLiabilityData();
+
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
 
   const isLoading = expensesLoading || debtsLoading;
   const hasData = numExpenses > 0 || numDebts > 0;
@@ -194,7 +198,7 @@ export default function ExpensesSection(props: ExpensesSectionProps) {
                         id={id}
                         index={index}
                         name={debt.name}
-                        desc={getDebtDesc(debt)}
+                        desc={getDebtDesc(debt, annualInflationRate)}
                         leftAddOn={<CreditCardIcon className="size-8" />}
                         disabled={debt.disabled}
                         onDropdownClickEdit={() => handleDebtDropdownClickEdit(debt)}

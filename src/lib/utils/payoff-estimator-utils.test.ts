@@ -15,6 +15,7 @@ describe('estimatePayoffMonths', () => {
         apr: 0,
         monthlyPayment: 100,
         interestType: 'simple',
+        annualInflationRate: 0,
       })
     ).toBe(10);
   });
@@ -25,6 +26,7 @@ describe('estimatePayoffMonths', () => {
       apr: 18,
       monthlyPayment: 500,
       interestType: 'simple',
+      annualInflationRate: 0,
     });
     expect(months).toBeGreaterThan(20);
     expect(months).toBeLessThan(30);
@@ -37,6 +39,7 @@ describe('estimatePayoffMonths', () => {
       monthlyPayment: 500,
       interestType: 'compound',
       compoundingFrequency: 'monthly',
+      annualInflationRate: 0,
     });
     expect(months).toBeGreaterThan(20);
     expect(months).toBeLessThan(30);
@@ -49,6 +52,7 @@ describe('estimatePayoffMonths', () => {
       monthlyPayment: 500,
       interestType: 'compound',
       compoundingFrequency: 'daily',
+      annualInflationRate: 0,
     });
     expect(months).toBeGreaterThan(20);
     expect(months).toBeLessThan(30);
@@ -61,6 +65,7 @@ describe('estimatePayoffMonths', () => {
         apr: 24,
         monthlyPayment: 150,
         interestType: 'simple',
+        annualInflationRate: 0,
       })
     ).toBe(Infinity);
   });
@@ -72,6 +77,7 @@ describe('estimatePayoffMonths', () => {
         apr: 18,
         monthlyPayment: 500,
         interestType: 'simple',
+        annualInflationRate: 0,
       })
     ).toBeNull();
   });
@@ -83,6 +89,7 @@ describe('estimatePayoffMonths', () => {
         apr: 18,
         monthlyPayment: 0,
         interestType: 'simple',
+        annualInflationRate: 0,
       })
     ).toBeNull();
   });
@@ -93,6 +100,7 @@ describe('estimatePayoffMonths', () => {
       apr: 6,
       monthlyPayment: 1918.56,
       interestType: 'simple',
+      annualInflationRate: 0,
     });
     expect(months).toBeGreaterThan(355);
     expect(months).toBeLessThan(365);
@@ -265,7 +273,13 @@ describe('estimatePayoffMonths vs simulation engine', () => {
   });
 
   it('a nominal estimate overstates the payoff month when inflation is positive', () => {
-    const nominalMonths = estimatePayoffMonths({ balance: 320000, monthlyPayment: 1918.56, apr: 6, interestType: 'simple' });
+    const nominalMonths = estimatePayoffMonths({
+      balance: 320000,
+      monthlyPayment: 1918.56,
+      apr: 6,
+      interestType: 'simple',
+      annualInflationRate: 0,
+    });
     const realMonths = estimatePayoffMonths({
       balance: 320000,
       monthlyPayment: 1918.56,

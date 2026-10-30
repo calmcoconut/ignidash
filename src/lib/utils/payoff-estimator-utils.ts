@@ -8,10 +8,11 @@ export interface PayoffEstimateParams {
   interestType: InterestType;
   compoundingFrequency?: CompoundingFrequency;
   /**
-   * Plan inflation assumption in percent (e.g. 3 for 3%). Defaults to 0, which yields a nominal estimate.
-   * Pass the plan's `marketAssumptions.inflationRate` so the estimate matches the simulation engine.
+   * Plan inflation assumption in percent (e.g. 3 for 3%; pass `0` for a nominal estimate).
+   * Required so that no call site can silently fall back to a nominal estimate: pass the plan's
+   * `marketAssumptions.inflationRate` so the estimate matches the simulation engine.
    */
-  annualInflationRate?: number;
+  annualInflationRate: number;
 }
 
 /**
@@ -33,7 +34,7 @@ export function estimatePayoffMonths(params: PayoffEstimateParams): number | nul
 
   const annualRate = apr / 100;
   // The engine converts the annual inflation assumption to a monthly rate geometrically.
-  const monthlyInflationRate = Math.pow(1 + (annualInflationRate ?? 0) / 100, 1 / 12) - 1;
+  const monthlyInflationRate = Math.pow(1 + annualInflationRate / 100, 1 / 12) - 1;
 
   if (annualRate === 0 && monthlyInflationRate === 0) return Math.ceil(balance / monthlyPayment);
 
