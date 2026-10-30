@@ -41,12 +41,12 @@ import {
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 7 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3 and P3-P3).
+ * Export/import envelope, version 8 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3 and P3-P8).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 7, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 7, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 8, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 8, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -88,6 +88,17 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       block the file did not have. Nothing is written back on import, so re-exporting a v6 plan
  *       unchanged writes a v7 file with the block still absent, which reads the same way.
  *
+ *   8 — P3-P8 California: optional `taxSettings.stateResidency` (`'CA' | 'none'`), and a change of
+ *       meaning for `taxSettings.itemizedDeductions.stateAndLocalTaxes`, which is now read as
+ *       **property and local taxes** because the engine computes the California income tax and adds
+ *       it to the federal SALT line itself. A version 7 file cannot carry the flag: no build ever
+ *       wrote it. In a v7 file the absence means **California files a return**, not "no state tax":
+ *       the instance is a California one, the payroll layer has charged CA SDI unconditionally since
+ *       P3-P4, and defaulting the other way would let an existing plan silently drop a tax it has
+ *       been paying all along. A plan that is not a California resident says `'none'` explicitly.
+ *       Nothing is written back on import, so re-exporting a v7 plan unchanged writes a v8 file with
+ *       the flag still absent, which reads the same way.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -99,7 +110,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 7;
+export const EXPORT_SCHEMA_VERSION = 8;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

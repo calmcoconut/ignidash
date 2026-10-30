@@ -22,20 +22,36 @@ import {
 import type { SimulationState } from './simulation-engine';
 import type { PhysicalAssetData } from './physical-assets';
 
-/** Itemized-deduction settings for a test, with the four lines defaulted to zero. */
+/**
+ * Itemized-deduction settings for a test, with the four lines defaulted to zero.
+ *
+ * `stateResidency` defaults to `'none'` here, because almost every fixture in this file is about
+ * *federal* arithmetic and a California return would change the totals they assert. The California
+ * fixtures pass `'CA'` explicitly, and the absent-flag default is tested by constructing a processor
+ * with no settings at all.
+ */
 function deductionSettings(overrides?: {
   mortgageInterest?: number;
   charitable?: number;
   stateAndLocalTaxes?: number;
   medicalExpenses?: number;
   spouseQualifiesForSeniorDeduction?: boolean;
+  stateResidency?: 'CA' | 'none';
 }) {
   const entered =
-    overrides === undefined ? undefined : { mortgageInterest: 0, charitable: 0, stateAndLocalTaxes: 0, medicalExpenses: 0, ...overrides };
+    overrides === undefined
+      ? undefined
+      : {
+          mortgageInterest: overrides.mortgageInterest ?? 0,
+          charitable: overrides.charitable ?? 0,
+          stateAndLocalTaxes: overrides.stateAndLocalTaxes ?? 0,
+          medicalExpenses: overrides.medicalExpenses ?? 0,
+        };
 
   return {
     itemizedDeductions: entered,
     spouseQualifiesForSeniorDeduction: overrides?.spouseQualifiesForSeniorDeduction,
+    stateResidency: overrides?.stateResidency ?? ('none' as const),
   };
 }
 
@@ -1409,7 +1425,7 @@ describe('TaxProcessor', () => {
       },
     ];
 
-    describe.each(filingStatuses)('$status filing status (threshold=$threshold)', ({ status, deduction, threshold }) => {
+    describe.each(filingStatuses)('$status filing status (threshold=$threshold)', ({ status, threshold }) => {
       it('should not apply NIIT when AGI is below threshold', () => {
         const processor = new TaxProcessor(createMockSimulationState(60), status);
         const incomes = createEmptyIncomesData();
@@ -1466,7 +1482,7 @@ describe('TaxProcessor', () => {
       //   exemption = $90,100 (below the $500,000 phase-out start)
       //   AMT base = 59,900, below the $175,000 ceiling → 59,900 × 26% = $15,574
       //   topUp = max(0, 15,574 − 24,734) = $0 → `applied: 'regular'`
-      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026, undefined, deductionSettings());
       const incomes = createEmptyIncomesData({ totalIncome: 150000, totalWageIncome: 150000 });
 
       const result = processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
@@ -1509,7 +1525,7 @@ describe('TaxProcessor', () => {
         },
       };
 
-      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026, lowExemption);
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026, lowExemption, deductionSettings());
       const highYear = processor.process(
         createEmptyPortfolioData(),
         createEmptyIncomesData({ totalIncome: 150000, totalWageIncome: 150000 }),
@@ -1551,7 +1567,7 @@ describe('TaxProcessor', () => {
     it('phases the exemption out at 25 cents per dollar of AMTI', () => {
       // $600,000 of wages, single, 2026:
       //   AMTI = 600,000; exemption = 90,100 − 25% × (600,000 − 500,000) = $65,100 (partial)
-      const partial = new TaxProcessor(createMockSimulationState(40), 'single', 2026).process(
+      const partial = new TaxProcessor(createMockSimulationState(40), 'single', 2026, undefined, deductionSettings()).process(
         createEmptyPortfolioData(),
         createEmptyIncomesData({ totalIncome: 600000, totalWageIncome: 600000 }),
         createEmptyReturnsData(),
@@ -1566,7 +1582,7 @@ describe('TaxProcessor', () => {
 
       // $1,000,000 of wages: exemption = 90,100 − 25% × 500,000 = $0 (fully phased out).
       //   base 1,000,000 → 175,000 × 26% + 825,000 × 28% = 45,500 + 231,000 = $276,500
-      const gone = new TaxProcessor(createMockSimulationState(40), 'single', 2026).process(
+      const gone = new TaxProcessor(createMockSimulationState(40), 'single', 2026, undefined, deductionSettings()).process(
         createEmptyPortfolioData(),
         createEmptyIncomesData({ totalIncome: 1000000, totalWageIncome: 1000000 }),
         createEmptyReturnsData(),
@@ -1605,7 +1621,7 @@ describe('TaxProcessor', () => {
       const portfolio = createEmptyPortfolioData();
       portfolio.realizedGains = 100000;
 
-      const result = new TaxProcessor(createMockSimulationState(40), 'single', 2026, lowExemption).process(
+      const result = new TaxProcessor(createMockSimulationState(40), 'single', 2026, lowExemption, deductionSettings()).process(
         portfolio,
         createEmptyIncomesData({ totalIncome: 200000, totalWageIncome: 200000 }),
         createEmptyReturnsData(),
@@ -1620,12 +1636,213 @@ describe('TaxProcessor', () => {
   });
 
   /**
+   * The California return (P3-P8), hand-worked against the FTB's 2025 Schedule X and the 2025
+   * Form 540. California's ruleset is filed for 2025 — the latest year the FTB has published — so a
+   * 2026 (or later) return resolves it by the nearest-prior rule, which every fixture here states.
+   */
+  describe('the California return', () => {
+    /** A processor whose only income is the given amount, so CA income is exactly that amount. */
+    const caRun = (
+      totalIncome: number,
+      settings?: Parameters<typeof deductionSettings>[0] & { stateResidency?: 'CA' | 'none' },
+      options?: { age?: number; filingStatus?: 'single' | 'marriedFilingJointly'; realizedGains?: number }
+    ) => {
+      const portfolio = createEmptyPortfolioData();
+      portfolio.realizedGains = options?.realizedGains ?? 0;
+
+      return new TaxProcessor(
+        createMockSimulationState(options?.age ?? 40),
+        options?.filingStatus ?? 'single',
+        2026,
+        undefined,
+        deductionSettings({ ...settings, stateResidency: settings?.stateResidency ?? 'CA' })
+      ).process(portfolio, createEmptyIncomesData({ totalIncome }), createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+    };
+
+    it('defaults to California when the plan says nothing, and files nothing when it opts out', () => {
+      // The flag is absent from `deductionSettings` in the first call, which is the shape every
+      // existing plan has: the default is CA, not "no state tax".
+      expect(caRun(100000).state.jurisdiction).toBe('CA');
+      expect(caRun(100000).state.total).toBeGreaterThan(0);
+
+      const optedOut = caRun(100000, { stateResidency: 'none' });
+      expect(optedOut.state.jurisdiction).toBe('none');
+      expect(optedOut.state.total).toBe(0);
+      expect(optedOut.state.taxableIncome).toBe(0);
+    });
+
+    it('prices the first bracket boundary from the FTB schedule', () => {
+      // Schedule X, single: 1% up to $11,079, 2% above. With the $5,706 standard deduction,
+      // $16,785 of income is $11,079 of taxable income and $16,786 is one dollar more.
+      expect(caRun(16785).state.bracketTax).toBeCloseTo(110.79);
+      expect(caRun(16786).state.bracketTax).toBeCloseTo(110.81);
+
+      // At that income the $153 personal exemption credit exceeds the tax, so nothing is due —
+      // which is why the bracket tax is asserted above rather than the total.
+      expect(caRun(16785).state.total).toBe(0);
+    });
+
+    it('prices the 9.3% band, net of the personal exemption credit', () => {
+      // $100,000 of wages, single: taxable 94,294 → 3,201.97 + 9.3% × 21,570 = $5,207.98,
+      // less the $153 credit (AGI is under the $252,203 limitation) = $5,054.98.
+      const result = caRun(100000);
+
+      expect(result.state.resolvedYear).toBe(2025);
+      expect(result.state.taxableIncome).toBeCloseTo(94294);
+      expect(result.state.bracketTax).toBeCloseTo(5207.98);
+      expect(result.state.behavioralHealthServicesTax).toBe(0);
+      expect(result.state.exemptionCredits).toBeCloseTo(153);
+      expect(result.state.total).toBeCloseTo(5054.98);
+    });
+
+    it('adds the 1% Behavioral Health Services Tax above $1,000,000 and phases the credit out', () => {
+      // $1,100,000 of wages, single:
+      //   taxable = 1,094,294 → 72,219.84 + 12.3% × (1,094,294 − 742,953) = $115,434.78
+      //   behavioral health: 1% × (1,094,294 − 1,000,000) = $942.94
+      //   credit: AGI is 847,797 over the limit → ceil(847,797 / 2,500) = 340 steps × $6 = $2,040,
+      //   which exceeds the $153 credit, so it is zero.
+      const result = caRun(1100000);
+
+      expect(result.state.bracketTax).toBeCloseTo(115434.78, 1);
+      expect(result.state.behavioralHealthServicesTax).toBeCloseTo(942.94);
+      expect(result.state.exemptionCredits).toBe(0);
+      expect(result.state.total).toBeCloseTo(116377.72, 1);
+    });
+
+    it('taxes capital gains as ordinary income, with no preferential schedule', () => {
+      // The same $100,000 of CA income, once as wages and once as $50,000 of wages plus $50,000 of
+      // realized gains: California taxes both identically, while the federal return does not.
+      const allWages = caRun(100000);
+      const halfGains = caRun(50000, undefined, { realizedGains: 50000 });
+
+      expect(halfGains.state.income).toBeCloseTo(100000);
+      expect(halfGains.state.total).toBeCloseTo(allWages.state.total);
+      expect(halfGains.state.bracketTax).toBeCloseTo(allWages.state.bracketTax);
+      // The federal return does treat them differently — that is the whole point of the flag.
+      expect(halfGains.capitalGainsTaxes.capitalGainsTaxAmount).toBeGreaterThan(0);
+      expect(allWages.capitalGainsTaxes.capitalGainsTaxAmount).toBe(0);
+    });
+
+    it('excludes Social Security from the California base', () => {
+      // $40,000 of benefits plus $60,000 of other income: the federal return taxes part of the
+      // benefit (provisional income 60,000 + 20,000 lands in the 85% tier), California taxes only
+      // the $60,000.
+      const withSS = new TaxProcessor(
+        createMockSimulationState(70),
+        'single',
+        2026,
+        undefined,
+        deductionSettings({ stateResidency: 'CA' })
+      ).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 100000, totalSocialSecurityIncome: 40000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(withSS.incomeSources.taxableSocialSecurityIncome).toBeGreaterThan(0);
+      expect(withSS.state.income).toBeCloseTo(60000);
+      // The federal base includes the taxable benefit; the California one does not.
+      expect(withSS.incomeSources.adjustedGrossIncome).toBeGreaterThan(60000);
+    });
+
+    it('takes California’s own standard-versus-itemized choice, with no state income tax in it', () => {
+      // Below the CA standard deduction: $2,000 property tax + $1,000 mortgage interest = $3,000
+      // against a $5,706 standard → standard wins.
+      const standardWins = caRun(100000, { stateAndLocalTaxes: 2000, mortgageInterest: 1000 });
+      expect(standardWins.state.deduction.type).toBe('standard');
+      expect(standardWins.state.deduction.itemized).toBeCloseTo(3000);
+      expect(standardWins.state.deduction.taken).toBeCloseTo(5706);
+
+      // Above it: $8,000 property tax + $20,000 mortgage + $10,000 charitable = $38,000 → itemized.
+      // The California income tax is not in the list (R&TC does not allow it), so the itemized total
+      // is exactly those three lines even though the federal SALT line adds the CA tax back in.
+      const itemizedWins = caRun(100000, { stateAndLocalTaxes: 8000, mortgageInterest: 20000, charitable: 10000 });
+      expect(itemizedWins.state.deduction.type).toBe('itemized');
+      expect(itemizedWins.state.deduction.itemized).toBeCloseTo(38000);
+      expect(itemizedWins.state.deduction.taken).toBeCloseTo(38000);
+      expect(itemizedWins.state.taxableIncome).toBeCloseTo(62000);
+      // …and the federal SALT line does include the CA tax, capped at $40,400 for 2027.
+      expect(itemizedWins.deduction.saltCap.entered).toBeCloseTo(itemizedWins.state.total + 8000);
+    });
+
+    it('limits the California itemized deduction above the AGI threshold', () => {
+      // AGI 300,000, itemized 200,000: the limitation is 6% × (300,000 − 252,203) = $2,867.82,
+      // well under the 80% cap of $160,000, so the deduction becomes $197,132.18.
+      const result = caRun(300000, { stateAndLocalTaxes: 50000, mortgageInterest: 100000, charitable: 50000 });
+
+      expect(result.state.deduction.itemized).toBeCloseTo(197132.18);
+      expect(result.state.deduction.limitation).toBeCloseTo(2867.82);
+      expect(result.state.deduction.type).toBe('itemized');
+    });
+
+    it('feeds the California tax into the federal SALT line, which lowers the federal tax', () => {
+      // $200,000 of wages, single, with $20,000 property tax + $20,000 mortgage + $10,000 charitable.
+      // California: AGI 200,000 is under the $252,203 limitation, so itemized = 50,000 → taxable
+      // 150,000 → 3,201.97 + 9.3% × (150,000 − 72,724) = 10,388.64, less $153 = $10,235.64.
+      // Federal with CA on: SALT = 10,235.64 (CA tax) + 20,000 (property) = 30,235.64, under the
+      // $40,804 cap; itemized = 30,235.64 + 20,000 + 10,000 = $60,235.64 → taxable 139,764.36
+      // → 1,240 + 4,560 + 12,166 + 24% × (139,764.36 − 105,700) = $26,141.45.
+      // Federal with CA off: SALT = 20,000 → itemized 50,000 → taxable 150,000 → $28,598.00.
+      // The difference is the federal tax saved by deducting the state tax: $2,456.55.
+      const settings = { stateAndLocalTaxes: 20000, mortgageInterest: 20000, charitable: 10000 };
+      const withCA = caRun(200000, settings);
+      const withoutCA = caRun(200000, { ...settings, stateResidency: 'none' });
+
+      expect(withCA.state.total).toBeCloseTo(10235.64);
+      expect(withCA.deduction.saltCap.entered).toBeCloseTo(30235.64);
+      expect(withCA.deduction.itemized.total).toBeCloseTo(60235.64);
+      expect(withCA.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(26141.45);
+
+      expect(withoutCA.deduction.saltCap.entered).toBeCloseTo(20000);
+      expect(withoutCA.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(28598);
+      expect(withoutCA.federalIncomeTaxes.federalIncomeTaxAmount - withCA.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(2456.55);
+    });
+
+    it('keeps the reconciliation invariant with the state line in it', () => {
+      const result = caRun(100000);
+
+      expect(result.totalTaxLiability).toBeCloseTo(
+        result.federalIncomeTaxes.federalIncomeTaxAmount +
+          result.capitalGainsTaxes.capitalGainsTaxAmount +
+          result.amt.netCharge +
+          result.niit.niitAmount +
+          result.irmaa.total +
+          result.state.total +
+          result.earlyWithdrawalPenalties.totalPenaltyAmount +
+          result.fica.total
+      );
+      expect(result.state.total).toBeGreaterThan(0);
+    });
+
+    it('reads the itemized-line filter from the ruleset rather than hard-coding the list', () => {
+      // A ruleset whose `disallowed` list also names property tax: the same plan then itemizes
+      // nothing on the California return, which is the flag doing its work.
+      const base = getRules(2026, 'CA');
+      const noPropertyTax = {
+        ...base,
+        tables: {
+          ...base.tables,
+          itemizedDeductionLimit: {
+            ...base.tables.itemizedDeductionLimit,
+            values: { ...base.tables.itemizedDeductionLimit.values, disallowed: ['propertyTax'] },
+          },
+        },
+      };
+      // The processor takes a *federal* ruleset override, so the state table is reached through the
+      // registry; this test pins the registry's value instead, which is the same object.
+      expect(getRules(2026, 'CA').tables.itemizedDeductionLimit.values.disallowed).toContain('stateIncomeTax');
+      expect(noPropertyTax.tables.itemizedDeductionLimit.values.disallowed).toContain('propertyTax');
+    });
+  });
+
+  /**
    * Itemized deductions, the SALT cap, the senior deduction and the standard-vs-itemized choice
    * (P3-P3). All hand-worked on the 2026 ruleset; the SALT cap's own schedule is tested separately
    * in `tax-data/salt-cap.test.ts`.
    */
   describe('itemized deductions and the deduction choice', () => {
-    const single = (age: number, totalIncome: number, settings?: Parameters<typeof deductionSettings>[0], taxYear = 2026) =>
+    const single = (age: number, _totalIncome: number, settings?: Parameters<typeof deductionSettings>[0], taxYear = 2026) =>
       new TaxProcessor(createMockSimulationState(age), 'single', taxYear, undefined, deductionSettings(settings));
 
     const run = (processor: TaxProcessor, totalIncome: number) =>
@@ -1890,6 +2107,7 @@ describe('TaxProcessor', () => {
           y2029.capitalGainsTaxes.capitalGainsTaxAmount +
           y2029.amt.netCharge +
           y2029.niit.niitAmount +
+          y2029.state.total +
           y2029.irmaa.total +
           y2029.earlyWithdrawalPenalties.totalPenaltyAmount +
           y2029.fica.total
@@ -1955,6 +2173,7 @@ describe('TaxProcessor', () => {
       result.amt.netCharge +
       result.niit.niitAmount +
       result.irmaa.total +
+      result.state.total +
       result.earlyWithdrawalPenalties.totalPenaltyAmount +
       result.fica.total;
 
@@ -2007,8 +2226,9 @@ describe('TaxProcessor', () => {
       // $120,000 of wages, single, 2026, with no income-tax withholding:
       //   payroll withheld = OASDI 7,440.00 + Medicare 1,740.00 + SDI 1,560.00 = $10,740.00
       // Nothing is left for the annual settlement to collect *for payroll*: the year-end bill is
-      // the income tax alone (AGI 120,000 − 16,100 standard deduction = 103,900 taxable).
-      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+      // the income tax alone (AGI 120,000 − 16,100 standard deduction = 103,900 taxable). No state
+      // return here, so the bill is the federal tax only.
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026, undefined, deductionSettings());
       const incomes = createEmptyIncomesData({
         totalIncome: 120000,
         totalWageIncome: 120000,

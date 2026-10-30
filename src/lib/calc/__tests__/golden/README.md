@@ -193,3 +193,42 @@ Cross-check run before regenerating: `taxes.deduction` is the only added field, 
 `standard` in every frozen row, `deduction.seniorDeduction` is non-zero only in `shortfall-repaid`
 rows 1-2, and the only numeric changes outside `amt.amtIncome`/`amt.addbacks` are that fixture's
 income tax and its compounding.
+
+### P3-P8: California
+
+Regenerated once, deliberately. `TaxesData` gains `state` — the California return's own income,
+standard-versus-itemized choice, bracket tax, Behavioral Health Services Tax and exemption credits,
+with its `total` joining `totalTaxLiability` as another line — and the federal SALT line now includes
+the computed California income tax, which closes the loop with P3-P3.
+
+**Every fixture now pays California tax in every settled year**, because the residency flag defaults
+on and no fixture opts out. The ruleset is the FTB's 2025 schedule (the latest published), so each
+2026-and-later settlement resolves 2025 by the nearest-prior rule.
+
+| fixture              | CA years | sum of CA tax | row-1 CA tax (on CA income) | lifetime tax                              | final portfolio                               |
+| -------------------- | -------- | ------------- | --------------------------- | ----------------------------------------- | --------------------------------------------- |
+| `steady-saver` fixed | 30       | $175,124.04   | $6,263.05 on $112,989.99    | 570,090.08 → **750,191.57** (+180,101.48) | 3,978,617.21 → **3,612,855.90** (−365,761.31) |
+| `steady-saver` stoch | 30       | $175,840.50   | $6,376.94 on $114,214.58    | 572,238.42 → **751,720.19** (+179,481.77) | 4,516,173.43 → **4,137,645.60** (−378,527.83) |
+| `steady-saver` hist  | 30       | $180,204.20   | $6,531.56 on $115,877.19    | 582,111.08 → **767,332.24** (+185,221.15) | 3,839,002.87 → **3,512,387.39** (−326,615.48) |
+| `marginal-retiree`   | 30       | $25,839.24    | $4,466.73 on $93,674.70     | 90,731.80 → **121,386.23** (+30,654.44)   | 0.00 → 0.00 (bankrupt either way)             |
+| `time-binding-mixed` | 42       | $183,893.82   | $4,764.48 on $96,876.31     | 608,656.83 → **745,153.12** (+136,496.29) | 2,814,857.49 → **2,409,407.30** (−405,450.19) |
+| `shortfall-repaid`   | 25       | $77,871.20    | $26.74 on $20,232.58        | 213,445.03 → **287,211.77** (+73,766.73)  | 306,787.54 → **233,020.81** (−73,766.73)      |
+
+**Why the movement is exactly this, and nothing else.** Across every frozen row the change in
+`totalTaxLiability` sums to $785,721.87, which is the $818,773.00 of California tax less the
+$183,641.73 of federal income tax that falls because the smaller portfolio earns less taxable
+interest. The lifetime-tax deltas are the California tax plus that offset, and each final-portfolio
+delta is the same amount — the tax is paid out of the portfolio and stops compounding there. Three
+further consequences are visible and expected: `deduction.itemized.stateAndLocalTaxes` rises by the
+California tax in every row (the federal SALT line now deducts it, though these fixtures still take
+the standard deduction); one row of the synthetic "extra savings" account disappears where the
+surplus is now zero; and one asset allocation is `null` where the portfolio is empty.
+
+Two smaller numbers worth a reader's attention: `shortfall-repaid`'s first year pays only $26.74 of
+California tax (its income is a small pension, and the standard deduction and exemption credit absorb
+almost all of it), and `marginal-retiree` still ends at zero — the extra tax deepens a shortfall that
+was already total, so its final value cannot move.
+
+Cross-check run before regenerating: every fixture's `state.jurisdiction` is `'CA'` with
+`resolvedYear` 2025 in every settled row, the per-year `state.total` sums to the tax above, and the
+only numeric changes outside the state block are that tax and its compounding.

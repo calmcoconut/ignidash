@@ -13,6 +13,12 @@ export const itemizedDeductionsValidator = v.object({
 
 export const taxSettingsValidator = v.object({
   filingStatus: v.union(v.literal('single'), v.literal('marriedFilingJointly'), v.literal('headOfHousehold')),
+  /**
+   * Which state files a return (P3-P8). Optional and absent by default; absent means California,
+   * because this is a California instance and the payroll layer has charged CA SDI all along. Only
+   * `'none'` turns the state return off.
+   */
+  stateResidency: v.optional(v.union(v.literal('CA'), v.literal('none'))),
   itemizedDeductions: v.optional(itemizedDeductionsValidator),
   spouseQualifiesForSeniorDeduction: v.optional(v.boolean()),
 });

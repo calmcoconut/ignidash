@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { describe, it, expect } from 'vitest';
 
-import { createZeroAmtData, createZeroDeductionData, createZeroIrmaaData } from './__tests__/test-utils';
+import { createZeroAmtData, createZeroDeductionData, createZeroIrmaaData, createZeroStateData } from './__tests__/test-utils';
 
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
@@ -133,6 +133,7 @@ function makeInput(spec: YearSpec): TaxAnalyticsInput {
     amt: createZeroAmtData(),
     irmaa: createZeroIrmaaData(),
     deduction: createZeroDeductionData(),
+    state: createZeroStateData(),
     totalTaxLiability: 0,
     totalTaxesDue: 0,
     totalTaxesRefund: 0,

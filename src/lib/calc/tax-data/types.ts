@@ -245,5 +245,80 @@ export interface TaxRuleset<TTables extends TaxTables = TaxTables> {
   readonly tables: TTables;
 }
 
+// ============================================================================
+// California (P3-P8)
+// ============================================================================
+
+/**
+ * The Behavioral Health Services Tax (R&TC §17043), called the Mental Health Services Tax before
+ * 2025: 1% of taxable income above $1,000,000 for every filing status except a separate return,
+ * which uses $500,000.
+ */
+export interface BehavioralHealthServicesTaxTable {
+  readonly rate: number;
+  readonly threshold: ByFilingStatus<number>;
+}
+
+/**
+ * The personal exemption credit (R&TC §17054), which is a **credit against tax**, not a deduction,
+ * and is limited above an AGI threshold by $6 for each $2,500 (or part) of excess.
+ *
+ * The dependent credit is carried so the table is complete, but the engine models no dependents;
+ * the blind and senior credits are separate R&TC sections and are out of scope.
+ */
+export interface PersonalExemptionCreditTable {
+  readonly perTaxpayer: number;
+  readonly dependent: number;
+  readonly agiLimit: ByFilingStatus<number>;
+  readonly reductionStep: number;
+  readonly reductionPerStep: number;
+}
+
+/**
+ * California's itemized-deduction limitation (Schedule CA (540), Part II, line 29): the deduction
+ * is reduced by 6% of federal AGI over the threshold, but never by more than 80% of itself.
+ *
+ * `disallowed` names the itemized lines California does not allow at all, keyed the same way the
+ * federal §56(b)(1) list is. State and local income tax and SDI are on it; property tax is not.
+ */
+export interface CaliforniaItemizedDeductionLimitTable {
+  readonly agiThreshold: ByFilingStatus<number>;
+  readonly rate: number;
+  readonly maxReductionShare: number;
+  readonly disallowed: readonly string[];
+}
+
+/**
+ * How California's return differs from the federal one, as flags rather than `if`s.
+ *
+ * Every one of these is a place where a naive reuse of the federal computation would be wrong, and
+ * each is read by the state pass:
+ * - `preferentialCapitalGains: false` — gains and qualified dividends are ordinary income;
+ * - `taxesSocialSecurity: false` — Social Security is excluded entirely, with no §86 equivalent;
+ * - `allowsFederalSeniorDeduction: false` — the OBBBA senior deduction is a federal change
+ *   California does not conform to (the 540 booklet says so explicitly);
+ * - `allowsStateIncomeTaxDeduction: false` — no CA deduction for state income tax, SDI or sales tax
+ *   (Schedule CA (540) line 5a), which is also why the CA tax cannot be deducted on the CA return;
+ * - `medicalExpenseFloor` — CA conforms to the federal 7.5%-of-AGI floor.
+ */
+export interface CaliforniaConformityTable {
+  readonly preferentialCapitalGains: boolean;
+  readonly taxesSocialSecurity: boolean;
+  readonly allowsFederalSeniorDeduction: boolean;
+  readonly allowsStateIncomeTaxDeduction: boolean;
+  readonly medicalExpenseFloor: number;
+}
+
+/** Table groups a California ruleset adds to the shared ones. */
+export interface CaliforniaTaxTables extends TaxTables {
+  readonly behavioralHealthServicesTax: TableMeta<BehavioralHealthServicesTaxTable>;
+  readonly personalExemptionCredit: TableMeta<PersonalExemptionCreditTable>;
+  readonly itemizedDeductionLimit: TableMeta<CaliforniaItemizedDeductionLimitTable>;
+  readonly conformity: TableMeta<CaliforniaConformityTable>;
+}
+
+/** A California ruleset. */
+export type CaliforniaTaxRuleset = TaxRuleset<CaliforniaTaxTables>;
+
 /** A federal ruleset, with the federal-only table groups present. */
 export type FederalTaxRuleset = TaxRuleset<FederalTaxTables>;

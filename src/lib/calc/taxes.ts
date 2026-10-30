@@ -52,6 +52,7 @@ import type {
   CapitalGainsTaxBracket,
   FederalIncomeTaxBracket,
   FederalTaxRuleset,
+  ProgressiveBracket,
   SocialSecurityTaxThreshold,
   TaxYear,
 } from './tax-data/types';
@@ -136,10 +137,20 @@ export interface IrmaaData {
  * heard of itemizing are the same arithmetic but different data, and the export envelope's v6
  * statement depends on the distinction.
  */
-export interface DeductionSettings {
+export interface TaxProcessorSettings {
   readonly itemizedDeductions?: ItemizedDeductionsInputs | undefined;
   readonly spouseQualifiesForSeniorDeduction?: boolean | undefined;
+  /**
+   * Which state files a return. Absent means **California**: this is a California instance (D2), the
+   * payroll layer has charged CA SDI unconditionally since P3-P4, and a plan that is not a resident
+   * says so explicitly with `'none'`. See the export envelope's version history for what an absent
+   * flag means in a file.
+   */
+  readonly stateResidency?: StateResidency | undefined;
 }
+
+/** The states the engine can file: California, or none at all. */
+export type StateResidency = 'CA' | 'none';
 
 /**
  * What reduced taxable income this year, and which rule did it.
@@ -170,6 +181,41 @@ export interface DeductionData {
   total: number;
 }
 
+/**
+ * The state return's own numbers (P3-P8), so a reader can see what the state charged and why.
+ *
+ * `total` is a liability line in `totalTaxLiability`, beside the federal ones. `taxableIncome` and
+ * the deduction are the state's own: California takes the larger of its standard deduction and its
+ * itemized total, limits the itemized total above an AGI threshold, and taxes capital gains as
+ * ordinary income — none of which the federal computation can supply.
+ */
+export interface StateTaxesData {
+  /** `'none'` when the plan is not a California resident: every amount below is then zero. */
+  jurisdiction: StateResidency;
+  /** The ruleset year actually used; California's is the latest the FTB published. */
+  resolvedYear: TaxYear | null;
+  /** California income on which the state tax is figured: gains included, Social Security excluded. */
+  income: number;
+  deduction: {
+    type: 'standard' | 'itemized';
+    standard: number;
+    /** The itemized total after the CA high-income limitation. */
+    itemized: number;
+    /** How much the CA limitation removed from the entered itemized total. */
+    limitation: number;
+    taken: number;
+  };
+  taxableIncome: number;
+  /** The progressive bracket tax, before the surcharge and the credits. */
+  bracketTax: number;
+  /** The 1% Behavioral Health Services Tax (RTC §17043) on taxable income over $1,000,000. */
+  behavioralHealthServicesTax: number;
+  /** Personal exemption credits after the AGI limitation (a credit against tax, not a deduction). */
+  exemptionCredits: number;
+  /** `max(0, bracketTax + behavioralHealthServicesTax − exemptionCredits)`. */
+  total: number;
+}
+
 export interface TaxesData {
   federalIncomeTaxes: FederalIncomeTaxesData;
   capitalGainsTaxes: CapitalGainsTaxesData;
@@ -182,6 +228,8 @@ export interface TaxesData {
   socialSecurityTaxes: SocialSecurityTaxesData;
   /** FICA and SDI withheld from wages, plus the self-employment tax settled with the return. */
   fica: FicaTaxesData;
+  /** The state return (P3-P8); `jurisdiction: 'none'` for a non-resident plan. */
+  state: StateTaxesData;
   incomeSources: IncomeSourcesData;
   /**
    * Everything the year owes, and exactly the sum of its lines:
@@ -191,6 +239,7 @@ export interface TaxesData {
    *   amt.netCharge                              AMT top-up (positive) or minimum-tax credit (negative)
    *   niit.niitAmount                            net investment income tax
    *   irmaa.total                                Medicare Part B + D income-related surcharge
+   *   state.total                                the state return (California), zero when not a resident
    *   earlyWithdrawalPenalties.totalPenaltyAmount
    *   fica.total                                 payroll taxes (FICA + SDI + SE tax)
    *
@@ -281,6 +330,8 @@ export class TaxProcessor {
    */
   private taxYear: TaxYear;
   private ruleset: FederalTaxRuleset;
+  /** The state that files a return; absent settings mean California (see `TaxProcessorSettings`). */
+  private readonly stateResidency: StateResidency;
 
   /**
    * @param taxYear - The tax year to settle, resolved through `getRules(taxYear)`.
@@ -292,10 +343,11 @@ export class TaxProcessor {
     private filingStatus: FilingStatus,
     taxYear: TaxYear = LATEST_TAX_YEAR,
     rulesetOverride?: FederalTaxRuleset,
-    private deductionSettings: DeductionSettings = {}
+    private deductionSettings: TaxProcessorSettings = {}
   ) {
     this.taxYear = taxYear;
     this.ruleset = rulesetOverride ?? getRules(taxYear);
+    this.stateResidency = this.deductionSettings.stateResidency ?? 'CA';
   }
 
   /**
@@ -365,9 +417,16 @@ export class TaxProcessor {
       provisionalIncome: incomeData.provisionalIncome,
     };
 
+    // The state return first (P3-P8): the federal itemized deduction includes state income tax paid,
+    // so the federal SALT line cannot be figured until the state tax is. Nothing here is circular —
+    // California's tax depends on the year's income and its own deduction rules, not on the federal
+    // tax — so one pass is enough.
+    const state = this.processStateTaxes(incomeData);
+
     // Which deduction the return takes (P3-P3): the larger of the standard deduction and the
-    // itemized total, plus the senior deduction, which §151(d)(5)(C) allows on top of either.
-    const deduction = this.processDeductions(incomeData.adjustedGrossIncome);
+    // itemized total, plus the senior deduction, which §151(d)(5)(C) allows on top of either. The
+    // SALT line is the state tax just computed plus the property and local taxes the plan entered.
+    const deduction = this.processDeductions(incomeData.adjustedGrossIncome, state.total);
     const deductionUsedForOrdinary = Math.min(deduction.total, incomeData.adjustedIncomeTaxedAsOrdinary);
     const deductionUsedForGains = deduction.total - deductionUsedForOrdinary;
 
@@ -430,6 +489,7 @@ export class TaxProcessor {
       amt.netCharge +
       niit.niitAmount +
       irmaa.total +
+      state.total +
       earlyWithdrawalPenalties.totalPenaltyAmount +
       fica.total;
 
@@ -447,6 +507,7 @@ export class TaxProcessor {
       earlyWithdrawalPenalties,
       socialSecurityTaxes,
       fica,
+      state,
       incomeSources: incomeData,
       totalTaxLiability,
       totalTaxesDue: difference > 0 ? difference : 0,
@@ -605,6 +666,118 @@ export class TaxProcessor {
   }
 
   /**
+   * A progressive walk over a bracket schedule, for the state return.
+   *
+   * The federal walk is inline in `processFederalIncomeTaxes` (it also reports the top marginal
+   * rate); the state one only needs the amount, so it lives here rather than being duplicated.
+   */
+  private progressiveTaxOn(taxableIncome: number, brackets: readonly ProgressiveBracket[]): number {
+    let tax = 0;
+    for (const bracket of brackets) {
+      if (taxableIncome <= bracket.min) break;
+      tax += (Math.min(taxableIncome, bracket.max) - bracket.min) * bracket.rate;
+    }
+    return tax;
+  }
+
+  /**
+   * The California return (P3-P8).
+   *
+   * California starts from its own income base, not the federal taxable income: Social Security is
+   * excluded entirely, capital gains and qualified dividends are ordinary income, and the deduction
+   * is the state's own choice between its standard deduction and its itemized total (limited above
+   * an AGI threshold). Each of those differences is a flag in the ruleset's `conformity` table, so
+   * the state pass reads the table rather than testing `jurisdiction === 'CA'` in five places.
+   *
+   * Hand check (2025 ruleset, single, $100,000 of wages and nothing else):
+   *   CA income = $100,000; standard deduction $5,706 (no itemized lines, so standard wins)
+   *   CA taxable income = $94,294 → Schedule X, 9.3% band:
+   *     3,201.97 (the schedule's tax at $72,724) + 9.3% × (94,294 − 72,724 = 21,570)
+   *     = 3,201.97 + 2,006.01 = $5,207.98
+   *   less the $153 personal exemption credit (AGI is under the $252,203 limit) = $5,054.98
+   */
+  private processStateTaxes(incomeData: IncomeSourcesData): StateTaxesData {
+    const zero: StateTaxesData = {
+      jurisdiction: 'none',
+      resolvedYear: null,
+      income: 0,
+      deduction: { type: 'standard', standard: 0, itemized: 0, limitation: 0, taken: 0 },
+      taxableIncome: 0,
+      bracketTax: 0,
+      behavioralHealthServicesTax: 0,
+      exemptionCredits: 0,
+      total: 0,
+    };
+
+    if (this.stateResidency === 'none') return zero;
+
+    const rules = getRules(this.taxYear, 'CA');
+    const conformity = rules.tables.conformity.values;
+    const agi = incomeData.adjustedGrossIncome;
+    const entered = this.deductionSettings.itemizedDeductions;
+
+    // The income base: everything the federal return taxes as income, with two ruleset flags
+    // deciding the differences. Capital gains are ordinary here, so they are in the base with no
+    // preferential schedule to stack them on.
+    let income =
+      incomeData.earnedIncome +
+      incomeData.taxableRetirementDistributions +
+      incomeData.taxableInterestIncome +
+      incomeData.taxableDividendIncome +
+      incomeData.realizedGains;
+    if (conformity.taxesSocialSecurity) income += incomeData.taxableSocialSecurityIncome;
+
+    // The itemized lines, keyed so the ruleset's `disallowed` list can filter them: California does
+    // not allow a deduction for state income tax, SDI or sales tax, and does allow property tax,
+    // mortgage interest, charitable contributions and medical expenses above the floor.
+    const itemizedLines: Record<string, number> = {
+      propertyTax: entered?.stateAndLocalTaxes ?? 0,
+      mortgageInterest: entered?.mortgageInterest ?? 0,
+      charitable: entered?.charitable ?? 0,
+      medicalExpenses: Math.max(0, (entered?.medicalExpenses ?? 0) - conformity.medicalExpenseFloor * agi),
+    };
+    const itemizedEntered = Object.entries(itemizedLines)
+      .filter(([id]) => !rules.tables.itemizedDeductionLimit.values.disallowed.includes(id))
+      .reduce((total, [, amount]) => total + amount, 0);
+
+    // The CA high-income limitation: 6% of AGI over the threshold, capped at 80% of the deduction.
+    const limit = rules.tables.itemizedDeductionLimit.values;
+    const excessAgi = Math.max(0, agi - limit.agiThreshold[this.filingStatus]);
+    const limitation = Math.min(itemizedEntered * limit.maxReductionShare, limit.rate * excessAgi);
+    const itemized = Math.max(0, itemizedEntered - limitation);
+
+    const standard = rules.tables.standardDeduction.values[this.filingStatus];
+    const deductionType: 'standard' | 'itemized' = itemized > standard ? 'itemized' : 'standard';
+    const seniorDeduction = conformity.allowsFederalSeniorDeduction ? this.seniorDeductionFor(agi) : 0;
+    const deductionTaken = (deductionType === 'itemized' ? itemized : standard) + seniorDeduction;
+
+    const taxableIncome = Math.max(0, income - deductionTaken);
+    const bracketTax = this.progressiveTaxOn(taxableIncome, rules.tables.incomeTaxBrackets.values[this.filingStatus]);
+
+    const surcharge = rules.tables.behavioralHealthServicesTax.values;
+    const behavioralHealthServicesTax = Math.max(0, taxableIncome - surcharge.threshold[this.filingStatus]) * surcharge.rate;
+
+    // Personal exemption credits: one per taxpayer, reduced by $6 for each $2,500 (or part) of AGI
+    // over the limit. It is a credit against the tax, so it cannot make the tax negative.
+    const credit = rules.tables.personalExemptionCredit.values;
+    const taxpayers = this.filingStatus === 'marriedFilingJointly' ? 2 : 1;
+    const stepsOver = Math.ceil(Math.max(0, agi - credit.agiLimit[this.filingStatus]) / credit.reductionStep);
+    const exemptionCredits = Math.max(0, credit.perTaxpayer * taxpayers - stepsOver * credit.reductionPerStep);
+
+    return {
+      jurisdiction: 'CA',
+      resolvedYear: rules.year,
+      income,
+      deduction: { type: deductionType, standard, itemized, limitation, taken: deductionTaken },
+      taxableIncome,
+      bracketTax,
+      behavioralHealthServicesTax,
+      exemptionCredits,
+      total: Math.max(0, bracketTax + behavioralHealthServicesTax - exemptionCredits),
+    };
+  }
+
+  /**
    * The deduction the return takes, and why (P3-P3).
    *
    * The rule is the larger of the standard deduction and the itemized total, with a tie going to the
@@ -619,16 +792,24 @@ export class TaxProcessor {
    *   itemized total = 40,400 + 20,000 + 10,000 + 15,000            = $85,400
    *   standard = $16,100 → itemized wins; senior = 0 (under 65)      → total $85,400
    */
-  private processDeductions(adjustedGrossIncome: number): DeductionData {
+  private processDeductions(adjustedGrossIncome: number, stateIncomeTax: number): DeductionData {
     const standardDeduction = this.getStandardDeduction();
     const entered = this.deductionSettings.itemizedDeductions;
     const salt = saltCapFor(this.taxYear, adjustedGrossIncome);
     const medicalFloor = this.ruleset.tables.medicalExpenseFloor.values;
 
+    // The federal SALT deduction is state income tax **plus** the property and local taxes the plan
+    // entered. With California on, the income-tax half is the CA tax just computed rather than an
+    // estimate the user typed; with it off, the entered amount is all there is. (This is why the
+    // itemized field is described as property and local taxes: the engine knows the state income
+    // tax, the plan knows the rest.)
+    const enteredSalt = entered?.stateAndLocalTaxes ?? 0;
+    const saltBeforeCap = stateIncomeTax + enteredSalt;
+
     const lines = {
       mortgageInterest: entered?.mortgageInterest ?? 0,
       charitable: entered?.charitable ?? 0,
-      stateAndLocalTaxes: Math.min(entered?.stateAndLocalTaxes ?? 0, salt.cap),
+      stateAndLocalTaxes: Math.min(saltBeforeCap, salt.cap),
       medicalExpenses: Math.max(0, (entered?.medicalExpenses ?? 0) - medicalFloor * adjustedGrossIncome),
     };
     const itemizedTotal = lines.mortgageInterest + lines.charitable + lines.stateAndLocalTaxes + lines.medicalExpenses;
@@ -644,9 +825,9 @@ export class TaxProcessor {
       standardDeduction,
       itemized: { ...lines, total: itemizedTotal },
       saltCap: {
-        entered: entered?.stateAndLocalTaxes ?? 0,
+        entered: saltBeforeCap,
         allowed: lines.stateAndLocalTaxes,
-        phaseDown: (entered?.stateAndLocalTaxes ?? 0) - lines.stateAndLocalTaxes,
+        phaseDown: saltBeforeCap - lines.stateAndLocalTaxes,
         resolvedYear: salt.resolvedYear,
       },
       seniorDeduction,

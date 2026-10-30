@@ -18,7 +18,7 @@ import type { DebtInputs } from '@/lib/schemas/inputs/debt-form-schema';
 import type { SimulationState, SimulationContext } from '../simulation-engine';
 import type { PortfolioData } from '../portfolio';
 import type { IncomesData } from '../incomes';
-import type { AlternativeMinimumTaxesData, DeductionData, IrmaaData } from '../taxes';
+import type { AlternativeMinimumTaxesData, DeductionData, IrmaaData, StateTaxesData } from '../taxes';
 import type { ExpensesData } from '../expenses';
 import type { ReturnsData } from '../returns';
 import type { PhysicalAssetsData } from '../physical-assets';
@@ -551,6 +551,20 @@ export const createZeroDeductionData = (overrides: Partial<DeductionData> = {}):
   itemized: { mortgageInterest: 0, charitable: 0, stateAndLocalTaxes: 0, medicalExpenses: 0, total: 0 },
   saltCap: { entered: 0, allowed: 0, phaseDown: 0, resolvedYear: 0 },
   seniorDeduction: 0,
+  total: 0,
+  ...overrides,
+});
+
+/** A zeroed state return (no residency) for fixtures that do not exercise it. */
+export const createZeroStateData = (overrides: Partial<StateTaxesData> = {}): StateTaxesData => ({
+  jurisdiction: 'none',
+  resolvedYear: null,
+  income: 0,
+  deduction: { type: 'standard', standard: 0, itemized: 0, limitation: 0, taken: 0 },
+  taxableIncome: 0,
+  bracketTax: 0,
+  behavioralHealthServicesTax: 0,
+  exemptionCredits: 0,
   total: 0,
   ...overrides,
 });

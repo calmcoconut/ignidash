@@ -122,7 +122,9 @@ describe('TaxProcessor — tax year and ruleset', () => {
       },
     };
 
-    const taxes = process(new TaxProcessor(createMockSimulationState(60), 'single', 2026, noDeduction));
+    // No state return: with California on, the state tax would itself be an itemized SALT line, and
+    // a zero standard deduction would lose to it — the test is about the federal table.
+    const taxes = process(new TaxProcessor(createMockSimulationState(60), 'single', 2026, noDeduction, { stateResidency: 'none' }));
 
     // 23,000 other income + 4,000 taxable benefits = 27,000, undeducted.
     expect(taxes.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBe(27000);

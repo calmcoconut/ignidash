@@ -64,6 +64,8 @@ export interface TaxAmountsByType {
   niit: number;
   /** The Medicare Part B + D income-related surcharge charged this year. */
   irmaa: number;
+  /** The state return's tax (California), zero when the plan is not a resident. */
+  state: number;
   /** Sum of every line above, so it always reconciles with `TaxesData.totalTaxLiability`. */
   totalTaxes: number;
   earlyWithdrawalPenalties: number;
@@ -130,6 +132,8 @@ export interface LifetimeTaxAmounts {
   lifetimeNiit: number;
   /** The Medicare Part B + D income-related surcharge over the life of the run. */
   lifetimeIrmaa: number;
+  /** The state return's tax (California) over the life of the run. */
+  lifetimeStateTax: number;
   lifetimeEarlyWithdrawalPenalties: number;
   /** Sum of every line above, so it matches the per-year `totalTaxes` and `TaxesData.totalTaxLiability`. */
   lifetimeTaxesAndPenalties: number;
@@ -342,7 +346,8 @@ export class SimulationDataExtractor {
     const amt = taxesData?.amt.netCharge ?? 0;
     const niit = taxesData?.niit.niitAmount ?? 0;
     const irmaa = taxesData?.irmaa.total ?? 0;
-    const totalTaxes = federalIncomeTax + capitalGainsTax + amt + niit + irmaa + ficaTax;
+    const state = taxesData?.state.total ?? 0;
+    const totalTaxes = federalIncomeTax + capitalGainsTax + amt + niit + irmaa + state + ficaTax;
 
     const earlyWithdrawalPenalties = taxesData?.earlyWithdrawalPenalties.totalPenaltyAmount ?? 0;
     const totalTaxesAndPenalties = totalTaxes + earlyWithdrawalPenalties;
@@ -354,6 +359,7 @@ export class SimulationDataExtractor {
       amt,
       niit,
       irmaa,
+      state,
       totalTaxes,
       earlyWithdrawalPenalties,
       totalTaxesAndPenalties,
@@ -617,10 +623,12 @@ export class SimulationDataExtractor {
       lifetimeAmt,
       lifetimeNiit,
       lifetimeIrmaa,
+      lifetimeStateTax,
       lifetimeEarlyWithdrawalPenalties,
     } = data.reduce(
       (acc, dp) => {
-        const { federalIncomeTax, ficaTax, capitalGainsTax, amt, niit, irmaa, earlyWithdrawalPenalties } = this.getTaxAmountsByType(dp);
+        const { federalIncomeTax, ficaTax, capitalGainsTax, amt, niit, irmaa, state, earlyWithdrawalPenalties } =
+          this.getTaxAmountsByType(dp);
 
         return {
           lifetimeFederalIncomeTax: acc.lifetimeFederalIncomeTax + federalIncomeTax,
@@ -629,6 +637,7 @@ export class SimulationDataExtractor {
           lifetimeAmt: acc.lifetimeAmt + amt,
           lifetimeNiit: acc.lifetimeNiit + niit,
           lifetimeIrmaa: acc.lifetimeIrmaa + irmaa,
+          lifetimeStateTax: acc.lifetimeStateTax + state,
           lifetimeEarlyWithdrawalPenalties: acc.lifetimeEarlyWithdrawalPenalties + earlyWithdrawalPenalties,
         };
       },
@@ -639,6 +648,7 @@ export class SimulationDataExtractor {
         lifetimeAmt: 0,
         lifetimeNiit: 0,
         lifetimeIrmaa: 0,
+        lifetimeStateTax: 0,
         lifetimeEarlyWithdrawalPenalties: 0,
       }
     );
@@ -652,6 +662,7 @@ export class SimulationDataExtractor {
       lifetimeAmt +
       lifetimeNiit +
       lifetimeIrmaa +
+      lifetimeStateTax +
       lifetimeEarlyWithdrawalPenalties;
 
     return {
@@ -661,6 +672,7 @@ export class SimulationDataExtractor {
       lifetimeAmt,
       lifetimeNiit,
       lifetimeIrmaa,
+      lifetimeStateTax,
       lifetimeEarlyWithdrawalPenalties,
       lifetimeTaxesAndPenalties,
     };

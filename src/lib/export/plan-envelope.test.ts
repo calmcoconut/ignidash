@@ -5,6 +5,7 @@ import { planDataFields } from '../../../convex/validators/plan_data_fields';
 import { basicTemplate } from '../../../convex/templates/basic';
 import { earlyRetirementTemplate } from '../../../convex/templates/early_retirement';
 import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inputs/household-schema';
+import { taxSettingsFromConvex } from '@/lib/utils/data-transformers';
 
 import {
   EXPORT_SCHEMA_VERSION,
@@ -53,6 +54,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
   //   v5 — incomes[0].socialSecurity.
   //   v6 — timeline.household.members[*].birthMonth / .birthYear / .lifeExpectancy.
   //   v7 — taxSettings.itemizedDeductions / .spouseQualifiesForSeniorDeduction.
+  //   v8 — taxSettings.stateResidency.
   const [firstIncome, ...otherIncomes] = basicTemplate.incomes;
   const incomes = [
     {
@@ -89,6 +91,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
     // without it — which reads as "does not itemize", not as itemizing zeros.
     taxSettings: {
       ...basicTemplate.taxSettings,
+      stateResidency: 'none' as const,
       itemizedDeductions: { mortgageInterest: 12000, charitable: 5000, stateAndLocalTaxes: 30000, medicalExpenses: 0 },
       spouseQualifiesForSeniorDeduction: true,
     },
@@ -199,6 +202,9 @@ const VERSION_6_FIELDS = ['birthMonth', 'birthYear', 'lifeExpectancy'];
 
 /** What the v7 bump (P3-P3) added: the itemized-deduction inputs inside `taxSettings`. */
 const VERSION_7_FIELDS = ['itemizedDeductions', 'spouseQualifiesForSeniorDeduction'];
+
+/** What the v8 bump (P3-P8) added: the state-residency flag inside `taxSettings`. */
+const VERSION_8_FIELDS = ['stateResidency'];
 
 /**
  * Visits every household member in a payload, wherever the envelope keeps it.
@@ -420,8 +426,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 7 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7];
+    // an older file fails here, not in a support thread. Adding version 8 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -449,6 +455,9 @@ describe('malformed files report the exact field paths', () => {
 
     // The strip is guarded in both directions: the fixture really carries the fields each bump
     // added, and none survives, so "a v1 file still imports" is not vacuously true.
+    expect(countFields(v1, VERSION_8_FIELDS)).toBe(1);
+    stripFields(v1, VERSION_8_FIELDS);
+    expect(countFields(v1, VERSION_8_FIELDS)).toBe(0);
     expect(countFields(v1, VERSION_7_FIELDS)).toBe(2);
     stripFields(v1, VERSION_7_FIELDS);
     expect(countFields(v1, VERSION_7_FIELDS)).toBe(0);
@@ -497,6 +506,9 @@ describe('malformed files report the exact field paths', () => {
     const v2 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v2.schemaVersion = 2;
 
+    expect(countFields(v2, VERSION_8_FIELDS)).toBe(1);
+    stripFields(v2, VERSION_8_FIELDS);
+    expect(countFields(v2, VERSION_8_FIELDS)).toBe(0);
     expect(countFields(v2, VERSION_7_FIELDS)).toBe(2);
     stripFields(v2, VERSION_7_FIELDS);
     expect(countFields(v2, VERSION_7_FIELDS)).toBe(0);
@@ -546,6 +558,9 @@ describe('malformed files report the exact field paths', () => {
 
     // A v3 file cannot carry `socialSecurity` (v5), the itemized block (v7) or the member ages
     // (v6) either, so strip those and keep the v4 field — which is the accident this test is about.
+    expect(countFields(v3WithField, VERSION_8_FIELDS)).toBe(1);
+    stripFields(v3WithField, VERSION_8_FIELDS);
+    expect(countFields(v3WithField, VERSION_8_FIELDS)).toBe(0);
     expect(countFields(v3WithField, VERSION_7_FIELDS)).toBe(2);
     stripFields(v3WithField, VERSION_7_FIELDS);
     expect(countFields(v3WithField, VERSION_7_FIELDS)).toBe(0);
@@ -616,6 +631,9 @@ describe('malformed files report the exact field paths', () => {
     v4.schemaVersion = 4;
 
     // Non-vacuous: the fixture really has the fields, and none survives the strip.
+    expect(countFields(v4, VERSION_8_FIELDS)).toBe(1);
+    stripFields(v4, VERSION_8_FIELDS);
+    expect(countFields(v4, VERSION_8_FIELDS)).toBe(0);
     expect(countFields(v4, VERSION_7_FIELDS)).toBe(2);
     stripFields(v4, VERSION_7_FIELDS);
     expect(countFields(v4, VERSION_7_FIELDS)).toBe(0);
@@ -658,6 +676,9 @@ describe('malformed files report the exact field paths', () => {
     v5.schemaVersion = 5;
     stripMemberAges(v5);
     expect(countMemberAges(v5)).toBe(0);
+    expect(countFields(v5, VERSION_8_FIELDS)).toBe(1);
+    stripFields(v5, VERSION_8_FIELDS);
+    expect(countFields(v5, VERSION_8_FIELDS)).toBe(0);
     expect(countFields(v5, VERSION_7_FIELDS)).toBe(2);
     stripFields(v5, VERSION_7_FIELDS);
     expect(countFields(v5, VERSION_7_FIELDS)).toBe(0);
@@ -703,6 +724,9 @@ describe('malformed files report the exact field paths', () => {
 
     const v6 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v6.schemaVersion = 6;
+    expect(countFields(v6, VERSION_8_FIELDS)).toBe(1);
+    stripFields(v6, VERSION_8_FIELDS);
+    expect(countFields(v6, VERSION_8_FIELDS)).toBe(0);
     stripFields(v6, VERSION_7_FIELDS);
     expect(countFields(v6, VERSION_7_FIELDS)).toBe(0);
     // The v6 fields are still there: this is a v6 file, not an older one.
@@ -730,6 +754,45 @@ describe('malformed files report the exact field paths', () => {
     expect(taxSettings).not.toHaveProperty('spouseQualifiesForSeniorDeduction');
     // ...and everything a v6 plan does carry survives the import.
     expect(taxSettings).toHaveProperty('filingStatus', 'single');
+  });
+
+  it('imports a version 7 plan without a residency flag as a California plan, and keeps it absent', () => {
+    // v8 is the change that adds `taxSettings.stateResidency`. A v7 file cannot carry it, and the
+    // absence means **California files a return** — this is a California instance and the payroll
+    // layer has charged CA SDI unconditionally since P3-P4, so the other reading would let an
+    // existing plan silently stop paying a tax it has always paid. The file keeps its own shape:
+    // nothing is invented on the way in, so re-exporting it writes v8 with the flag still absent.
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    expect(countFields(envelope, VERSION_8_FIELDS)).toBe(1);
+
+    const v7 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v7.schemaVersion = 7;
+    stripFields(v7, VERSION_8_FIELDS);
+    expect(countFields(v7, VERSION_8_FIELDS)).toBe(0);
+    // The v7 fields are still there: this is a v7 file, not an older one.
+    expect(countFields(v7, VERSION_7_FIELDS)).toBe(2);
+
+    const parsed = parseEnvelope(JSON.stringify(v7));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(7);
+    expect(parsed.envelope).toStrictEqual(v7);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const taxSettings = (imported.plans[0] as unknown as { taxSettings: Record<string, unknown> }).taxSettings;
+    expect(taxSettings).not.toHaveProperty('stateResidency');
+    // The reader's default is California: the transformer leaves it undefined, and the tax layer
+    // reads undefined as 'CA' (asserted in `taxes.test.ts`).
+    expect(taxSettingsFromConvex(taxSettings as never).stateResidency).toBeUndefined();
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {

@@ -34,6 +34,7 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
   const withDeductionDefaults = useCallback(
     (settings: TaxSettingsInputs | null): TaxSettingsInputs => ({
       filingStatus: settings?.filingStatus ?? 'single',
+      stateResidency: settings?.stateResidency ?? 'CA',
       itemizedDeductions: {
         mortgageInterest: settings?.itemizedDeductions?.mortgageInterest ?? 0,
         charitable: settings?.itemizedDeductions?.charitable ?? 0,
@@ -95,6 +96,18 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                   {errors.filingStatus && <ErrorMessage>{errors.filingStatus?.message}</ErrorMessage>}
                   <Description>Your filing status determines your tax rates and standard deduction.</Description>
                 </Field>
+                <Field>
+                  <Label htmlFor="stateResidency">State Return</Label>
+                  <Select {...register('stateResidency')} id="stateResidency" name="stateResidency">
+                    <option value="CA">California</option>
+                    <option value="none">None</option>
+                  </Select>
+                  {errors.stateResidency && <ErrorMessage>{errors.stateResidency?.message}</ErrorMessage>}
+                  <Description>
+                    California files its own return: its brackets, its standard deduction and exemption credits, capital gains as ordinary
+                    income, and Social Security excluded. Choose None only if this plan is not a California resident.
+                  </Description>
+                </Field>
                 <Divider />
                 <Fieldset aria-label="Itemized deductions">
                   <legend className="text-base font-semibold text-zinc-950 dark:text-white">Itemized Deductions</legend>
@@ -130,7 +143,7 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                       {errors.itemizedDeductions?.charitable && <ErrorMessage>{errors.itemizedDeductions.charitable.message}</ErrorMessage>}
                     </Field>
                     <Field>
-                      <Label htmlFor="itemizedDeductions.stateAndLocalTaxes">State &amp; Local Taxes</Label>
+                      <Label htmlFor="itemizedDeductions.stateAndLocalTaxes">Property &amp; Local Taxes</Label>
                       <NumberInput
                         name="itemizedDeductions.stateAndLocalTaxes"
                         control={control}
@@ -142,7 +155,10 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                       {errors.itemizedDeductions?.stateAndLocalTaxes && (
                         <ErrorMessage>{errors.itemizedDeductions.stateAndLocalTaxes.message}</ErrorMessage>
                       )}
-                      <Description>Capped by the SALT limit, which phases down above the MAGI threshold.</Description>
+                      <Description>
+                        Property and local taxes only — the California income tax is computed and added to the SALT line for you. Capped by
+                        the SALT limit, which phases down above the MAGI threshold.
+                      </Description>
                     </Field>
                     <Field>
                       <Label htmlFor="itemizedDeductions.medicalExpenses">Medical Expenses</Label>

@@ -11,16 +11,24 @@
  * federal law.
  */
 
-import type { FederalTaxRuleset, Jurisdiction, TaxRuleset, TaxYear } from './types';
+import type { CaliforniaTaxRuleset, FederalTaxRuleset, Jurisdiction, TaxRuleset, TaxYear } from './types';
 import { FEDERAL_2026 } from './years/2026';
+import { CALIFORNIA_2025 } from './states/CA/2025';
 
 export { taxYearFor } from './tax-year';
 
 const FEDERAL_RULESETS: ReadonlyMap<TaxYear, FederalTaxRuleset> = new Map([[FEDERAL_2026.year, FEDERAL_2026]]);
 
+/**
+ * California's rulesets. 2025 is the latest year the FTB has published, so a 2026 (or later) return
+ * resolves the 2025 ruleset by the nearest-prior rule and reports that year back.
+ */
+const CALIFORNIA_RULESETS: ReadonlyMap<TaxYear, CaliforniaTaxRuleset> = new Map([[CALIFORNIA_2025.year, CALIFORNIA_2025]]);
+
 /** Every jurisdiction's rulesets, by year. A jurisdiction appears once it has a ruleset. */
 const RULESET_REGISTRIES: Partial<Record<Jurisdiction, ReadonlyMap<TaxYear, TaxRuleset>>> = {
   federal: FEDERAL_RULESETS,
+  CA: CALIFORNIA_RULESETS,
 };
 
 /** The newest federal tax year with a ruleset. Used only as a default when no year is supplied. */
@@ -56,6 +64,8 @@ function resolve<T extends TaxRuleset>(registry: ReadonlyMap<TaxYear, T>, jurisd
 export function getRules(year: TaxYear): FederalTaxRuleset;
 /** Resolves the `jurisdiction` ruleset for `year`, falling back to the nearest prior year. */
 export function getRules(year: TaxYear, jurisdiction: 'federal'): FederalTaxRuleset;
+/** Resolves the California ruleset for `year`, falling back to the nearest prior year. */
+export function getRules(year: TaxYear, jurisdiction: 'CA'): CaliforniaTaxRuleset;
 export function getRules(year: TaxYear, jurisdiction: Jurisdiction): TaxRuleset;
 export function getRules(year: TaxYear, jurisdiction: Jurisdiction = 'federal'): TaxRuleset {
   const registry = RULESET_REGISTRIES[jurisdiction];

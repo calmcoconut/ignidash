@@ -25,7 +25,10 @@ const itemizedDeductions = z.object({
   mortgageInterest: currencyFieldAllowsZero('Mortgage interest cannot be negative'),
   /** Charitable contributions (allowed in full, also for AMT). */
   charitable: currencyFieldAllowsZero('Charitable contributions cannot be negative'),
-  /** State and local income and property taxes, before the cap (disallowed for AMT). */
+  /**
+   * Property and local taxes — **not** state income tax, which the engine computes and adds to the
+   * federal SALT line itself. Disallowed for AMT (the engine adds the SALT line back).
+   */
   stateAndLocalTaxes: currencyFieldAllowsZero('State and local taxes cannot be negative'),
   /** Medical expenses, before the 7.5%-of-AGI floor (allowed above the floor, also for AMT). */
   medicalExpenses: currencyFieldAllowsZero('Medical expenses cannot be negative'),
@@ -33,8 +36,20 @@ const itemizedDeductions = z.object({
 
 export type ItemizedDeductionsInputs = z.infer<typeof itemizedDeductions>;
 
+/**
+ * Which state files a return. Only California is modelled (D2), so the enum has two members: CA, or
+ * no state return at all. It is optional and **defaults to California** — this is a California
+ * instance, and the payroll layer has charged CA SDI unconditionally since P3-P4, so an absent flag
+ * must not mean "no state tax" for a plan that has been paying California payroll tax all along.
+ * A plan that is not a resident sets `'none'` explicitly.
+ */
+export const stateResidencySchema = z.enum(['CA', 'none']);
+
+export type StateResidencyInputs = z.infer<typeof stateResidencySchema>;
+
 export const taxSettingsFormSchema = z.object({
   filingStatus,
+  stateResidency: stateResidencySchema.optional(),
   itemizedDeductions: itemizedDeductions.optional(),
   /**
    * Whether the *spouse* on a joint return is 65 or older, for the §151(d)(5)(C) senior deduction.

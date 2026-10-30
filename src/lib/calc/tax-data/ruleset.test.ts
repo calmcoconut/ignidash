@@ -33,10 +33,15 @@ describe('getRules — year resolution', () => {
     expect(LATEST_TAX_YEAR).toBe(2026);
   });
 
-  it('fails loudly for a jurisdiction that has no ruleset yet', () => {
-    // California (§3-P8) arrives as a registry entry with the same shape; until then a request
-    // must throw rather than quietly return federal law.
-    expect(() => getRules(2026, 'CA')).toThrow(/No CA tax ruleset registry/);
+  it('fails loudly for a year the jurisdiction has no ruleset for, rather than borrowing federal law', () => {
+    // California arrived as a registry entry with the same shape (P3-P8). The guard that matters is
+    // now the *year*: the FTB's earliest checked-in ruleset is 2025, so a 2024 CA return must throw
+    // instead of falling back to 2025 (a later year) or to the federal ruleset.
+    expect(getRules(2026, 'CA').jurisdiction).toBe('CA');
+    expect(getRules(2026, 'CA').year).toBe(2025);
+    expect(() => getRules(2024, 'CA')).toThrow(/No CA tax ruleset for 2024/);
+    // A jurisdiction with no registry at all still throws rather than quietly returning federal law.
+    expect(() => getRules(2026, 'NV' as never)).toThrow(/No NV tax ruleset registry/);
   });
 });
 

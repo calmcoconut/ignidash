@@ -96,6 +96,10 @@ describe('itemized deductions reach the engine', () => {
       contributionRules: {},
       marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 0 },
       incomes: { 'income-1': createWageIncome({ id: 'income-1', amount: 110000, taxes: { incomeType: 'wage', withholding: 0 } }) },
+      // Federal-only: this fixture isolates the itemized-deduction wiring, and a California return
+      // would add its own bill and put the state tax on the federal SALT line (P3-P8 has its own
+      // fixture for that interaction).
+      taxSettings: { filingStatus: 'single', stateResidency: 'none' },
       ...overrides,
     });
 
@@ -117,6 +121,9 @@ describe('itemized deductions reach the engine', () => {
       flatPlan({
         taxSettings: {
           filingStatus: 'single',
+          // No state return: this fixture isolates the *federal* itemized wiring. The California
+          // tax feeding the federal SALT line has its own fixture in `taxes.test.ts`.
+          stateResidency: 'none',
           itemizedDeductions: { mortgageInterest: 20000, charitable: 10000, stateAndLocalTaxes: 50000, medicalExpenses: 0 },
         },
       }),
@@ -159,6 +166,7 @@ describe('itemized deductions reach the engine', () => {
       incomes: { 'income-1': createWageIncome({ id: 'income-1', amount: 90000 }) },
       taxSettings: {
         filingStatus: 'single', // the household overrides this to marriedFilingJointly
+        stateResidency: 'none',
         itemizedDeductions: { mortgageInterest: 30000, charitable: 20000, stateAndLocalTaxes: 60000, medicalExpenses: 0 },
       },
     });

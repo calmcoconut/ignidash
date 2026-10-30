@@ -1439,6 +1439,13 @@
             "headOfHousehold"
           ]
         },
+        "stateResidency": {
+          "type": "string",
+          "enum": [
+            "CA",
+            "none"
+          ]
+        },
         "itemizedDeductions": {
           "type": "object",
           "properties": {

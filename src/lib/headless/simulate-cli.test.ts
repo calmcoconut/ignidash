@@ -31,6 +31,12 @@ function makePlan(overrides: Partial<SimulatorInputs> = {}): SimulatorInputs {
     incomes: { 'income-1': createWageIncome() },
     expenses: { 'expense-1': createLivingExpense() },
     accounts: { 'savings-1': createSavingsAccount() },
+    // No state return: these tests are about the CLI's plan validation, the unknown-field warnings
+    // and the exit codes, not about tax. With California's return on (the default), this marginal
+    // plan ($100k of wages against $40k of spending and $10k of savings) exhausts its portfolio, so
+    // "income active" and "income disabled" would both end at zero and the warning test could no
+    // longer tell them apart. Do not "fix" this back to the default.
+    taxSettings: { filingStatus: 'single', stateResidency: 'none' },
     ...overrides,
   });
 }

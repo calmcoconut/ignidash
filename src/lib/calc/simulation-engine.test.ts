@@ -545,6 +545,9 @@ describe('FinancialSimulationEngine', () => {
         accounts: {},
         incomes: { 'wage-1': createWageIncome({ id: 'wage-1', amount: 100000, taxes: { incomeType: 'wage', withholding: 0 } }) },
         expenses: {},
+        // No state return here: the claim is about payroll withholding versus the income tax, and a
+        // California return would add its own year-end bill on top (P3-P8 covers that separately).
+        taxSettings: { filingStatus: 'single', stateResidency: 'none' },
       });
 
       const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
