@@ -26,6 +26,8 @@ import { newDebtDefaults } from '@/lib/utils/entity-form-defaults';
 import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
+  amountBasisAnchorHint,
+  isAmountBasisSelectable,
   OPTIONAL_YEARS_FIELD,
   RECURRENCE_HINTS,
   showsRecurrenceControl,
@@ -134,6 +136,7 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
 
   const startTimePoint = useWatch({ control, name: 'startDate' });
   const startType = startTimePoint.type;
+  const amountBasisHint = amountBasisAnchorHint(startType);
 
   useEffect(() => {
     if (interestType !== 'compound') {
@@ -276,11 +279,12 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                   </Label>
                   <Select {...register('amountBasis')} id="amountBasis" name="amountBasis" disabled={isSynced}>
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
+                      <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
                         {option.label}
                       </option>
                     ))}
                   </Select>
+                  {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
                   {errors.balance && <ErrorMessage>{errors.balance?.message}</ErrorMessage>}
                   {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
                 </Field>

@@ -21,7 +21,15 @@ import { getErrorMessages } from '@/lib/utils/form-utils';
 import type { Doc } from '../../../convex/_generated/dataModel';
 
 import { newDebtDefaults, newExpenseDefaults, newIncomeDefaults, newPhysicalAssetDefaults } from './entity-form-defaults';
-import { AMOUNT_BASIS_OPTIONS, OPTIONAL_YEARS_FIELD, optionalYearCount, showsRecurrenceControl } from './time-binding-inputs';
+import {
+  AMOUNT_BASIS_OPTIONS,
+  amountBasisAnchorHint,
+  hasDollarDate,
+  isAmountBasisSelectable,
+  OPTIONAL_YEARS_FIELD,
+  optionalYearCount,
+  showsRecurrenceControl,
+} from './time-binding-inputs';
 
 /**
  * Form behaviour of the two time-binding controls (parity plan P1-P1) in the four entity
@@ -128,6 +136,30 @@ describe('the amount-basis control defaults to real', () => {
   it('lists real first, so an absent field shows the default option', () => {
     expect(AMOUNT_BASIS_OPTIONS[0]).toEqual({ value: 'real', label: "In today's dollars" });
     expect(AMOUNT_BASIS_OPTIONS.map((option) => option.value)).toEqual(['real', 'nominal']);
+  });
+
+  it('only enables nominal where the anchor has a dollar date', () => {
+    // The four dialogs bind the option's `disabled` attribute to this matrix.
+    const anchors = ['now', 'customDate', 'customAge', 'atRetirement', 'atLifeExpectancy'] as const;
+
+    for (const anchor of anchors) {
+      expect(hasDollarDate(anchor), anchor).toBe(anchor !== 'atRetirement' && anchor !== 'atLifeExpectancy');
+      // `real` is always pickable; `nominal` only where a conversion can actually happen.
+      expect(isAmountBasisSelectable('real', anchor), anchor).toBe(true);
+      expect(isAmountBasisSelectable('nominal', anchor), anchor).toBe(hasDollarDate(anchor));
+    }
+
+    // Exactly the anchors the engine can convert are the ones the control offers.
+    expect(anchors.filter((anchor) => isAmountBasisSelectable('nominal', anchor))).toEqual(['now', 'customDate', 'customAge']);
+    expect(anchors.filter((anchor) => isAmountBasisSelectable('nominal', anchor) === false)).toEqual(['atRetirement', 'atLifeExpectancy']);
+  });
+
+  it('explains the disabled option instead of silently ignoring it', () => {
+    expect(amountBasisAnchorHint('atRetirement')).toBe('This start has no dollar date, so the amount is always in today\u2019s dollars.');
+    expect(amountBasisAnchorHint('atLifeExpectancy')).toBe(amountBasisAnchorHint('atRetirement'));
+    for (const anchor of ['now', 'customDate', 'customAge'] as const) {
+      expect(amountBasisAnchorHint(anchor), anchor).toBeNull();
+    }
   });
 
   it('offers no cadence for a `now` start, and one for every dated start', () => {

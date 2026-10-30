@@ -28,6 +28,8 @@ import { newIncomeDefaults } from '@/lib/utils/entity-form-defaults';
 import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
+  amountBasisAnchorHint,
+  isAmountBasisSelectable,
   OPTIONAL_YEARS_FIELD,
   RECURRENCE_HINTS,
   showsRecurrenceControl,
@@ -96,6 +98,8 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
 
   const endTimePoint = useWatch({ control, name: 'timeframe.end' });
   const endType = endTimePoint?.type;
+
+  const amountBasisHint = amountBasisAnchorHint(startType);
 
   const growthRate = useWatch({ control, name: 'growth.growthRate' }) as number | undefined;
   const growthLimit = useWatch({ control, name: 'growth.growthLimit' }) as number | undefined;
@@ -288,11 +292,12 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                   </Label>
                   <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
+                      <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
                         {option.label}
                       </option>
                     ))}
                   </Select>
+                  {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
                   {errors.amount && <ErrorMessage>{errors.amount?.message}</ErrorMessage>}
                   {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
                 </Field>

@@ -27,6 +27,8 @@ import { newPhysicalAssetDefaults } from '@/lib/utils/entity-form-defaults';
 import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
+  amountBasisAnchorHint,
+  isAmountBasisSelectable,
   OPTIONAL_YEARS_FIELD,
   RECURRENCE_HINTS,
   showsRecurrenceControl,
@@ -114,6 +116,7 @@ export default function PhysicalAssetDialog({
 
   const purchaseTimePoint = useWatch({ control, name: 'purchaseDate' });
   const purchaseDateType = purchaseTimePoint.type;
+  const amountBasisHint = amountBasisAnchorHint(purchaseDateType);
   const showDownPaymentField = purchaseDateType !== 'now';
 
   const saleTimePoint = useWatch({ control, name: 'saleDate' });
@@ -361,11 +364,12 @@ export default function PhysicalAssetDialog({
                   </Label>
                   <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
+                      <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, purchaseDateType)}>
                         {option.label}
                       </option>
                     ))}
                   </Select>
+                  {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
                   {errors.purchasePrice && <ErrorMessage>{errors.purchasePrice?.message}</ErrorMessage>}
                   {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
                 </Field>

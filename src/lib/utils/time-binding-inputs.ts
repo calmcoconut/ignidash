@@ -23,6 +23,31 @@ export const AMOUNT_BASIS_OPTIONS: readonly AmountBasisOption[] = [
   { value: 'nominal', label: 'In the start date\u2019s dollars' },
 ];
 
+/**
+ * Whether an anchor has a calendar location of its own, i.e. a dollar date a nominal amount
+ * can be expressed in.
+ *
+ * `now`, `customDate` and `customAge` all resolve to a point in time. `atRetirement` and
+ * `atLifeExpectancy` are phase boundaries: the plan does not know *when* they fall, so
+ * `yearsFromPlanStart` returns `undefined`, `TimeBinding.amountScale` returns 1, and the
+ * engine uses a nominal amount as today's dollars (asserted in `time-binding.test.ts`).
+ * Offering the option there would promise a conversion that never happens, so the dialogs
+ * disable it instead.
+ */
+export const hasDollarDate = (startType: TimePoint['type']): boolean =>
+  startType === 'now' || startType === 'customDate' || startType === 'customAge';
+
+/**
+ * Whether an option may be picked for a given anchor: `real` always, `nominal` only where the
+ * anchor has a dollar date. The dialogs use this for the option's `disabled` attribute.
+ */
+export const isAmountBasisSelectable = (value: AmountBasis, startType: TimePoint['type']): boolean =>
+  value === 'real' || hasDollarDate(startType);
+
+/** Shown under the amount-basis control when the anchor has no dollar date, else `null`. */
+export const amountBasisAnchorHint = (startType: TimePoint['type']): string | null =>
+  hasDollarDate(startType) ? null : 'This start has no dollar date, so the amount is always in today\u2019s dollars.';
+
 /** One line per option, shown in the amount-basis tooltip. */
 export const AMOUNT_BASIS_HINTS: readonly string[] = [
   "Today's dollars: the figure keeps its purchasing power for the whole plan.",
