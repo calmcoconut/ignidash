@@ -2,7 +2,15 @@
 
 import { useState, lazy, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageCircleMoreIcon, PresentationIcon, PrinterIcon, SettingsIcon, Undo2Icon, WandSparklesIcon } from 'lucide-react';
+import {
+  MessageCircleMoreIcon,
+  NotebookPenIcon,
+  PresentationIcon,
+  PrinterIcon,
+  SettingsIcon,
+  Undo2Icon,
+  WandSparklesIcon,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import IconButton from '@/components/ui/icon-button';
@@ -20,6 +28,7 @@ import DrillDownBreadcrumb from './drill-down-breadcrumb';
 
 const UserFeedbackDrawer = lazy(() => import('@/components/layout/user-feedback-drawer'));
 const AIChatDrawer = lazy(() => import('./drawers/ai-chat-drawer'));
+const NetWorthJournalDrawer = lazy(() => import('./drawers/net-worth-journal-drawer'));
 const SimulationSettingsDrawer = lazy(() => import('./drawers/simulation-settings-drawer'));
 
 export default function ResultsColumnHeader() {
@@ -30,6 +39,7 @@ export default function ResultsColumnHeader() {
   const isMac = navigator.userAgent.includes('Mac');
 
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
   const [simulationSettingsOpen, setSimulationSettingsOpen] = useState(false);
   const [userFeedbackOpen, setUserFeedbackOpen] = useState(false);
 
@@ -43,6 +53,12 @@ export default function ResultsColumnHeader() {
     <div className="flex items-center gap-2">
       <SettingsIcon className="text-primary size-6 shrink-0" aria-hidden="true" />
       <span>Simulation Settings</span>
+    </div>
+  );
+  const journalTitleComponent = (
+    <div className="flex items-center gap-2">
+      <NotebookPenIcon className="text-primary size-6 shrink-0" aria-hidden="true" />
+      <span>Net Worth Journal</span>
     </div>
   );
   const userFeedbackTitleComponent = (
@@ -116,6 +132,7 @@ export default function ResultsColumnHeader() {
               onClick={() => router.push(`/dashboard/simulator/${planId}/report`)}
               surfaceColor="emphasized"
             />
+            <IconButton icon={NotebookPenIcon} label="Record net worth" onClick={() => setJournalOpen(true)} surfaceColor="emphasized" />
             <IconButton
               icon={SettingsIcon}
               label="Simulation Settings"
@@ -141,6 +158,11 @@ export default function ResultsColumnHeader() {
       <Drawer open={simulationSettingsOpen} setOpen={setSimulationSettingsOpen} title={simulationSettingsTitleComponent}>
         <Suspense fallback={<PageLoading message="Loading Simulation Settings" />}>
           <SimulationSettingsDrawer setOpen={setSimulationSettingsOpen} simulationSettings={simulationSettings} />
+        </Suspense>
+      </Drawer>
+      <Drawer open={journalOpen} setOpen={setJournalOpen} title={journalTitleComponent}>
+        <Suspense fallback={<PageLoading message="Loading Journal" />}>
+          <NetWorthJournalDrawer setOpen={setJournalOpen} />
         </Suspense>
       </Drawer>
       <Drawer open={userFeedbackOpen} setOpen={setUserFeedbackOpen} title={userFeedbackTitleComponent}>

@@ -21,6 +21,7 @@ import PageLoading from '@/components/ui/page-loading';
 import { Dialog } from '@/components/catalyst/dialog';
 import { cn } from '@/lib/utils';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
+import { useNetWorthJournal } from '@/hooks/use-net-worth-journal';
 
 import SingleSimulationResults from './results-pages/single-simulation-results';
 import MultiSimulationResults from './results-pages/multi-simulation-results';
@@ -38,6 +39,9 @@ export default function ResultsSections() {
   const { timelineIsReady, accountsAreReady, incomesAreReady, expensesAreReady } = getIsCalculationReady(inputs);
 
   const hasOpenedTaxSettings = useHasOpenedTaxSettings(planId);
+  // The plan's manual actuals (P4-P7). An empty journal passes an empty array, which the overlay
+  // section turns into nothing at all, so the results surface is unchanged until an entry exists.
+  const { entries: journalEntries } = useNetWorthJournal();
   const updateHasOpenedTaxSettings = useUpdateHasOpenedTaxSettings();
 
   const simulationMode = inputs?.simulationSettings.simulationMode;
@@ -202,7 +206,7 @@ export default function ResultsSections() {
     case 'fixedReturns':
     case 'historicalReturns':
     case 'stochasticReturns':
-      return <SingleSimulationResults inputs={inputs!} simulationMode={simulationMode} />;
+      return <SingleSimulationResults inputs={inputs!} simulationMode={simulationMode} journalEntries={journalEntries} />;
     case 'monteCarloStochasticReturns':
     case 'monteCarloHistoricalReturns':
       return <MultiSimulationResults inputs={inputs!} simulationMode={simulationMode} />;

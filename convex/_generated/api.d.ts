@@ -24,6 +24,13 @@ import type * as insights from "../insights.js";
 import type * as market_assumptions from "../market_assumptions.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
+// HAND-MAINTAINED, unlike the rest of this file. `net_worth_journal` is a live Convex module, but
+// codegen has not run since it landed: regeneration needs `npx convex dev` against a configured
+// deployment, which this machine does not have. This pair of declarations (the import here and the
+// `net_worth_journal` entry in `fullApi` below) is exactly what codegen emits for a module, so when
+// codegen can run it will replace both with no change to the consuming code. Delete this comment
+// at that point — until then, a module added to `convex/` needs the same two lines by hand.
+import type * as net_worth_journal from "../net_worth_journal.js";
 import type * as onboarding from "../onboarding.js";
 import type * as physical_asset from "../physical_asset.js";
 import type * as plan_snapshots from "../plan_snapshots.js";
@@ -88,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   market_assumptions: typeof market_assumptions;
   messages: typeof messages;
   migrations: typeof migrations;
+  net_worth_journal: typeof net_worth_journal;
   onboarding: typeof onboarding;
   physical_asset: typeof physical_asset;
   plan_snapshots: typeof plan_snapshots;
