@@ -39,15 +39,9 @@ import type { DebtsData } from './debts';
 import type { PhysicalAssetsData } from './physical-assets';
 import type { AccountDataWithReturns } from './returns';
 import { uniformLifetimeMap } from './historical-data/rmd-table';
+import { DEFAULT_WITHDRAWAL_STRATEGY, type WithdrawalOrderItem, type WithdrawalStrategy } from './withdrawal-strategies';
 
 type FlowsData = { total: AssetFlows; byAccount: Record<string, AssetFlows> };
-
-type WithdrawalModifier = 'contributionsOnly';
-
-interface WithdrawalOrderItem {
-  accountType: AccountInputs['type'];
-  modifier?: WithdrawalModifier;
-}
 
 const DEFAULT_ASSET_ALLOCATION = { stocks: 0.6, bonds: 0.4, cash: 0 };
 
@@ -62,11 +56,26 @@ export class PortfolioProcessor {
   private monthlyData: PortfolioData[] = [];
   private outstandingShortfall: number = 0;
 
+  /** Simulation-year index the current allowance was computed for; see `currentYearWithdrawalAllowance`. */
+  private allowanceYearIndex: number | undefined;
+  /** What is left of the current year's spending allowance, or `undefined` when uncapped. */
+  private remainingAllowance: number | undefined;
+  /** Spending withdrawals taken so far this simulation year, the history Guyton-Klinger reads. */
+  private annualWithdrawnTotal = 0;
+  /** Last simulation year's spending withdrawals, or `undefined` if it took none. */
+  private previousAnnualWithdrawal: number | undefined;
+
+  /**
+   * @param withdrawalStrategy - Where withdrawals come from and, for the capping strategies, how
+   *   much a year may take. Defaults to `ordered`: the pre-strategy sequence with no ceiling, so a
+   *   processor constructed without this argument behaves exactly as it did before P1-P4.
+   */
   constructor(
     private simulationState: SimulationState,
     private simulationContext: SimulationContext,
     private contributionRules: ContributionRules,
-    private glidePath?: GlidePathInputs
+    private glidePath?: GlidePathInputs,
+    private withdrawalStrategy: WithdrawalStrategy = DEFAULT_WITHDRAWAL_STRATEGY
   ) {
     this.initialAssetAllocation = this.simulationState.portfolio.getWeightedAssetAllocation();
     this.extraSavingsAccount = this.createExtraSavingsAccount();
@@ -124,7 +133,7 @@ export class PortfolioProcessor {
       earningsWithdrawn,
       earningsWithdrawnByAccount,
       shortfall,
-    } = this.processWithdrawals(netCashFlow);
+    } = this.processWithdrawals(netCashFlow, this.currentYearWithdrawalAllowance());
 
     const { realizedGainsFromRebalance, realizedGainsByAccountFromRebalance } = this.processRebalance();
 
@@ -346,7 +355,15 @@ export class PortfolioProcessor {
     return { total, byAccount, discretionaryExpense, employerMatch, employerMatchByAccount, shortfallRepaid };
   }
 
-  private processWithdrawals(netCashFlow: number): FlowsData & {
+  private processWithdrawals(
+    netCashFlow: number,
+    /**
+     * What the strategy still allows this year, or `undefined` when it sets no ceiling (the
+     * `ordered` default) — and also when this withdrawal is not spending at all: the tax
+     * settlement calls here without a budget, because a liability cannot be capped away.
+     */
+    annualAllowance?: number
+  ): FlowsData & {
     realizedGains: number;
     realizedGainsByAccount: Record<string, number>;
     earningsWithdrawn: number;
@@ -372,7 +389,9 @@ export class PortfolioProcessor {
     let earningsWithdrawn = 0;
 
     const withdrawalOrder = this.getWithdrawalOrder();
-    let remainingToWithdraw = Math.abs(netCashFlow);
+    const desiredWithdrawal = Math.abs(netCashFlow);
+    let remainingToWithdraw = annualAllowance === undefined ? desiredWithdrawal : Math.min(desiredWithdrawal, Math.max(0, annualAllowance));
+    let withdrawnTotal = 0;
 
     for (const { accountType, modifier } of withdrawalOrder) {
       if (remainingToWithdraw <= 0) break;
@@ -408,14 +427,23 @@ export class PortfolioProcessor {
 
         byAccount[account.getAccountID()] = addFlows(byAccount[account.getAccountID()] ?? zeroFlows(), withdrawnAssets);
         remainingToWithdraw -= withdrawFromThisAccount;
+        withdrawnTotal += withdrawFromThisAccount;
       }
     }
 
     const total = Object.values(byAccount).reduce((acc, curr) => addFlows(acc, curr), zeroFlows());
 
-    // Any remaining amount that couldn't be withdrawn is recorded as a shortfall
-    const shortfall = remainingToWithdraw;
+    // Any remaining amount that couldn't be withdrawn is recorded as a shortfall. That includes
+    // what a capping strategy refused to fund: the spending still happened, and this is the cash
+    // that could not be drawn for it. (Uncapped, this is the same expression as before strategies
+    // existed — the cap only changes how `remainingToWithdraw` starts.)
+    const shortfall = annualAllowance === undefined ? remainingToWithdraw : desiredWithdrawal - withdrawnTotal;
     this.outstandingShortfall += shortfall;
+
+    if (annualAllowance !== undefined) {
+      this.remainingAllowance = Math.max(0, annualAllowance - withdrawnTotal);
+      this.annualWithdrawnTotal += withdrawnTotal;
+    }
 
     return {
       total,
@@ -602,43 +630,52 @@ export class PortfolioProcessor {
   }
 
   /**
-   * Returns the tax-optimized withdrawal order based on age
+   * What the injected strategy still allows the current simulation year to withdraw for spending.
    *
-   * Before 59.5: savings -> taxable -> Roth contributions -> tax-deferred -> Roth earnings -> HSA
-   * After 59.5: savings -> tax-deferred -> taxable -> Roth -> HSA
+   * `undefined` for a strategy that declares no cap — which is the `ordered` default — so the
+   * default path does no bookkeeping at all and cannot drift from the pre-strategy behaviour.
+   *
+   * The cap is computed once per simulation year, from the portfolio's value at that moment, with
+   * the previous year's spending withdrawals as the history Guyton-Klinger reads. It is clamped to
+   * what the portfolio actually holds, so no strategy can propose withdrawing more than exists.
    */
-  private getWithdrawalOrder(): Array<WithdrawalOrderItem> {
-    const age = this.simulationState.time.age;
-    const regularQualifiedWithdrawalAge = 59.5;
+  private currentYearWithdrawalAllowance(): number | undefined {
+    if (this.withdrawalStrategy.getAnnualCap === undefined) return undefined;
 
-    if (age < regularQualifiedWithdrawalAge) {
-      return [
-        { accountType: 'savings' },
-        { accountType: 'taxableBrokerage' },
-        { accountType: 'roth401k', modifier: 'contributionsOnly' },
-        { accountType: 'roth403b', modifier: 'contributionsOnly' },
-        { accountType: 'rothIra', modifier: 'contributionsOnly' },
-        { accountType: '401k' },
-        { accountType: '403b' },
-        { accountType: 'ira' },
-        { accountType: 'roth401k' },
-        { accountType: 'roth403b' },
-        { accountType: 'rothIra' },
-        { accountType: 'hsa' },
-      ];
-    } else {
-      return [
-        { accountType: 'savings' },
-        { accountType: '401k' },
-        { accountType: '403b' },
-        { accountType: 'ira' },
-        { accountType: 'taxableBrokerage' },
-        { accountType: 'roth401k' },
-        { accountType: 'roth403b' },
-        { accountType: 'rothIra' },
-        { accountType: 'hsa' },
-      ];
+    const yearIndex = Math.ceil(this.simulationState.time.month / 12);
+    if (yearIndex !== this.allowanceYearIndex) {
+      this.allowanceYearIndex = yearIndex;
+      this.previousAnnualWithdrawal = this.annualWithdrawnTotal > 0 ? this.annualWithdrawnTotal : undefined;
+      this.annualWithdrawnTotal = 0;
+
+      const portfolioValue = this.simulationState.portfolio.getTotalValue();
+      const cap = this.withdrawalStrategy.getAnnualCap({
+        age: this.simulationState.time.age,
+        endAge: this.simulationContext.endAge,
+        portfolioValue,
+        previousWithdrawal: this.previousAnnualWithdrawal,
+      });
+
+      this.remainingAllowance = cap === undefined ? undefined : Math.max(0, Math.min(cap, portfolioValue));
     }
+
+    return this.remainingAllowance;
+  }
+
+  /**
+   * Returns the withdrawal order from the injected strategy.
+   *
+   * The default (`ordered`) strategy returns exactly the age-based sequence this method used to
+   * hardcode — before 59.5: savings -> taxable -> Roth contributions -> tax-deferred -> Roth
+   * earnings -> HSA; after: savings -> tax-deferred -> taxable -> Roth -> HSA — so the default run
+   * is unchanged. A capping strategy still withdraws *from* the same places, only less per year.
+   */
+  private getWithdrawalOrder(): readonly WithdrawalOrderItem[] {
+    return this.withdrawalStrategy.getOrder({
+      age: this.simulationState.time.age,
+      endAge: this.simulationContext.endAge,
+      portfolioValue: this.simulationState.portfolio.getTotalValue(),
+    });
   }
 
   resetMonthlyData(): void {
