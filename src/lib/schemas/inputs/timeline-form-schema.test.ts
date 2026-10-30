@@ -128,12 +128,64 @@ describe('createTimelineFormSchema', () => {
     expect(createTimelineFormSchema('2025-12-01').safeParse(eighteenInJanuary2026).success).toBe(false);
   });
 
-  it('keeps the clock-relative rules out of the structural schema', () => {
+  it('keeps all three clock-relative rules out of the structural schema', () => {
     // Documents the split: `timelineBaseSchema` is shape-only, so it has no date to compare
-    // against and accepts a minor's birth year. Plan-level composition uses it; the form
-    // boundary uses `createTimelineFormSchema(now)`.
-    expect(timelineBaseSchema.safeParse({ ...validTimeline, birthYear: 2010 }).success).toBe(true);
-    expect(createTimelineFormSchema('2026-02-01').safeParse({ ...validTimeline, birthYear: 2010 }).success).toBe(false);
+    // against and accepts a plan that only the date-aware form rejects. Plan-level composition
+    // uses it; the form boundary uses `createTimelineFormSchema(now)`. Each of the three rules
+    // is pinned separately, so moving any one of them back into the base schema fails here.
+    const cases = [
+      // 1. The 18–100 age rule: a minor at NOW.
+      { plan: { ...validTimeline, birthYear: 2010 }, rule: 'age' },
+      // 2. Life expectancy above the *current* age: 60 today, expectancy 55 (inside the 50–110 bound).
+      { plan: { ...validTimeline, birthYear: 1966, lifeExpectancy: 55 }, rule: 'life expectancy' },
+      // 3. Retirement age between the current age and the life expectancy: 36 today, retiring at 19.
+      {
+        plan: { ...validTimeline, birthYear: 1990, retirementStrategy: { type: 'fixedAge' as const, retirementAge: 19 } },
+        rule: 'retirement age',
+      },
+    ];
+
+    for (const { plan, rule } of cases) {
+      expect(timelineBaseSchema.safeParse(plan).success, `base schema should accept the ${rule} case`).toBe(true);
+      expect(timelineSchema.safeParse(plan).success, `form schema should reject the ${rule} case`).toBe(false);
+    }
+  });
+
+  it('evaluates the rules against a plan`s pinned as-of date, not the host date', () => {
+    // P1-P5: the drawer passes `simulationSettings.asOfDate` here when a plan pins its clock, so
+    // these three rules move with the plan. The cases below are the same plan passing at the
+    // host's date and failing five years later — which is what a pinned 2031 run does.
+    const later = createTimelineFormSchema('2031-02-01');
+
+    // Age rule: 96 today (inside 18–100), 101 in 2031 — past the upper bound. The SWR strategy is
+    // used to isolate that rule: a fixed retirement age is capped at 73, which a 96-year-old could
+    // never satisfy, so the case would fail for the wrong reason.
+    const swr = { type: 'swrTarget' as const, safeWithdrawalRate: 4 };
+    const centenarianIn2031 = { ...validTimeline, birthYear: 1930, lifeExpectancy: 110, retirementStrategy: swr };
+    expect(timelineSchema.safeParse(centenarianIn2031).success).toBe(true);
+    expect(later.safeParse(centenarianIn2031).success).toBe(false);
+
+    // Life expectancy: 66 today with an expectancy of 68; 71 by 2031, so the horizon is behind us.
+    const shortHorizonIn2031 = { ...validTimeline, birthYear: 1960, lifeExpectancy: 68, retirementStrategy: swr };
+    expect(timelineSchema.safeParse(shortHorizonIn2031).success).toBe(true);
+    expect(later.safeParse(shortHorizonIn2031).success).toBe(false);
+
+    // Retirement age: 66 today retiring at 67; 71 by 2031, so that retirement age is in the past.
+    const lateRetirementIn2031 = {
+      ...validTimeline,
+      birthYear: 1960,
+      lifeExpectancy: 90,
+      retirementStrategy: { type: 'fixedAge' as const, retirementAge: 67 },
+    };
+    expect(timelineSchema.safeParse(lateRetirementIn2031).success).toBe(true);
+    expect(later.safeParse(lateRetirementIn2031).success).toBe(false);
+
+    // The reverse direction: an earlier pinned date makes the same birth year a minor, which the
+    // host date's run accepts.
+    const earlier = createTimelineFormSchema('2020-02-01');
+    const adultToday = { ...validTimeline, birthYear: 2008, retirementStrategy: swr };
+    expect(timelineSchema.safeParse(adultToday).success).toBe(true);
+    expect(earlier.safeParse(adultToday).success).toBe(false);
   });
 });
 

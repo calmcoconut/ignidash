@@ -20,6 +20,10 @@ export const NEEDS_BG_TEXT_COLORS = [
   'var(--foreground)',
 ];
 
+// SAFETY: Recharts calls a custom tick with its own generated payload — `x`/`y` are the pixel
+// coordinates it computed and `payload.value` is the category label it is drawing. Recharts
+// publishes no type for a tick component, so `any` is the only annotation that fits; the three
+// fields used below are the documented tick contract, and everything else is ignored.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const CustomizedAxisTick = ({ x, y, payload }: any) => {
   const truncateText = (text: string, maxLength = 24) => {
@@ -39,6 +43,10 @@ export function ChartEmptyState({ message = 'No data available for the selected 
   return <div className="flex h-72 w-full items-center justify-center sm:h-84 lg:h-96">{message}</div>;
 }
 
+// SAFETY: Recharts clones this component into the shape its label renderer passes — the bar/area
+// geometry (`x`, `y`, `width`, `height`, `offset`) plus whatever the caller spread into it
+// (`value`, `isSmallScreen`, `formatValue`). There is no exported type for a label renderer's
+// props, so `any` stands in; the fields read below are the only ones the component touches.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const CustomLabelListContent = (props: any) => {
   const { x, y, width, height, offset, value, isSmallScreen, formatValue } = props;

@@ -20,12 +20,14 @@ import {
 /**
  * Ownership and household are metadata, not inputs to the model (parity plan P1-P2).
  *
- * P1-P3 is what starts reading `owner` (per-owner RMD age, survivor rules, per-owner totals).
- * Until then the only acceptable effect of this item on a simulation is **none**: a plan that
- * carries `owner`, `propertyRegime` and a two-member `household` must produce the same numbers,
- * to the last cent, as the same plan with those fields absent. That is also what makes the
- * frozen golden corpus safe across the migration — no golden can move, because nothing reads
- * the new fields.
+ * The split this file guards: **ownership** (`owner`, `propertyRegime`) still changes nothing —
+ * the engine reads it only through `ownerOf`/`propertyRegimeOf`, and those default to `primary`,
+ * so a tagged plan and an untagged one must produce identical numbers to the last cent. The
+ * **household** is different now that P1-P3 has shipped: two members select a joint filing status
+ * and can change the horizon, so the couple fixture below is explicitly built to describe two
+ * people of the same age and the same filing status the plan already stores — which is the case
+ * where nothing may move. A two-member household that differs from the plan's own ages is
+ * covered by `household-behaviour.test.ts`.
  */
 
 /** A complete plan with no ownership anywhere: the shape every stored plan had before P1-P2. */

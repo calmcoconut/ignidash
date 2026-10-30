@@ -96,6 +96,7 @@ export function taxSettingsFromConvex(taxSettings: Doc<'plans'>['taxSettings']):
   // Absent stays absent: a plan that does not itemize must not read back as itemizing zeros.
   return {
     filingStatus: taxSettings.filingStatus,
+    stateResidency: taxSettings.stateResidency,
     itemizedDeductions: taxSettings.itemizedDeductions,
     spouseQualifiesForSeniorDeduction: taxSettings.spouseQualifiesForSeniorDeduction,
   };
@@ -303,6 +304,9 @@ export function taxSettingsToConvex(taxSettings: TaxSettingsInputs): Doc<'plans'
 
   return {
     filingStatus: taxSettings.filingStatus,
+    // California is the default, so only an explicit opt-out is stored; that keeps every existing
+    // plan's document byte-identical until someone chooses otherwise.
+    ...(taxSettings.stateResidency === 'none' ? { stateResidency: 'none' as const } : {}),
     ...(itemizes ? { itemizedDeductions: entered } : {}),
     ...(taxSettings.spouseQualifiesForSeniorDeduction === true ? { spouseQualifiesForSeniorDeduction: true } : {}),
   };
@@ -398,35 +402,6 @@ export function marketAssumptionsToConvex(marketAssumptions: MarketAssumptionsIn
 
 export function timelineToConvex(timeline: TimelineInputs | null): Doc<'plans'>['timeline'] {
   return timeline ? structuredClone(timeline) : null;
-}
-
-// Inverse of simulatorFromConvex: id-keyed records → arrays, excludes DB metadata (userId, name, etc.).
-export function simulatorToConvex(
-  simulator: SimulatorInputs
-): Omit<Doc<'plans'>, '_id' | '_creationTime' | 'userId' | 'name' | 'isDefault'> {
-  const incomes = Object.values(simulator.incomes).map(incomeToConvex);
-  const accounts = Object.values(simulator.accounts).map(accountToConvex);
-  const glidePath = simulator.glidePath ? glidePathToConvex(simulator.glidePath) : undefined;
-  const expenses = Object.values(simulator.expenses).map(expenseToConvex);
-  const debts = Object.values(simulator.debts).map(debtToConvex);
-  const physicalAssets = Object.values(simulator.physicalAssets).map(physicalAssetToConvex);
-  const contributionRules = Object.values(simulator.contributionRules).map(contributionToConvex);
-
-  return {
-    timeline: timelineToConvex(simulator.timeline),
-    incomes,
-    accounts,
-    glidePath,
-    expenses,
-    debts,
-    physicalAssets,
-    contributionRules,
-    baseContributionRule: baseContributionToConvex(simulator.baseContributionRule),
-    marketAssumptions: marketAssumptionsToConvex(simulator.marketAssumptions),
-    taxSettings: taxSettingsToConvex(simulator.taxSettings),
-    privacySettings: privacySettingsToConvex(simulator.privacySettings),
-    simulationSettings: simulationSettingsToConvex(simulator.simulationSettings),
-  };
 }
 
 // Coerces empty-string URLs to undefined so Convex doesn't store "".

@@ -15,7 +15,6 @@ import {
   simulationSettingsFromConvex,
   simulationSettingsToConvex,
   simulatorFromConvex,
-  simulatorToConvex,
   arrayToRecord,
   recordToArray,
 } from './data-transformers';
@@ -344,10 +343,10 @@ describe('simulationSettingsFromConvex / simulationSettingsToConvex', () => {
 });
 
 // ============================================================================
-// Full Simulator Roundtrip
+// Simulator reads
 // ============================================================================
 
-describe('simulatorFromConvex / simulatorToConvex', () => {
+describe('simulatorFromConvex', () => {
   it('should roundtrip a plan with multiple entities', () => {
     const plan = {
       _id: 'plan-1' as Doc<'plans'>['_id'],
@@ -385,21 +384,9 @@ describe('simulatorFromConvex / simulatorToConvex', () => {
     expect(Object.keys(simulator.physicalAssets)).toEqual(['asset-1']);
     expect(Object.keys(simulator.contributionRules)).toEqual(['contrib-1']);
 
-    // Roundtrip back — records become arrays, DB metadata excluded
-    const back = simulatorToConvex(simulator);
-    expect(back.incomes).toHaveLength(2);
-    expect(back.accounts).toHaveLength(2);
-    expect(back.expenses).toHaveLength(1);
-    expect(back.debts).toHaveLength(1);
-    expect(back.physicalAssets).toHaveLength(1);
-    expect(back.contributionRules).toHaveLength(1);
-    expect(back.taxSettings.filingStatus).toBe('single');
-    expect(back.marketAssumptions.stockReturn).toBe(9);
-
-    // DB metadata should not be present
-    expect(back).not.toHaveProperty('_id');
-    expect(back).not.toHaveProperty('userId');
-    expect(back).not.toHaveProperty('name');
+    // Values survive the transform: the records keep what the document stored.
+    expect(simulator.taxSettings.filingStatus).toBe('single');
+    expect(simulator.marketAssumptions.stockReturn).toBe(9);
   });
 
   it('should handle empty optional arrays', () => {

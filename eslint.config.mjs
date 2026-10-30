@@ -23,7 +23,10 @@ const eslintConfig = [
     // call site instead (src/lib/utils/system-clock.ts is the app's single wall-clock read).
     // `new Date(year, month, day)` and other argument-taking constructions stay legal.
     // The import ban closes the loophole of reaching that module directly: patterns cover the
-    // `@/` alias and relative paths from any nested subdirectory.
+    // `@/` alias and relative paths from any nested subdirectory, in every spelling a module
+    // specifier can take — extensionless, and with the explicit `.ts`/`.js`/`.jsx`/`.tsx`
+    // extension TypeScript's node16 ESM resolver expects. `'../../utils/system-clock.js'` used
+    // to slip through because only the extensionless and `.ts` forms were listed.
     files: ['src/lib/calc/**/*.{ts,tsx}', 'src/lib/schemas/**/*.{ts,tsx}'],
     ignores: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**'],
     rules: {
@@ -34,8 +37,13 @@ const eslintConfig = [
             {
               group: [
                 '@/lib/utils/system-clock',
+                '@/lib/utils/system-clock.js',
+                '@/lib/utils/system-clock.ts',
                 '**/utils/system-clock',
+                '**/utils/system-clock.js',
+                '**/utils/system-clock.jsx',
                 '**/utils/system-clock.ts',
+                '**/utils/system-clock.tsx',
                 '../utils/system-clock',
                 '../../utils/system-clock',
               ],

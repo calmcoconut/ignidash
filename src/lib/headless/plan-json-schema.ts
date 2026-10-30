@@ -47,8 +47,9 @@ import { simulatorSchema } from '@/lib/schemas/inputs/simulator-schema';
 export const PLAN_JSON_SCHEMA_DIRECTORY = 'schema';
 
 /**
- * `schema/ignidash-plan.v<N>.schema.json`, where N is `EXPORT_SCHEMA_VERSION` (currently 4).
- * The number follows the export envelope (contract 3.3); it is never written by hand.
+ * `schema/ignidash-plan.v<N>.schema.json`, where N is `EXPORT_SCHEMA_VERSION`.
+ * The number follows the export envelope (contract 3.3); it is never written by hand, and it is
+ * deliberately not spelled out here so this docstring cannot go stale on the next bump.
  */
 export function planJsonSchemaFileName(version: number = EXPORT_SCHEMA_VERSION): string {
   return `ignidash-plan.v${version}.schema.json`;

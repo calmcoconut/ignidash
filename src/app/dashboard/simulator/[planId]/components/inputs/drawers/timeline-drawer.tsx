@@ -24,6 +24,7 @@ import { Divider } from '@/components/catalyst/divider';
 import { Button } from '@/components/catalyst/button';
 import { DialogActions } from '@/components/catalyst/dialog';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
+import { useSimulationSettingsData } from '@/hooks/use-convex-data';
 
 function getRetirementStrategyDesc(retirementStrategyType: 'fixedAge' | 'swrTarget') {
   switch (retirementStrategyType) {
@@ -63,10 +64,17 @@ interface TimelineDrawerProps {
 
 export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProps) {
   const planId = useSelectedPlanId();
+  const simulationSettings = useSimulationSettingsData();
 
-  // The timeline rules compare the plan against "today", so this UI boundary supplies the
-  // date explicitly and the schema module itself stays clock-free.
-  const timelineFormResolver = useMemo(() => zodResolver(createTimelineFormSchema(currentLocalISODate())), []);
+  // The timeline rules compare the plan against "today", so this UI boundary supplies the date
+  // explicitly and the schema module itself stays clock-free. A plan that pins its clock
+  // (`simulationSettings.asOfDate`, the same date the engine runs from) is validated against that
+  // date, not against the host's today: a plan pinned to 2036 must not accept a birth year that
+  // only makes the member 15 today, nor reject the one that makes them 18 by then. With no pin,
+  // the host's date is what the rules have always used.
+  const pinnedAsOfDate = simulationSettings?.asOfDate;
+  const validationDate = pinnedAsOfDate ?? currentLocalISODate();
+  const timelineFormResolver = useMemo(() => zodResolver(createTimelineFormSchema(validationDate)), [validationDate]);
 
   const timelineDefaultValues = useMemo(
     () =>
