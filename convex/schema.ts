@@ -76,4 +76,28 @@ export default defineSchema({
     userId: v.string(),
     onboardingDialogCompleted: v.boolean(),
   }).index('by_userId', ['userId']),
+  /**
+   * The manual net-worth journal (contract 3.2): one row per dated snapshot of the balances the
+   * operator observed, recorded against the plan whose account ids `balances` names. P4-P7 reads
+   * it to overlay actuals on the projection and to compute the deviation band.
+   *
+   * Additive: it is not part of the plan payload, so it changes no export schema.
+   */
+  netWorthJournal: defineTable({
+    userId: v.string(),
+    planId: v.id('plans'),
+    /** As recorded: `YYYY`, `YYYY-MM` or `YYYY-MM-DD`. A partial date covers its whole period. */
+    date: v.string(),
+    /**
+     * The end of the recorded period as `YYYY-MM-DD`, derived from `date`. P4-P7 interpolates
+     * against projection rows by this value, so it is stored rather than re-derived on read, and
+     * "one snapshot per day" is enforced on it.
+     */
+    effectiveDate: v.string(),
+    balances: v.record(v.string(), v.number()),
+    note: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index('by_userId_planId_effectiveDate', ['userId', 'planId', 'effectiveDate'])
+    .index('by_planId', ['planId']),
 });

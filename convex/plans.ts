@@ -5,6 +5,7 @@ import type { Doc } from './_generated/dataModel';
 import { getUserIdOrThrow } from './utils/auth_utils';
 import { deleteAllConversationsForPlan } from './utils/conversation_utils';
 import { deleteAllInsightsForPlan } from './utils/insights_utils';
+import { deleteAllJournalEntriesForPlan } from './utils/net_worth_journal_utils';
 import { deleteAllSnapshotsForPlan } from './utils/snapshot_utils';
 import { getPlanForCurrentUserOrThrow, getAllPlansForUser } from './utils/plan_utils';
 import { removeDanglingSyncIds } from './utils/plan_export_utils';
@@ -259,6 +260,7 @@ export const deletePlan = mutation({
       deleteAllConversationsForPlan(ctx, planId),
       deleteAllInsightsForPlan(ctx, planId),
       deleteAllSnapshotsForPlan(ctx, planId),
+      deleteAllJournalEntriesForPlan(ctx, planId),
     ]);
 
     await ctx.db.delete(planId);
