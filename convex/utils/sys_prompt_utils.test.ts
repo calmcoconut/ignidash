@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { formatNumber, timePointLabel, keyMetricsForDisplay, formatPlanData, buildTable } from './sys_prompt_utils';
+import {
+  formatNumber,
+  timePointLabel,
+  keyMetricsForDisplay,
+  formatPlanData,
+  buildTable,
+  getSystemPrompt,
+  withTaxOptimizationSkill,
+  isTaxOptimizationConversation,
+  resolveTaxOptimizationTurn,
+  TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE,
+} from './sys_prompt_utils';
+import { TAX_OPTIMIZATION_SKILL_MARKER } from '../prompts/tax-optimization';
 import type { KeyMetrics } from '../validators/key_metrics_validator';
 import type { SimulationResult } from '../validators/simulation_result_validator';
 import type { Doc } from '../_generated/dataModel';
@@ -343,5 +355,114 @@ describe('buildTable', () => {
 
     const result = buildTable('Empty', data, columns);
     expect(result).toBeNull();
+  });
+});
+
+// --- tax-optimization skill (§7-A2) ---
+
+/** A plan just complete enough for `getSystemPrompt` to render. */
+function makeSkillPlanDoc(): Doc<'plans'> {
+  return {
+    _id: 'skill-plan-id' as unknown as Doc<'plans'>['_id'],
+    _creationTime: 0,
+    userId: 'test-user',
+    name: 'Skill Plan',
+    isDefault: true,
+    timeline: {
+      birthMonth: 1,
+      birthYear: 1990,
+      lifeExpectancy: 87,
+      retirementStrategy: { type: 'fixedAge', retirementAge: 65 },
+    },
+    incomes: [],
+    expenses: [],
+    debts: [],
+    physicalAssets: [],
+    accounts: [],
+    contributionRules: [],
+    baseContributionRule: { type: 'save' },
+    marketAssumptions: { stockReturn: 9, stockYield: 2, bondReturn: 4, bondYield: 3.5, cashReturn: 3, inflationRate: 3 },
+    taxSettings: { filingStatus: 'single' },
+    privacySettings: { isPrivate: true },
+    simulationSettings: { simulationMode: 'fixedReturns', simulationSeed: 1 },
+  } as Doc<'plans'>;
+}
+
+describe('withTaxOptimizationSkill', () => {
+  it('leaves the base prompt alone when the skill is not used', () => {
+    const base = getSystemPrompt(makeSkillPlanDoc(), null);
+    expect(base).not.toContain(TAX_OPTIMIZATION_SKILL_MARKER);
+  });
+
+  it('appends the skill prompt and its marker after the base', () => {
+    const base = getSystemPrompt(makeSkillPlanDoc(), null);
+    const withSkill = withTaxOptimizationSkill(base);
+
+    expect(withSkill).toContain(TAX_OPTIMIZATION_SKILL_MARKER);
+    expect(withSkill.length).toBeGreaterThan(base.length);
+    // The base prompt survives intact: the skill is appended, never substituted.
+    expect(withSkill.startsWith(base.trimEnd())).toBe(true);
+    expect(withSkill).toContain('## Stance: rank, never recommend');
+  });
+});
+
+describe('isTaxOptimizationConversation', () => {
+  it('is true when the stored prompt carries the marker', () => {
+    expect(isTaxOptimizationConversation({ systemPrompt: `${TAX_OPTIMIZATION_SKILL_MARKER}\n# Tax-optimization skill (v1)` })).toBe(true);
+  });
+
+  it('is false for a plain chat', () => {
+    expect(isTaxOptimizationConversation({ systemPrompt: 'You are an educational assistant for Ignidash.' })).toBe(false);
+  });
+
+  it('is false when the conversation has no stored prompt', () => {
+    expect(isTaxOptimizationConversation({ systemPrompt: undefined })).toBe(false);
+    expect(isTaxOptimizationConversation({})).toBe(false);
+    expect(isTaxOptimizationConversation(null)).toBe(false);
+  });
+});
+
+describe('resolveTaxOptimizationTurn', () => {
+  const marked = { systemPrompt: `${TAX_OPTIMIZATION_SKILL_MARKER}\n# Tax-optimization skill (v1)` };
+  const plain = { systemPrompt: 'You are an educational assistant for Ignidash.' };
+
+  it('enables the skill on creation when it is requested and tool calling is on', () => {
+    expect(resolveTaxOptimizationTurn({ requested: true, isNewConversation: true, conversation: null, toolsEnabled: true })).toEqual({
+      enabled: true,
+    });
+  });
+
+  it('refuses on creation when tool calling is off (F4)', () => {
+    expect(resolveTaxOptimizationTurn({ requested: true, isNewConversation: true, conversation: null, toolsEnabled: false })).toEqual({
+      enabled: false,
+      refusal: TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE,
+    });
+  });
+
+  it('opens a plain chat when the skill is not requested', () => {
+    for (const requested of [false, undefined]) {
+      expect(resolveTaxOptimizationTurn({ requested, isNewConversation: true, conversation: null, toolsEnabled: true })).toEqual({
+        enabled: false,
+      });
+    }
+  });
+
+  it('derives later turns from the stored prompt, not from the request', () => {
+    // The prompt is rebuilt from the plan every turn, so only the stored marker survives.
+    expect(
+      resolveTaxOptimizationTurn({ requested: undefined, isNewConversation: false, conversation: marked, toolsEnabled: true })
+    ).toEqual({ enabled: true });
+    expect(resolveTaxOptimizationTurn({ requested: false, isNewConversation: false, conversation: marked, toolsEnabled: true })).toEqual({
+      enabled: true,
+    });
+    expect(resolveTaxOptimizationTurn({ requested: true, isNewConversation: false, conversation: plain, toolsEnabled: true })).toEqual({
+      enabled: false,
+    });
+  });
+
+  it('does not refuse a later turn when tool calling was disabled after creation', () => {
+    expect(
+      resolveTaxOptimizationTurn({ requested: undefined, isNewConversation: false, conversation: marked, toolsEnabled: false })
+    ).toEqual({ enabled: true });
   });
 });

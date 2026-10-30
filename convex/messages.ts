@@ -8,7 +8,7 @@ import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
 import { getConversationForCurrentUserOrThrow } from './utils/conversation_utils';
 import { getUserIdOrThrow } from './utils/auth_utils';
 import { getCanUseAIFeatures, isToolCallingEnabled } from './utils/ai_utils';
-import { getSystemPrompt } from './utils/sys_prompt_utils';
+import { getSystemPrompt, resolveTaxOptimizationTurn, withTaxOptimizationSkill } from './utils/sys_prompt_utils';
 import { keyMetricsValidator } from './validators/key_metrics_validator';
 import { simulationResultValidator } from './validators/simulation_result_validator';
 
@@ -55,8 +55,10 @@ export const send = mutation({
     keyMetrics: v.nullable(keyMetricsValidator),
     simulationResult: v.optional(v.union(v.null(), simulationResultValidator)),
     includeSimData: v.optional(v.boolean()),
+    /** §7-A2: open a tax-optimization chat. Only read on conversation creation (see below). */
+    taxOptimization: v.optional(v.boolean()),
   },
-  handler: async (ctx, { conversationId: currConvId, planId, content, keyMetrics, simulationResult, includeSimData }) => {
+  handler: async (ctx, { conversationId: currConvId, planId, content, keyMetrics, simulationResult, includeSimData, taxOptimization }) => {
     if (content.length > 4000) throw new ConvexError('Message cannot be longer than 4,000 characters.');
 
     const [{ userId }, { canUseAIFeatures: canUseChat }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
@@ -76,9 +78,22 @@ export const send = mutation({
     const updatedAt = Date.now();
 
     // Also validates that the user owns currConvId when it exists
-    const shouldIncludeSimData = currConvId ? (await getConversationForCurrentUserOrThrow(ctx, currConvId)).includeSimData : includeSimData;
+    const currConv = currConvId ? await getConversationForCurrentUserOrThrow(ctx, currConvId) : null;
+    const shouldIncludeSimData = currConv ? currConv.includeSimData : includeSimData;
 
-    const systemPrompt = getSystemPrompt(plan, keyMetrics, shouldIncludeSimData ? simulationResult : null);
+    // §7-A2: on creation the request decides (and is refused when tool calling is off, F4); on
+    // later turns the mode comes from the marker in the stored prompt, because the prompt below is
+    // rebuilt from the plan every turn and the stored text is never reused.
+    const skillTurn = resolveTaxOptimizationTurn({
+      requested: taxOptimization,
+      isNewConversation: currConv === null,
+      conversation: currConv,
+      toolsEnabled: isToolCallingEnabled(),
+    });
+    if (skillTurn.refusal) throw new ConvexError(skillTurn.refusal);
+
+    const baseSystemPrompt = getSystemPrompt(plan, keyMetrics, shouldIncludeSimData ? simulationResult : null);
+    const systemPrompt = skillTurn.enabled ? withTaxOptimizationSkill(baseSystemPrompt) : baseSystemPrompt;
 
     let newConvId: Id<'conversations'> | null = null;
     if (!currConvId) {

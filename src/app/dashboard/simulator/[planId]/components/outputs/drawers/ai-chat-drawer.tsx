@@ -38,6 +38,10 @@ import { Divider } from '@/components/catalyst/divider';
 
 const PAGE_SIZE = 12;
 
+/** §7-A2: the canned opener that creates a tax-optimization conversation. */
+const TAX_OPTIMIZATION_OPENER =
+  'Run the tax-optimization skill on my plan. If I have not picked a goal yet, ask me which goal to rank the variants by.';
+
 const DEMO_QUESTIONS = [
   {
     label: 'Early retirement access strategies',
@@ -292,6 +296,8 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
 
   const user = useQuery(api.auth.getCurrentUserSafe);
   const canUseChat = useQuery(api.messages.canUseChat) ?? false;
+  // F4: the skill's entry point only exists when the deployment's model can call tools.
+  const canUseTools = useQuery(api.messages.canUseTools) ?? false;
 
   const isLoadingFirstPage = status === 'LoadingFirstPage';
   useEffect(() => {
@@ -332,6 +338,25 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
       updateSelectedConversationId(planId, conversationId);
     } catch (error) {
       updateChatState({ errorMessage: error instanceof ConvexError ? error.message : 'Failed to send message.' });
+    }
+  };
+
+  /** §7-A2: creates the conversation with the skill prompt, then selects it. */
+  const handleStartTaxOptimization = async () => {
+    try {
+      updateChatState({ errorMessage: '' });
+      const { conversationId } = await m({
+        planId,
+        content: TAX_OPTIMIZATION_OPENER,
+        keyMetrics,
+        simulationResult,
+        includeSimData,
+        taxOptimization: true,
+      });
+      updateChatState({ chatMessage: '' });
+      updateSelectedConversationId(planId, conversationId);
+    } catch (error) {
+      updateChatState({ errorMessage: error instanceof ConvexError ? error.message : 'Failed to start the tax-optimization chat.' });
     }
   };
 
@@ -432,6 +457,17 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
                       </Description>
                     </CheckboxField>
                   </CheckboxGroup>
+                  {canUseTools && (
+                    <div className="mt-6">
+                      <Button outline className="w-full" onClick={handleStartTaxOptimization}>
+                        <WandSparklesIcon className="size-4" />
+                        Start a tax-optimization chat
+                      </Button>
+                      <Description className="mt-2 text-center">
+                        Runs the engine on variants of this plan and reports the deltas. You pick the goal; the assistant ranks by it.
+                      </Description>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -490,7 +526,7 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
               ))}
             </div>
           )}
-          {selectedConversationId && errorMessage && <ErrorMessageCard errorMessage={errorMessage} className="mb-2" />}
+          {errorMessage && <ErrorMessageCard errorMessage={errorMessage} className="mb-2" />}
           <form className="relative" onSubmit={handleSendMessage}>
             <Textarea
               autoFocus

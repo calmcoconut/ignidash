@@ -1,5 +1,6 @@
 import type { Doc } from '../_generated/dataModel';
 
+import { TAX_OPTIMIZATION_SKILL_MARKER, TAX_OPTIMIZATION_SKILL_PROMPT } from '../prompts/tax-optimization';
 import { incomeTimeFrameForDisplay } from '../validators/incomes_validator';
 import { expenseTimeFrameForDisplay } from '../validators/expenses_validator';
 import type { KeyMetrics } from '../validators/key_metrics_validator';
@@ -698,4 +699,55 @@ export const getInsightsSystemPrompt = (
   userPrompt: string | undefined
 ): string => {
   return insightsSystemPrompt(formatPlanData(plan), formatKeyMetrics(keyMetrics), formatSimulationData(simulationResult), userPrompt);
+};
+
+/**
+ * §7-A2: appends the tax-optimization skill prompt to a normal chat system prompt.
+ *
+ * The skill is composed into the system prompt rather than stored in its own column so that no
+ * Convex schema change is needed. The skill text opens with `TAX_OPTIMIZATION_SKILL_MARKER`, so
+ * the stored prompt is what marks a conversation as a tax-optimization chat, and
+ * `isTaxOptimizationConversation` reads that marker back out of `conversations.systemPrompt`.
+ *
+ * The base prompt is only trimmed at its tail (it ends with a newline), so plain chats keep the
+ * exact bytes they had before the skill existed.
+ */
+export const withTaxOptimizationSkill = (base: string): string => `${base.trimEnd()}\n\n${TAX_OPTIMIZATION_SKILL_PROMPT}`;
+
+/** True when a stored conversation was created with the tax-optimization skill (§7-A2). */
+export const isTaxOptimizationConversation = (conversation: { systemPrompt?: string | undefined } | null | undefined): boolean =>
+  conversation?.systemPrompt?.includes(TAX_OPTIMIZATION_SKILL_MARKER) ?? false;
+
+/** Shown when the skill is requested on a deployment whose model cannot call tools (F4). */
+export const TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE =
+  'Tax optimization needs a model with tool calling, which this deployment has disabled (OPENAI_TOOLS_ENABLED=false). Plain chat is still available.';
+
+export interface TaxOptimizationTurn {
+  /** True when this turn's system prompt carries the skill. */
+  enabled: boolean;
+  /** Set when the request must be refused: nothing is written and the client shows this text. */
+  refusal?: string;
+}
+
+/**
+ * Decides whether a turn runs the tax-optimization skill.
+ *
+ * A conversation is created at most once, so the skill flag is only consulted there (and refused
+ * when tool calling is off, F4). Every later turn derives the mode from the **stored** prompt
+ * instead of from the request: `messages.send` rebuilds the system prompt from the plan on each
+ * turn and never reuses the stored text, so the marker in that text is the only durable record of
+ * how the conversation was opened.
+ */
+export const resolveTaxOptimizationTurn = (options: {
+  requested: boolean | undefined;
+  isNewConversation: boolean;
+  conversation: { systemPrompt?: string | undefined } | null;
+  toolsEnabled: boolean;
+}): TaxOptimizationTurn => {
+  if (!options.isNewConversation) return { enabled: isTaxOptimizationConversation(options.conversation) };
+
+  if (options.requested !== true) return { enabled: false };
+  if (!options.toolsEnabled) return { enabled: false, refusal: TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE };
+
+  return { enabled: true };
 };

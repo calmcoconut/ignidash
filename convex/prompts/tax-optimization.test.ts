@@ -1,0 +1,91 @@
+/**
+ * The tax-optimization skill prompt (§7-A2).
+ *
+ * `tax-optimization.md` is the reviewed artifact; `tax-optimization.ts` is the copy Convex
+ * bundles. This test byte-compares them, so editing one without the other fails the suite. The
+ * rest of the file pins what the prompt must keep saying: the marker on the first line, every hard
+ * rule, and the stance (rank the engine's variants by the user's goal, never recommend one).
+ *
+ * Run Prettier on the .md before regenerating the mirror: `proseWrap` is `preserve`, but a
+ * changed `printWidth` or an explicit `--prose-wrap always` would rewrap the prose and move every
+ * byte in the mirror with it.
+ */
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it } from 'vitest';
+
+import { TAX_OPTIMIZATION_SKILL_MARKER, TAX_OPTIMIZATION_SKILL_PROMPT, TAX_OPTIMIZATION_SKILL_VERSION } from './tax-optimization';
+
+const mdPath = fileURLToPath(new URL('./tax-optimization.md', import.meta.url));
+const markdown = readFileSync(mdPath, 'utf8');
+
+describe('tax-optimization prompt: markdown and TypeScript mirror', () => {
+  it('are byte-identical', () => {
+    expect(TAX_OPTIMIZATION_SKILL_PROMPT).toBe(markdown);
+  });
+
+  it('starts with the stable marker as the first line', () => {
+    expect(markdown.split('\n')[0]).toBe(TAX_OPTIMIZATION_SKILL_MARKER);
+    expect(TAX_OPTIMIZATION_SKILL_PROMPT.startsWith(TAX_OPTIMIZATION_SKILL_MARKER)).toBe(true);
+    expect(markdown.endsWith('\n')).toBe(true);
+  });
+
+  it('is versioned', () => {
+    expect(TAX_OPTIMIZATION_SKILL_VERSION).toBe(1);
+    expect(markdown).toContain(`# Tax-optimization skill (v${TAX_OPTIMIZATION_SKILL_VERSION})`);
+  });
+});
+
+describe('tax-optimization prompt: hard rules', () => {
+  // One distinctive phrase per numbered rule in "## Hard rules".
+  const rules = [
+    '**No number without a tool result.**',
+    '**Deterministic mode, one fixed seed.**',
+    '**Budget: at most 6 variants and at most 12 tool calls per turn.**',
+    '**Monte Carlo only on request.**',
+    '**A refused patch is a refusal, not a puzzle.**',
+    '**Nothing is written.**',
+    '**State assumptions and limits.**',
+    '**A plan that cannot be simulated is an answer too.**',
+  ];
+
+  it('keeps all eight', () => {
+    expect(markdown).toContain('## Hard rules');
+    for (const rule of rules) expect(markdown).toContain(rule);
+
+    // Eight numbered rules, no more and no fewer.
+    const hardRules = markdown.slice(markdown.indexOf('## Hard rules'), markdown.indexOf('## Stance'));
+    const numbered = hardRules.split('\n').filter((line) => /^\d+\. \*\*/.test(line));
+    expect(numbered).toHaveLength(rules.length);
+  });
+});
+
+describe('tax-optimization prompt: stance (F1, rank never recommend)', () => {
+  it('keeps the stance heading and the two stance lines', () => {
+    expect(markdown).toContain('## Stance: rank, never recommend');
+    expect(markdown).toContain('The user picks the goal; you show what the engine computed and what each variant costs.');
+    expect(markdown).toContain('If the user asks you to choose, say the engine cannot rank beyond the goal they set, restate the');
+  });
+
+  it('keeps the goal in the user’s hands and forbids picking a variant', () => {
+    expect(markdown).toContain('The user ranks variants by one goal they choose');
+    expect(markdown).toContain('Never say which variant you would pick.');
+    expect(markdown).toContain('Never call one "best", "optimal", "right" or "what you');
+  });
+
+  it('never recommends', () => {
+    expect(markdown).not.toContain('I recommend');
+    expect(markdown).not.toContain('you should choose');
+  });
+});
+
+describe('tax-optimization prompt: what the engine does not model', () => {
+  it('names the gaps the eval set deliberately leaves out', () => {
+    expect(markdown).toContain('**Federal income tax only.**');
+    expect(markdown).toContain('Married filing');
+    expect(markdown).toContain('separately is not available');
+    expect(markdown).toContain('no California return is computed');
+  });
+});
