@@ -57,6 +57,8 @@ export default function SingleSimulationCashFlowBarChartCard({
       break;
   }
 
+  // No chart/table toggle here: this card is a single-age decomposition (one row), and the
+  // same numbers are already a row of the simulation data table below.
   return (
     <ChartCard title={title} subtitle={`Age ${selectedAge}`}>
       <SingleSimulationCashFlowBarChart age={selectedAge} rawChartData={rawChartData} dataView={dataView} customDataID={customDataID} />

@@ -3,12 +3,13 @@ import { describe, it, expect } from 'vitest';
 import {
   EMPTY_METRIC_TABLE_CELL,
   formatMetricTableValue,
+  resolveChartCardBody,
   resolveMetricTableColumns,
   resolveMetricTableRows,
   type MetricTableRow,
 } from './metric-table';
 import { METRIC_DEFINITIONS, REAL_NET_WORTH_METRIC_ID, getMetric } from './metric-registry';
-import { applySeriesSigns, resolveSeries, seriesValue } from './plot-types';
+import { applySeriesSigns, metricValue, resolveSeries, seriesValue } from './plot-types';
 import type { MetricDataPoint, MetricDefinition } from './plot-types';
 import { ChartDataExtractor } from '@/lib/calc/data-extractors/chart-data-extractor';
 import { FinancialSimulationEngine } from '@/lib/calc/simulation-engine';
@@ -47,6 +48,12 @@ describe('metric table accessors', () => {
 
     for (const metric of METRIC_DEFINITIONS) {
       expect(metric.table.columns.length, metric.id).toBeGreaterThan(0);
+      // The row key is structural, not per-metric config: specs carry only value columns
+      // and the accessor injects `age`, so a spec entry for it could never take effect.
+      expect(
+        metric.table.columns.some((column) => column.key === 'age'),
+        `${metric.id} declares age`
+      ).toBe(false);
 
       const columns = resolveMetricTableColumns(metric);
       expect(columns.length, metric.id).toBe(columnsExceptAge(metric).length + 1);
@@ -144,6 +151,31 @@ describe('metric table rows', () => {
 
     expect(rows[0].realNetWorth).toBeCloseTo(100_000, 6);
     expect(rows[1].realNetWorth).toBeCloseTo(100_000, 6);
+  });
+
+  it('finds a derivation declared on a later series with the same key', () => {
+    // A metric may declare a key once per chart kind. If only the first declaration is
+    // matched, a derivation on a later one is missed and the column silently renders dashes.
+    const definition: MetricDefinition = {
+      id: 'test.duplicateKey',
+      category: 'cashFlow',
+      chartKinds: ['line', 'bar'],
+      series: [
+        { key: 'doubled', label: 'Doubled', color: 'var(--chart-1)', chartKinds: ['line'], plot: 'line' },
+        {
+          key: 'doubled',
+          label: 'Doubled',
+          color: 'var(--chart-1)',
+          chartKinds: ['bar'],
+          plot: 'bar',
+          derive: (point) => metricValue(point, 'base') * 2,
+        },
+      ],
+      table: { columns: [{ key: 'doubled', label: 'Doubled', format: 'currency' }] },
+    };
+
+    const rows = resolveMetricTableRows(definition, [buildPoint({ age: 40, base: 21 })]);
+    expect(rows[0].doubled).toBe(42);
   });
 
   it('keeps missing values null so the cell renders as an em dash, not a zero', () => {
@@ -294,5 +326,30 @@ describe('metric tables over a real simulation', () => {
     const nominal = netWorthPoints.map((point) => point.netWorth);
     const real = rows.map((row) => row.realNetWorth as number);
     expect(real[real.length - 1]).not.toBeCloseTo(nominal[nominal.length - 1], 0);
+  });
+});
+
+describe('chart card body gate', () => {
+  const tableNode = { type: 'table' };
+
+  it('renders the table only when the table view is selected AND a table exists', () => {
+    expect(resolveChartCardBody('table', tableNode)).toBe('table');
+    expect(resolveChartCardBody('chart', tableNode)).toBe('chart');
+    expect(resolveChartCardBody(undefined, tableNode)).toBe('chart');
+  });
+
+  it('falls back to the chart when the table selection is stale', () => {
+    // The invariant the toggle exists to guarantee: the card stops passing a table when the
+    // selected view no longer resolves to a registry metric, and a stale selection must
+    // then show the chart rather than blank the card body.
+    expect(resolveChartCardBody('table', null)).toBe('chart');
+    expect(resolveChartCardBody('table', undefined)).toBe('chart');
+  });
+
+  it('treats any present node, including false-y non-nullish values, as a table', () => {
+    // `!= null` is deliberate: only nullish means "no table". A present node is rendered.
+    expect(resolveChartCardBody('table', false)).toBe('table');
+    expect(resolveChartCardBody('table', '')).toBe('table');
+    expect(resolveChartCardBody('table', 0)).toBe('table');
   });
 });

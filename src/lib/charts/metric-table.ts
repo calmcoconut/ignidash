@@ -82,16 +82,24 @@ function readCell(point: MetricDataPoint, key: string): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-/** Finds the pure derivation a metric declares for a column key, if any. */
+/**
+ * Finds the pure derivation a metric declares for a column key, if any.
+ *
+ * Matches on `key` AND `derive`, not just the first series with that key: a metric may
+ * declare the same key twice (e.g. once per chart kind) with the derivation on only one
+ * of them, and matching the first would silently produce an all-dash column.
+ */
 function deriveFor(metric: MetricDefinition, key: string): ((point: MetricDataPoint, index: number) => number) | undefined {
-  return metric.series.find((series) => series.key === key)?.derive;
+  return metric.series.find((series) => series.key === key && series.derive)?.derive;
 }
 
 /**
  * The columns of a metric's table, as the existing table component expects them.
  *
- * The first column is always the row key (`age`), even if a metric forgets to declare it,
- * because `table.tsx` needs a unique key field.
+ * The row key is structural, not per-metric configuration: `table.tsx` needs a unique key
+ * field, so the accessor always injects the `age` column first and every registry `table`
+ * spec carries only value columns. A spec that still declares `age` is dropped rather than
+ * rendered twice.
  *
  * @param metric - A registry metric
  * @returns TableColumn definitions with the metric's labels and formatters
@@ -128,4 +136,28 @@ export function resolveMetricTableRows(metric: MetricDefinition, points: readonl
 
     return row;
   });
+}
+
+// ================================
+// CHART CARD VIEW GATE
+// ================================
+
+/** Which body a chart card renders. */
+export type ChartCardBody = 'chart' | 'table';
+
+/**
+ * Resolves which body a chart card renders: the metric table or the chart.
+ *
+ * BOTH conditions are required — the table view must be selected AND a table node must
+ * actually be present. That is the invariant the chart/table toggle exists to guarantee:
+ * when the selected view stops resolving to a registry metric the card stops passing a
+ * table (rendering `null`), and a stale `'table'` selection must then fall back to the
+ * chart instead of blanking the card body.
+ *
+ * @param view - The card's selected view ('table' is a request, not a promise)
+ * @param table - The table node the card was able to build, or null/undefined when none
+ * @returns The body to render
+ */
+export function resolveChartCardBody(view: ChartCardBody | undefined, table: unknown): ChartCardBody {
+  return view === 'table' && table != null ? 'table' : 'chart';
 }

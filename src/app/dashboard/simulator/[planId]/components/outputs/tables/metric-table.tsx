@@ -41,6 +41,11 @@ export default function MetricTable({ metricId, points, exportFilename }: Metric
       data={rows}
       keyField="age"
       exportFilename={exportFilename ?? `${metric.id.replace('.', '-')}-table.csv`}
+      // `Table`'s root is its own `Card` (border + shadow), which is right at section level
+      // and wrong here: this table sits inside `ChartCard`'s Card. Cancel the table's own
+      // chrome so it reads flush, including the `sm:border` variant, without changing
+      // `table.tsx`'s defaults for its existing callers.
+      className="mx-0 my-0 border-0 shadow-none sm:border-0"
     />
   );
 }

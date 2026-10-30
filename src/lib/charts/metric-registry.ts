@@ -247,7 +247,6 @@ const CASH_FLOW_CASH_FLOW: MetricDefinition = {
   ],
   table: {
     columns: [
-      { key: 'age', label: 'Age', format: 'number' },
       { key: 'earnedIncome', label: 'Earned Income', format: 'currency' },
       { key: 'socialSecurityIncome', label: 'Social Security Income', format: 'currency' },
       { key: 'taxFreeIncome', label: 'Tax-Free Income', format: 'currency' },
@@ -326,7 +325,6 @@ const CASH_FLOW_SURPLUS_DEFICIT: MetricDefinition = {
   ],
   table: {
     columns: [
-      { key: 'age', label: 'Age', format: 'number' },
       { key: 'earnedIncome', label: 'Earned Income', format: 'currency' },
       { key: 'socialSecurityIncome', label: 'Social Security Income', format: 'currency' },
       { key: 'taxFreeIncome', label: 'Tax-Free Income', format: 'currency' },
@@ -383,7 +381,6 @@ const CASH_FLOW_INCOMES: MetricDefinition = {
   ],
   table: {
     columns: [
-      { key: 'age', label: 'Age', format: 'number' },
       { key: 'earnedIncome', label: 'Earned Income', format: 'currency' },
       { key: 'socialSecurityIncome', label: 'Social Security Income', format: 'currency' },
       { key: 'taxFreeIncome', label: 'Tax-Free Income', format: 'currency' },
@@ -420,7 +417,6 @@ const CASH_FLOW_EXPENSES: MetricDefinition = {
   ],
   table: {
     columns: [
-      { key: 'age', label: 'Age', format: 'number' },
       { key: 'expenses', label: 'Expenses', format: 'currency' },
       { key: 'taxesAndPenalties', label: 'Total Taxes & Penalties', format: 'currency' },
       { key: 'debtPayments', label: 'Debt Payments', format: 'currency' },
@@ -435,10 +431,7 @@ const CASH_FLOW_SAVINGS_RATE: MetricDefinition = {
   format: 'percent',
   series: [{ key: 'savingsRate', label: 'Savings Rate', color: 'var(--chart-3)', chartKinds: ['line'], plot: 'line' }],
   table: {
-    columns: [
-      { key: 'age', label: 'Age', format: 'number' },
-      { key: 'savingsRate', label: 'Savings Rate', format: 'percent' },
-    ],
+    columns: [{ key: 'savingsRate', label: 'Savings Rate', format: 'percent' }],
   },
 };
 
@@ -480,10 +473,7 @@ const REAL_NET_WORTH: MetricDefinition = {
     },
   ],
   table: {
-    columns: [
-      { key: 'age', label: 'Age', format: 'number' },
-      { key: 'realNetWorth', label: 'Net Worth (today\u2019s $)', format: 'currency' },
-    ],
+    columns: [{ key: 'realNetWorth', label: 'Net Worth (today\u2019s $)', format: 'currency' }],
   },
 };
 

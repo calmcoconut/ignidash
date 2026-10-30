@@ -3,6 +3,7 @@
 import Card from '@/components/ui/card';
 import { Subheading } from '@/components/catalyst/heading';
 import { cn } from '@/lib/utils';
+import { resolveChartCardBody } from '@/lib/charts/metric-table';
 
 /** The two ways a chart card can present a ported metric. */
 export type ChartCardView = 'chart' | 'table';
@@ -69,26 +70,30 @@ export default function ChartCard({
   onViewChange,
   table,
 }: ChartCardProps) {
-  const isTableView = view === 'table' && table !== undefined;
+  // A table view needs both the selection AND a table node; see `resolveChartCardBody`.
+  const bodyView = resolveChartCardBody(view, table);
   // Same truthiness test the card used before the toggle existed, so a card that passes
   // no controls still renders no controls wrapper.
   const showControls = Boolean(controls) || onViewChange !== undefined;
 
   return (
     <Card className={className}>
-      <div className="mb-4 flex items-center justify-between">
+      {/* The header carries the title plus up to three controls (toggle, select, icon
+          button). Wrapping keeps a narrow card from clipping them inside `overflow-hidden`
+          at ~375px, where title + controls exceed the card width. */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-y-2">
         <Subheading level={3} className={truncateTitle ? 'truncate' : undefined}>
           <span className="mr-2">{title}</span>
           <span className="text-muted-foreground hidden sm:inline">{subtitle}</span>
         </Subheading>
         {showControls && (
-          <div className="flex shrink-0 items-center gap-2">
-            {onViewChange && <ChartViewToggle view={isTableView ? 'table' : 'chart'} onViewChange={onViewChange} />}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {onViewChange && <ChartViewToggle view={bodyView} onViewChange={onViewChange} />}
             {controls}
           </div>
         )}
       </div>
-      {isTableView ? table : children}
+      {bodyView === 'table' ? table : children}
     </Card>
   );
 }
