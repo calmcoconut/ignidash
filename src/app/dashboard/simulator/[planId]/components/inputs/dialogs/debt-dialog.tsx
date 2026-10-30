@@ -11,7 +11,7 @@ import { CalendarIcon, CreditCardIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
 
-import { useTimelineData } from '@/hooks/use-convex-data';
+import { useTimelineData, useMarketAssumptionsData } from '@/hooks/use-convex-data';
 import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
 import { useLinkableFinances } from '@/hooks/use-linkable-finances';
 import { usePayoffEstimate } from '@/hooks/use-payoff-estimate';
@@ -122,8 +122,14 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
   const interestType = useWatch({ control, name: 'interestType' });
   const compoundingFrequency = useWatch({ control, name: 'compoundingFrequency' });
 
+  // The engine deflates loan payments and interest by the plan's inflation assumption, so the
+  // estimate has to use the same assumption to agree with the simulation.
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
+
   const payoffMonths = usePayoffEstimate(
-    !isNaN(balance) && !isNaN(monthlyPayment) && !isNaN(apr) ? { balance, monthlyPayment, apr, interestType, compoundingFrequency } : null
+    !isNaN(balance) && !isNaN(monthlyPayment) && !isNaN(apr)
+      ? { balance, monthlyPayment, apr, interestType, compoundingFrequency, annualInflationRate }
+      : null
   );
 
   const startTimePoint = useWatch({ control, name: 'startDate' });

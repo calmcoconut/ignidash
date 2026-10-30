@@ -223,6 +223,15 @@ export class Income {
         amountWithheld = income * (this.withholdingRate / 100);
         socialSecurityIncome = income;
         break;
+      case 'pension':
+        // Pension income is fully taxable ordinary income, but payroll-tax free: no Social Security
+        // or Medicare withholding applies. It therefore stays in `income` only (no `taxFreeIncome`
+        // and no `socialSecurityIncome`, so it never feeds the provisional-income calculation as SS).
+        break;
+      case 'selfEmployment':
+        // Gated in the income schema until self-employment tax ships. Treated as ordinary income
+        // with no FICA for now, which is why the gate exists.
+        break;
       default:
         break;
     }

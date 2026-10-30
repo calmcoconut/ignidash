@@ -44,8 +44,10 @@ export const incomeTaxSchema = z
     }
   )
   .refine(
+    // Pension income is supported (ordinary income, no FICA). Self-employment stays gated until
+    // self-employment tax ships: without SE tax it would be taxed as a wage and under-taxed by ~15.3%.
     (data) => {
-      return !['selfEmployment', 'pension'].includes(data.incomeType);
+      return data.incomeType !== 'selfEmployment';
     },
     {
       message: 'This income type is not yet supported',

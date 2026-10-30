@@ -6,7 +6,14 @@ import { useState, RefObject, useCallback } from 'react';
 import { LandmarkIcon, PiggyBankIcon, TrendingUpIcon, RouteIcon, HomeIcon } from 'lucide-react';
 import { PlusIcon } from '@heroicons/react/16/solid';
 
-import { useAccountsData, useAssetData, useLiabilityData, useGlidePathData, usePhysicalAssetsData } from '@/hooks/use-convex-data';
+import {
+  useAccountsData,
+  useAssetData,
+  useLiabilityData,
+  useGlidePathData,
+  usePhysicalAssetsData,
+  useMarketAssumptionsData,
+} from '@/hooks/use-convex-data';
 import DisclosureSection from '@/components/ui/disclosure-section';
 import { Dialog } from '@/components/catalyst/dialog';
 import { Button } from '@/components/catalyst/button';
@@ -38,7 +45,7 @@ function getAccountDesc(account: AccountInputs) {
   );
 }
 
-function getPhysicalAssetDesc(asset: PhysicalAssetInputs) {
+function getPhysicalAssetDesc(asset: PhysicalAssetInputs, annualInflationRate: number) {
   const value = formatCompactCurrency(asset.marketValue ?? asset.purchasePrice, 2);
 
   switch (asset.paymentMethod.type) {
@@ -53,7 +60,9 @@ function getPhysicalAssetDesc(asset: PhysicalAssetInputs) {
       const { type: saleDateType } = asset.saleDate;
 
       const { loanBalance: balance, monthlyPayment, apr } = asset.paymentMethod;
-      const payoffMonths = estimatePayoffMonths({ balance, monthlyPayment, apr, interestType: 'simple' });
+      // The engine deflates loan payments and interest by the plan's inflation assumption, so the
+      // estimate uses the same assumption to agree with the simulation.
+      const payoffMonths = estimatePayoffMonths({ balance, monthlyPayment, apr, interestType: 'simple', annualInflationRate });
 
       return (
         <>
@@ -114,6 +123,8 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
 
   const nwAssets = useAssetData();
   const nwLiabilities = useLiabilityData();
+
+  const annualInflationRate = useMarketAssumptionsData()?.inflationRate ?? 0;
 
   const isLoading = accountsLoading || physicalAssetsLoading;
   const hasData = numAccounts > 0 || numPhysicalAssets > 0;
@@ -194,7 +205,7 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
                       id={id}
                       index={index}
                       name={asset.name}
-                      desc={getPhysicalAssetDesc(asset)}
+                      desc={getPhysicalAssetDesc(asset, annualInflationRate)}
                       leftAddOn={<HomeIcon className="size-8" />}
                       onDropdownClickEdit={() => handlePhysicalAssetDropdownClickEdit(asset)}
                       onDropdownClickDelete={() => setPhysicalAssetToDelete({ id, name: asset.name })}

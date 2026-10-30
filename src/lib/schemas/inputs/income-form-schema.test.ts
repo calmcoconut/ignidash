@@ -105,10 +105,18 @@ describe('incomeFormSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('should reject pension (not yet supported)', () => {
+  it('should accept pension income without withholding', () => {
     const result = incomeFormSchema.safeParse({
       ...validIncome,
       taxes: { incomeType: 'pension' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject pension income that sets a withholding rate beyond the allowed range', () => {
+    const result = incomeFormSchema.safeParse({
+      ...validIncome,
+      taxes: { incomeType: 'pension', withholding: 75 },
     });
     expect(result.success).toBe(false);
   });

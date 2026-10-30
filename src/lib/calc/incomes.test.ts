@@ -448,7 +448,7 @@ describe('Income Type Tax Handling', () => {
     expect(result.totalIncomeAfterPayrollDeductions).toBeCloseTo(12285);
   });
 
-  it('pension income: standard income (no special handling)', () => {
+  it('pension income: ordinary income with no FICA', () => {
     const income = new Income(
       createIncomeInput({
         amount: 4000,
@@ -459,10 +459,45 @@ describe('Income Type Tax Handling', () => {
 
     const result = income.processMonthlyAmount(2024);
 
+    // Fully taxable ordinary income: it must not be tagged tax-free or as Social Security income
+    // (Social Security income feeds the provisional-income calculation in taxes.ts).
     expect(result.income).toBe(4000);
     expect(result.amountWithheld).toBe(0);
     expect(result.ficaTax).toBe(0);
+    expect(result.taxFreeIncome).toBe(0);
+    expect(result.socialSecurityIncome).toBe(0);
     expect(result.incomeAfterPayrollDeductions).toBe(4000);
+  });
+
+  it('pension and wage income: FICA is charged on the wage only', () => {
+    const incomes = new Incomes([
+      createIncomeInput({
+        id: 'salary',
+        name: 'Salary',
+        amount: 10000,
+        frequency: 'monthly',
+        taxes: { incomeType: 'wage', withholding: 22 },
+      }),
+      createIncomeInput({
+        id: 'pension',
+        name: 'Pension',
+        amount: 4000,
+        frequency: 'monthly',
+        taxes: { incomeType: 'pension' },
+      }),
+    ]);
+
+    const processor = new IncomesProcessor(createSimulationState(), incomes);
+    const result = processor.process();
+
+    // Pension flows into total income...
+    expect(result.totalIncome).toBeCloseTo(14000);
+    // ...but carries no payroll tax: FICA is wage-only (10000 * 0.0765).
+    expect(result.totalFicaTax).toBeCloseTo(765);
+    expect(result.perIncomeData['pension'].ficaTax).toBe(0);
+    // ...and is not mistaken for Social Security or tax-free income.
+    expect(result.totalSocialSecurityIncome).toBe(0);
+    expect(result.totalTaxFreeIncome).toBe(0);
   });
 });
 

@@ -623,9 +623,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                             <option value="selfEmployment" disabled>
                               Self-Employment (1099) (coming soon!)
                             </option>
-                            <option value="pension" disabled>
-                              Pension (coming soon!)
-                            </option>
+                            <option value="pension">Pension</option>
                           </Select>
                           {errors.taxes?.incomeType && <ErrorMessage>{errors.taxes?.incomeType?.message}</ErrorMessage>}
                         </Field>
