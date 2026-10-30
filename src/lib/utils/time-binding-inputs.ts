@@ -1,27 +1,47 @@
 /**
  * Form glue for the two time-binding controls (parity plan P1-P1).
  *
- * `amountBasis` and the `everyNYears` cadence are read and written by four entity dialogs
- * (income, expense, debt, physical asset). The option lists, the hint copy and the register
- * rules live here so the four dialogs cannot drift apart, and so the form tests exercise the
- * same wiring the dialogs use.
+ * `amountBasis` is read and written by four entity dialogs (income, expense, debt, physical
+ * asset); the `everyNYears` cadence by the two that describe a stream (income and expense).
+ * The option lists, the hint copy and the register rules live here so the dialogs cannot
+ * drift apart, and so the form tests exercise the same wiring the dialogs use.
  *
- * Nothing here changes a stored plan on its own: an untouched dialog leaves both fields
- * absent, which every reader treats as `amountBasis: 'real'` and "no cadence".
+ * An untouched dialog adds no field to the plan: the amount basis starts on its empty
+ * placeholder, which maps to `undefined`, and no cadence field is set. Every reader treats
+ * both absences as `amountBasis: 'real'` and "does not repeat".
  */
 
 import type { AmountBasis, TimePoint } from '@/lib/schemas/inputs/income-expenses-shared-schemas';
 
 export interface AmountBasisOption {
-  value: AmountBasis;
+  /** `''` is the "not set" placeholder, which every reader treats as `real`. */
+  value: AmountBasis | '';
   label: string;
 }
 
-/** Ordered so the default (`real`) is the option a browser selects while the field is absent. */
+/**
+ * Ordered so the empty placeholder is what a freshly mounted `<select>` shows.
+ *
+ * The placeholder matters: an uncontrolled `<select>` mounts with its first option selected,
+ * and React Hook Form seeds a mounted field from the element's value, so a list that started
+ * at `real` would quietly store `amountBasis: 'real'` for a dialog nobody touched.
+ */
 export const AMOUNT_BASIS_OPTIONS: readonly AmountBasisOption[] = [
-  { value: 'real', label: "In today's dollars" },
+  { value: '', label: "In today's dollars" },
   { value: 'nominal', label: 'In the start date\u2019s dollars' },
 ];
+
+/**
+ * Maps the placeholder back to "not set", and lets a stored `real` display as the placeholder
+ * too (they mean the same thing).
+ */
+export const amountBasisFieldOptions = {
+  setValueAs: (raw: unknown): AmountBasis | undefined => (raw === '' || raw === 'real' ? undefined : (raw as AmountBasis)),
+} as const;
+
+/** A stored `real` and an absent basis are the same thing, so the dialog shows both as unset. */
+export const normalizeStoredAmountBasis = <T extends { amountBasis?: AmountBasis }>(input: T | null): T | null =>
+  input !== null && input.amountBasis === 'real' ? { ...input, amountBasis: undefined } : input;
 
 /**
  * Whether an anchor has a calendar location of its own, i.e. a dollar date a nominal amount
@@ -38,11 +58,11 @@ export const hasDollarDate = (startType: TimePoint['type']): boolean =>
   startType === 'now' || startType === 'customDate' || startType === 'customAge';
 
 /**
- * Whether an option may be picked for a given anchor: `real` always, `nominal` only where the
- * anchor has a dollar date. The dialogs use this for the option's `disabled` attribute.
+ * Whether an option may be picked for a given anchor: the placeholder always, `nominal` only
+ * where the anchor has a dollar date. The dialogs use this for the option's `disabled`.
  */
-export const isAmountBasisSelectable = (value: AmountBasis, startType: TimePoint['type']): boolean =>
-  value === 'real' || hasDollarDate(startType);
+export const isAmountBasisSelectable = (value: AmountBasis | '', startType: TimePoint['type']): boolean =>
+  value !== 'nominal' || hasDollarDate(startType);
 
 /** Shown under the amount-basis control when the anchor has no dollar date, else `null`. */
 export const amountBasisAnchorHint = (startType: TimePoint['type']): string | null =>
@@ -60,13 +80,41 @@ export const RECURRENCE_HINTS: readonly string[] = [
   'Leave empty for the event to run continuously.',
 ];
 
+/** Every entity dialog that has a dated input. */
+export type EntityKind = 'income' | 'expense' | 'debt' | 'physicalAsset';
+
+/** The two entities whose date is a window (start → end), so a repeating event is meaningful. */
+export const RECURRING_ENTITIES: readonly EntityKind[] = ['income', 'expense'];
+
 /**
- * Whether the cadence control applies to a start time point.
+ * Whether an editor offers the cadence control.
  *
- * A cadence counts from the event's anchor, so `now` (which has no date or age of its own in
- * the form) does not offer one; `customDate`, `customAge`, retirement and life expectancy do.
+ * Only an income or an expense is a stream. A debt's start date and an asset's purchase date
+ * are single points, and `TimeBinding.isActiveAt` would gate them on the cadence: a debt on a
+ * ten-year cadence would accrue no interest and make no payment in nine years out of ten, and
+ * an asset would simply never be bought. Those dialogs therefore do not offer the control.
+ * `now` is excluded as well, because a cadence counts from the event's own anchor.
  */
-export const showsRecurrenceControl = (startType: TimePoint['type']): boolean => startType !== 'now';
+export const showsRecurrenceControl = (entity: EntityKind, startType: TimePoint['type']): boolean =>
+  RECURRING_ENTITIES.includes(entity) && startType !== 'now';
+
+/** The form surface `clearRecurrence` needs, so the dialogs and the tests share one path. */
+export interface RecurrenceFormControls {
+  setValue(name: never, value: never): void;
+  unregister(name: never): void;
+}
+
+/**
+ * Clears the cadence when its anchor goes away (`now`).
+ *
+ * `unregister` alone is not enough: React Hook Form re-seeds a registered field from
+ * `defaultValues`, so the value is overwritten with `undefined` first. Both matter — the
+ * `setValue` is what the schema sees, the `unregister` is what stops a re-render restoring it.
+ */
+export const clearRecurrence = (form: RecurrenceFormControls, field: string): void => {
+  form.setValue(field as never, undefined as never);
+  form.unregister(field as never);
+};
 
 /**
  * Empty numeric input → `undefined`, anything else → a number.

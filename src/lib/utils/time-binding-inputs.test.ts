@@ -24,10 +24,14 @@ import { newDebtDefaults, newExpenseDefaults, newIncomeDefaults, newPhysicalAsse
 import {
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
+  amountBasisFieldOptions,
+  clearRecurrence,
   hasDollarDate,
   isAmountBasisSelectable,
+  normalizeStoredAmountBasis,
   OPTIONAL_YEARS_FIELD,
   optionalYearCount,
+  RECURRING_ENTITIES,
   showsRecurrenceControl,
 } from './time-binding-inputs';
 
@@ -52,7 +56,7 @@ interface Harness<T extends FieldValues> {
   /** Type into a registered field, exactly as the DOM would. */
   type(name: string, value: string, options?: Record<string, unknown>): void;
   /** Attach the control's element, as a re-render after `reset` does. */
-  mount(name: string, options?: Record<string, unknown>): void;
+  mount(name: string, options?: Record<string, unknown>, domValue?: unknown): void;
   /** The value the DOM control currently holds, which is what the user sees. */
   rendered(name: string): unknown;
   submit(): Promise<{ values?: T; errors?: FieldErrors<T> }>;
@@ -78,14 +82,23 @@ function harness<T extends FieldValues>(schema: z.ZodType, defaults: Partial<T>)
 
   const elements = new Map<string, FakeElement>();
 
-  const mount = (name: string, options?: Record<string, unknown>): FakeElement => {
+  /**
+   * Attaches a control's element.
+   *
+   * `domValue` is what the control shows before anyone touches it: an empty text input, or a
+   * `<select>`'s first option. React Hook Form seeds a mounted field from exactly this value
+   * when form state has nothing, which is how an untouched dialog used to smuggle
+   * `amountBasis: 'real'` into the plan.
+   */
+  const mount = (name: string, options?: Record<string, unknown>, domValue: unknown = ''): FakeElement => {
     const registration = form.register(name as never, options as never);
     let element = elements.get(name);
     if (!element) {
-      element = { name, value: '' };
+      element = { name, value: domValue };
       elements.set(name, element);
     }
-    // The ref callback is what pushes the current form value into the element after a reset.
+    // The ref callback is what pushes the current form value into the element after a reset,
+    // and what reads the element's own value when form state has nothing.
     registration.ref(element as never);
 
     return element;
@@ -100,8 +113,8 @@ function harness<T extends FieldValues>(schema: z.ZodType, defaults: Partial<T>)
       const { onChange } = form.register(name as never, options as never);
       onChange({ target: { name, value, type: 'text' }, type: 'change' } as never);
     },
-    mount(name, options) {
-      mount(name, options);
+    mount(name, options, domValue) {
+      mount(name, options, domValue);
     },
     rendered(name) {
       return elements.get(name)?.value;
@@ -133,9 +146,24 @@ const timePointOf = (input: Record<string, unknown>, field: string): Record<stri
 };
 
 describe('the amount-basis control defaults to real', () => {
-  it('lists real first, so an absent field shows the default option', () => {
-    expect(AMOUNT_BASIS_OPTIONS[0]).toEqual({ value: 'real', label: "In today's dollars" });
-    expect(AMOUNT_BASIS_OPTIONS.map((option) => option.value)).toEqual(['real', 'nominal']);
+  it('starts on an empty placeholder, so a freshly mounted select selects "not set"', () => {
+    // A browser selects the first option of a mounted <select>, and React Hook Form seeds the
+    // field from it. A list that started at `real` therefore stored `amountBasis: 'real'` for a
+    // dialog nobody touched.
+    expect(AMOUNT_BASIS_OPTIONS[0]).toEqual({ value: '', label: "In today's dollars" });
+    expect(AMOUNT_BASIS_OPTIONS.map((option) => option.value)).toEqual(['', 'nominal']);
+    expect(amountBasisFieldOptions.setValueAs(AMOUNT_BASIS_OPTIONS[0].value)).toBeUndefined();
+  });
+
+  it('maps the placeholder, and a stale stored `real`, to an absent field', () => {
+    expect(amountBasisFieldOptions.setValueAs('')).toBeUndefined();
+    expect(amountBasisFieldOptions.setValueAs('real')).toBeUndefined();
+    expect(amountBasisFieldOptions.setValueAs('nominal')).toBe('nominal');
+
+    expect(normalizeStoredAmountBasis({ amountBasis: 'real' as const, id: 'x' })).toEqual({ amountBasis: undefined, id: 'x' });
+    const nominal = { amountBasis: 'nominal' as const, id: 'x' };
+    expect(normalizeStoredAmountBasis(nominal)).toBe(nominal);
+    expect(normalizeStoredAmountBasis(null)).toBeNull();
   });
 
   it('only enables nominal where the anchor has a dollar date', () => {
@@ -144,7 +172,9 @@ describe('the amount-basis control defaults to real', () => {
 
     for (const anchor of anchors) {
       expect(hasDollarDate(anchor), anchor).toBe(anchor !== 'atRetirement' && anchor !== 'atLifeExpectancy');
-      // `real` is always pickable; `nominal` only where a conversion can actually happen.
+      // The default (empty) option is always pickable; `nominal` only where a conversion can
+      // actually happen.
+      expect(isAmountBasisSelectable('', anchor), anchor).toBe(true);
       expect(isAmountBasisSelectable('real', anchor), anchor).toBe(true);
       expect(isAmountBasisSelectable('nominal', anchor), anchor).toBe(hasDollarDate(anchor));
     }
@@ -162,11 +192,28 @@ describe('the amount-basis control defaults to real', () => {
     }
   });
 
-  it('offers no cadence for a `now` start, and one for every dated start', () => {
-    expect(showsRecurrenceControl('now')).toBe(false);
-    for (const type of ['customDate', 'customAge', 'atRetirement', 'atLifeExpectancy'] as const) {
-      expect(showsRecurrenceControl(type)).toBe(true);
+  it('offers the cadence only on a stream, never on a single-point anchor', () => {
+    const entities = ['income', 'expense', 'debt', 'physicalAsset'] as const;
+    const anchors = ['now', 'customDate', 'customAge', 'atRetirement', 'atLifeExpectancy'] as const;
+
+    // A debt's start date and an asset's purchase date are single points: a cadence there
+    // would switch the event off in the gap years (no payment, no interest, no purchase).
+    expect(RECURRING_ENTITIES).toEqual(['income', 'expense']);
+    for (const entity of entities) {
+      for (const anchor of anchors) {
+        expect(showsRecurrenceControl(entity, anchor), `${entity} @ ${anchor}`).toBe(
+          (entity === 'income' || entity === 'expense') && anchor !== 'now'
+        );
+      }
     }
+
+    expect(entities.filter((entity) => showsRecurrenceControl(entity, 'customAge'))).toEqual(['income', 'expense']);
+    expect(anchors.filter((anchor) => showsRecurrenceControl('income', anchor))).toEqual([
+      'customDate',
+      'customAge',
+      'atRetirement',
+      'atLifeExpectancy',
+    ]);
   });
 
   it('reads an empty cadence field as "no cadence" and keeps a typed number', () => {
@@ -184,14 +231,16 @@ describe('income dialog', () => {
   const defaults = newIncomeDefaults(0);
 
   it('an untouched dialog submits today\u2019s payload', async () => {
-    const { type, submit } = harness<IncomeInputs>(incomeFormSchema, defaults);
+    const { mount, type, submit } = harness<IncomeInputs>(incomeFormSchema, defaults);
     type('amount', '85000');
+    // Mount the basis select the way a browser presents it: its first option selected.
+    mount('amountBasis', amountBasisFieldOptions, AMOUNT_BASIS_OPTIONS[0].value);
 
     const { values, errors } = await submit();
     expect(errors).toBeUndefined();
     expect(values).toBeDefined();
 
-    expect('amountBasis' in values!).toBe(false);
+    expect(values!.amountBasis).toBeUndefined();
     const start = timePointOf(values as unknown as Record<string, unknown>, 'timeframe');
     expect('everyNYears' in start).toBe(false);
     expect('recurrenceYears' in start).toBe(false);
@@ -246,6 +295,52 @@ describe('income dialog', () => {
     expect('everyNYears' in timePointOf(stored(incomeToConvex({ ...values!, id: 'income-1' })), 'timeframe')).toBe(false);
   });
 
+  it('reads a mounted basis value, so the untouched case is a real mount', async () => {
+    // Positive control for the test above: the harness seeds from the element, so a mounted
+    // `nominal` really does reach the payload (and a mounted empty placeholder really does not).
+    const { mount, type, submit } = harness<IncomeInputs>(incomeFormSchema, defaults);
+    type('amount', '85000');
+    mount('amountBasis', amountBasisFieldOptions, 'nominal');
+
+    const { values } = await submit();
+    expect(values!.amountBasis).toBe('nominal');
+  });
+
+  it('drops the cadence when the start switches to `now`', async () => {
+    const existing: Doc<'plans'>['incomes'][number] = {
+      id: 'income-1',
+      name: 'Consulting',
+      amount: 50000,
+      frequency: 'yearly',
+      timeframe: { start: { type: 'customAge', age: 45, everyNYears: 5 }, end: { type: 'atRetirement' } },
+      taxes: { incomeType: 'wage', withholding: 20 },
+      disabled: false,
+    };
+
+    const { form, type, submit } = harness<IncomeInputs>(incomeFormSchema, defaults);
+    form.reset(incomeFromConvex(existing));
+    expect(form.getValues('timeframe.start.everyNYears' as never)).toBe(5);
+
+    // The anchor becomes `now`: the control disappears, and the dialog's cleanup effect runs
+    // `clearRecurrence`. A plain `unregister` there is not enough, because React Hook Form
+    // re-seeds a registered field from `defaultValues`.
+    type('timeframe.start.type', 'now');
+    clearRecurrence({ setValue: form.setValue, unregister: form.unregister }, 'timeframe.start.everyNYears');
+
+    const { values, errors } = await submit();
+    expect(errors).toBeUndefined();
+    expect((values!.timeframe.start as { everyNYears?: number }).everyNYears).toBeUndefined();
+    expect('everyNYears' in timePointOf(stored(incomeToConvex({ ...values!, id: 'income-1' })), 'timeframe')).toBe(false);
+
+    // Control: without the clear the value survives the switch and would be stored, so the
+    // assertion above fails if the cleanup is removed.
+    const control = harness<IncomeInputs>(incomeFormSchema, defaults);
+    control.form.reset(incomeFromConvex(existing));
+    control.type('timeframe.start.type', 'now');
+    const controlValues = await control.submit();
+    expect((controlValues.values!.timeframe.start as { everyNYears?: number }).everyNYears).toBe(5);
+  });
+
   it.each([
     ['0', 'Repeat interval must be at least 1 year'],
     ['1.5', 'Invalid input'],
@@ -270,12 +365,13 @@ describe('expense dialog', () => {
   const defaults = newExpenseDefaults(0);
 
   it('an untouched dialog submits today\u2019s payload', async () => {
-    const { type, submit } = harness<ExpenseInputs>(expenseFormSchema, defaults);
+    const { mount, type, submit } = harness<ExpenseInputs>(expenseFormSchema, defaults);
     type('amount', '50000');
+    mount('amountBasis', amountBasisFieldOptions, AMOUNT_BASIS_OPTIONS[0].value);
 
     const { values, errors } = await submit();
     expect(errors).toBeUndefined();
-    expect('amountBasis' in values!).toBe(false);
+    expect(values!.amountBasis).toBeUndefined();
     expect('everyNYears' in timePointOf(values as unknown as Record<string, unknown>, 'timeframe')).toBe(false);
 
     const doc = stored(expenseToConvex({ ...values!, id: 'expense-1' }));
@@ -329,13 +425,14 @@ describe('debt dialog', () => {
   const defaults = newDebtDefaults(0);
 
   it('an untouched dialog submits today\u2019s payload', async () => {
-    const { type, submit } = harness<DebtInputs>(debtFormSchema, defaults);
+    const { mount, type, submit } = harness<DebtInputs>(debtFormSchema, defaults);
     type('balance', '7500');
     type('monthlyPayment', '500');
+    mount('amountBasis', amountBasisFieldOptions, AMOUNT_BASIS_OPTIONS[0].value);
 
     const { values, errors } = await submit();
     expect(errors).toBeUndefined();
-    expect('amountBasis' in values!).toBe(false);
+    expect(values!.amountBasis).toBeUndefined();
     expect('everyNYears' in (values as unknown as Record<string, unknown>)).toBe(false);
 
     const doc = stored(debtToConvex({ ...values!, id: 'debt-1' }));
@@ -359,12 +456,12 @@ describe('debt dialog', () => {
 
     const { form, mount, rendered, submit } = harness<DebtInputs>(debtFormSchema, defaults);
     form.reset(debtFromConvex(existing));
-    mount('startDate.everyNYears', OPTIONAL_YEARS_FIELD);
     mount('amountBasis');
 
+    // The debt dialog no longer renders a cadence control (a single-point date would be gated
+    // by it), but a value already stored is carried through untouched rather than dropped.
     expect(form.getValues('startDate.everyNYears' as never)).toBe(10);
     expect(form.getValues('amountBasis' as never)).toBe('nominal');
-    expect(rendered('startDate.everyNYears')).toBe(10);
     expect(rendered('amountBasis')).toBe('nominal');
 
     const { values, errors } = await submit();
@@ -372,17 +469,10 @@ describe('debt dialog', () => {
     expect(stored(debtToConvex({ ...values!, id: 'debt-1' }))).toStrictEqual(stored(existing));
   });
 
-  it('rejects a cadence of 0 with a visible message', async () => {
-    const { type, submit } = harness<DebtInputs>(debtFormSchema, defaults);
-    type('balance', '7500');
-    type('monthlyPayment', '500');
-    type('startDate.everyNYears', '0', OPTIONAL_YEARS_FIELD);
-
-    const { values, errors } = await submit();
-    expect(values).toBeUndefined();
-    expect((errors?.startDate?.everyNYears as { message?: string } | undefined)?.message).toContain(
-      'Repeat interval must be at least 1 year'
-    );
+  it('offers no cadence at all, because a start date is a single point', () => {
+    expect(showsRecurrenceControl('debt', 'customDate')).toBe(false);
+    expect(showsRecurrenceControl('debt', 'customAge')).toBe(false);
+    expect(showsRecurrenceControl('debt', 'atRetirement')).toBe(false);
   });
 });
 
@@ -390,12 +480,13 @@ describe('physical asset dialog', () => {
   const defaults = newPhysicalAssetDefaults(0);
 
   it('an untouched dialog submits today\u2019s payload', async () => {
-    const { type, submit } = harness<PhysicalAssetInputs>(physicalAssetFormSchema, defaults);
+    const { mount, type, submit } = harness<PhysicalAssetInputs>(physicalAssetFormSchema, defaults);
     type('purchasePrice', '460000');
+    mount('amountBasis', amountBasisFieldOptions, AMOUNT_BASIS_OPTIONS[0].value);
 
     const { values, errors } = await submit();
     expect(errors).toBeUndefined();
-    expect('amountBasis' in values!).toBe(false);
+    expect(values!.amountBasis).toBeUndefined();
     expect('everyNYears' in (values as unknown as Record<string, unknown>)).toBe(false);
 
     const doc = stored(physicalAssetToConvex({ ...values!, id: 'asset-1' }));
@@ -418,12 +509,11 @@ describe('physical asset dialog', () => {
 
     const { form, mount, rendered, submit } = harness<PhysicalAssetInputs>(physicalAssetFormSchema, defaults);
     form.reset(physicalAssetFromConvex(existing));
-    mount('purchaseDate.everyNYears', OPTIONAL_YEARS_FIELD);
     mount('amountBasis');
 
+    // No cadence control here either; the stored value is preserved, not silently dropped.
     expect(form.getValues('purchaseDate.everyNYears' as never)).toBe(4);
     expect(form.getValues('amountBasis' as never)).toBe('nominal');
-    expect(rendered('purchaseDate.everyNYears')).toBe(4);
     expect(rendered('amountBasis')).toBe('nominal');
 
     const { values, errors } = await submit();
@@ -431,15 +521,9 @@ describe('physical asset dialog', () => {
     expect(stored(physicalAssetToConvex({ ...values!, id: 'asset-1' }))).toStrictEqual(stored(existing));
   });
 
-  it('rejects a cadence of 0 with a visible message', async () => {
-    const { type, submit } = harness<PhysicalAssetInputs>(physicalAssetFormSchema, defaults);
-    type('purchasePrice', '460000');
-    type('purchaseDate.everyNYears', '0', OPTIONAL_YEARS_FIELD);
-
-    const { values, errors } = await submit();
-    expect(values).toBeUndefined();
-    expect((errors?.purchaseDate?.everyNYears as { message?: string } | undefined)?.message).toContain(
-      'Repeat interval must be at least 1 year'
-    );
+  it('offers no cadence at all, because a purchase date is a single point', () => {
+    expect(showsRecurrenceControl('physicalAsset', 'customDate')).toBe(false);
+    expect(showsRecurrenceControl('physicalAsset', 'customAge')).toBe(false);
+    expect(showsRecurrenceControl('physicalAsset', 'atRetirement')).toBe(false);
   });
 });

@@ -23,7 +23,10 @@ import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
+  amountBasisFieldOptions,
+  clearRecurrence,
   isAmountBasisSelectable,
+  normalizeStoredAmountBasis,
   OPTIONAL_YEARS_FIELD,
   RECURRENCE_HINTS,
   showsRecurrenceControl,
@@ -54,13 +57,14 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
 
   const newExpenseDefaultValues = useMemo(() => newExpenseDefaults(numExpenses), [numExpenses]);
 
-  const defaultValues = selectedExpense || newExpenseDefaultValues;
+  const defaultValues = normalizeStoredAmountBasis(selectedExpense) || newExpenseDefaultValues;
 
   const {
     register,
     unregister,
     control,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(expenseFormSchema),
@@ -119,6 +123,12 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
       unregister('timeframe.start.age');
     }
 
+    // `now` has no anchor to count a cadence from, so the control disappears; clear the value
+    // too, or a cadence set on a custom start would survive the switch and keep gating it.
+    if (startType === 'now') {
+      clearRecurrence({ setValue, unregister }, 'timeframe.start.everyNYears');
+    }
+
     if (endType !== 'customDate') {
       unregister('timeframe.end.month');
       unregister('timeframe.end.year');
@@ -127,7 +137,7 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
     if (endType !== 'customAge') {
       unregister('timeframe.end.age');
     }
-  }, [frequency, startType, endType, unregister]);
+  }, [frequency, startType, endType, unregister, setValue]);
 
   const getStartColSpan = () => {
     if (startType === 'customDate') return 'col-span-2';
@@ -250,7 +260,7 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
                       </TooltipContent>
                     </Tooltip>
                   </Label>
-                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
+                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
                         {option.label}
@@ -368,7 +378,7 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
                             </Field>
                           </>
                         )}
-                        {showsRecurrenceControl(startType) && (
+                        {showsRecurrenceControl('expense', startType) && (
                           <Field className="col-span-1">
                             <Label htmlFor="timeframe.start.everyNYears" className="flex w-full items-center justify-between">
                               <span className="whitespace-nowrap">Repeat Every</span>

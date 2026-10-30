@@ -27,10 +27,9 @@ import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
+  amountBasisFieldOptions,
   isAmountBasisSelectable,
-  OPTIONAL_YEARS_FIELD,
-  RECURRENCE_HINTS,
-  showsRecurrenceControl,
+  normalizeStoredAmountBasis,
 } from '@/lib/utils/time-binding-inputs';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
@@ -65,7 +64,7 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
 
   const newDebtDefaultValues = useMemo(() => newDebtDefaults(numDebts), [numDebts]);
 
-  const defaultValues = selectedDebt || newDebtDefaultValues;
+  const defaultValues = normalizeStoredAmountBasis(selectedDebt) || newDebtDefaultValues;
 
   const {
     register,
@@ -277,7 +276,7 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                       </TooltipContent>
                     </Tooltip>
                   </Label>
-                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis" disabled={isSynced}>
+                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis" disabled={isSynced}>
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
                         {option.label}
@@ -419,34 +418,6 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                               />
                             </Field>
                           </>
-                        )}
-                        {showsRecurrenceControl(startType) && (
-                          <Field className="col-span-1">
-                            <Label htmlFor="startDate.everyNYears" className="flex w-full items-center justify-between">
-                              <span className="whitespace-nowrap">Repeat Every</span>
-                              <Tooltip>
-                                <TooltipTrigger className="text-muted-foreground">
-                                  <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {RECURRENCE_HINTS.map((hint) => (
-                                    <p key={hint}>{hint}</p>
-                                  ))}
-                                </TooltipContent>
-                              </Tooltip>
-                            </Label>
-                            <Input
-                              {...register('startDate.everyNYears', OPTIONAL_YEARS_FIELD)}
-                              id="startDate.everyNYears"
-                              name="startDate.everyNYears"
-                              inputMode="numeric"
-                              placeholder="Every year"
-                              autoComplete="off"
-                              invalid={!!errors.startDate?.everyNYears}
-                              aria-invalid={!!errors.startDate?.everyNYears}
-                            />
-                            {errors.startDate?.everyNYears && <ErrorMessage>{errors.startDate.everyNYears.message}</ErrorMessage>}
-                          </Field>
                         )}
                         {startType === 'customAge' && (
                           <Field>

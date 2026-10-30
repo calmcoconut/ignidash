@@ -29,7 +29,10 @@ import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
+  amountBasisFieldOptions,
+  clearRecurrence,
   isAmountBasisSelectable,
+  normalizeStoredAmountBasis,
   OPTIONAL_YEARS_FIELD,
   RECURRENCE_HINTS,
   showsRecurrenceControl,
@@ -60,7 +63,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
 
   const newIncomeDefaultValues = useMemo(() => newIncomeDefaults(numIncomes), [numIncomes]);
 
-  const defaultValues = selectedIncome || newIncomeDefaultValues;
+  const defaultValues = normalizeStoredAmountBasis(selectedIncome) || newIncomeDefaultValues;
 
   const {
     register,
@@ -130,6 +133,12 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
       unregister('timeframe.start.age');
     }
 
+    // `now` has no anchor to count a cadence from, so the control disappears; clear the value
+    // too, or a cadence set on a custom start would survive the switch and keep gating it.
+    if (startType === 'now') {
+      clearRecurrence({ setValue, unregister }, 'timeframe.start.everyNYears');
+    }
+
     if (endType !== 'customDate') {
       unregister('timeframe.end.month');
       unregister('timeframe.end.year');
@@ -142,7 +151,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
     if (!supportsWithholding(incomeType)) {
       unregister('taxes.withholding', { keepDefaultValue: true });
     }
-  }, [frequency, startType, endType, unregister, incomeType]);
+  }, [frequency, startType, endType, unregister, incomeType, setValue]);
 
   const prevIncomeTypeRef = useRef<IncomeType>(incomeType);
   useEffect(() => {
@@ -290,7 +299,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                       </TooltipContent>
                     </Tooltip>
                   </Label>
-                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
+                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
                         {option.label}
@@ -408,7 +417,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                             </Field>
                           </>
                         )}
-                        {showsRecurrenceControl(startType) && (
+                        {showsRecurrenceControl('income', startType) && (
                           <Field className="col-span-1">
                             <Label htmlFor="timeframe.start.everyNYears" className="flex w-full items-center justify-between">
                               <span className="whitespace-nowrap">Repeat Every</span>

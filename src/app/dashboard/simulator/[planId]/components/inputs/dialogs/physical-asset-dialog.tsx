@@ -28,10 +28,9 @@ import {
   AMOUNT_BASIS_HINTS,
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
+  amountBasisFieldOptions,
   isAmountBasisSelectable,
-  OPTIONAL_YEARS_FIELD,
-  RECURRENCE_HINTS,
-  showsRecurrenceControl,
+  normalizeStoredAmountBasis,
 } from '@/lib/utils/time-binding-inputs';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
@@ -74,7 +73,7 @@ export default function PhysicalAssetDialog({
 
   const newAssetDefaultValues = useMemo(() => newPhysicalAssetDefaults(numPhysicalAssets), [numPhysicalAssets]);
 
-  const defaultValues = selectedPhysicalAsset || newAssetDefaultValues;
+  const defaultValues = normalizeStoredAmountBasis(selectedPhysicalAsset) || newAssetDefaultValues;
 
   const {
     register,
@@ -362,7 +361,7 @@ export default function PhysicalAssetDialog({
                       </TooltipContent>
                     </Tooltip>
                   </Label>
-                  <Select {...register('amountBasis')} id="amountBasis" name="amountBasis">
+                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
                     {AMOUNT_BASIS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, purchaseDateType)}>
                         {option.label}
@@ -496,34 +495,6 @@ export default function PhysicalAssetDialog({
                                 />
                               </Field>
                             </>
-                          )}
-                          {showsRecurrenceControl(purchaseDateType) && (
-                            <Field className="col-span-1">
-                              <Label htmlFor="purchaseDate.everyNYears" className="flex w-full items-center justify-between">
-                                <span className="whitespace-nowrap">Repeat Every</span>
-                                <Tooltip>
-                                  <TooltipTrigger className="text-muted-foreground">
-                                    <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    {RECURRENCE_HINTS.map((hint) => (
-                                      <p key={hint}>{hint}</p>
-                                    ))}
-                                  </TooltipContent>
-                                </Tooltip>
-                              </Label>
-                              <Input
-                                {...register('purchaseDate.everyNYears', OPTIONAL_YEARS_FIELD)}
-                                id="purchaseDate.everyNYears"
-                                name="purchaseDate.everyNYears"
-                                inputMode="numeric"
-                                placeholder="Every year"
-                                autoComplete="off"
-                                invalid={!!errors.purchaseDate?.everyNYears}
-                                aria-invalid={!!errors.purchaseDate?.everyNYears}
-                              />
-                              {errors.purchaseDate?.everyNYears && <ErrorMessage>{errors.purchaseDate.everyNYears.message}</ErrorMessage>}
-                            </Field>
                           )}
                           {purchaseDateType === 'customAge' && (
                             <Field>
