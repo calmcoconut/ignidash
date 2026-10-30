@@ -112,8 +112,8 @@ AI features stay hidden until `OPENAI_API_KEY` and one of the endpoints is set.
 ### Removed — these no longer do anything
 
 `STRIPE_*`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `RESEND_API_KEY`,
-`NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`. Billing, transactional email,
-and analytics have been removed from this fork.
+`NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`, `CONVEX_API_SECRET`. Billing,
+transactional email, analytics and the internal API secret have been removed from this fork.
 
 ---
 
