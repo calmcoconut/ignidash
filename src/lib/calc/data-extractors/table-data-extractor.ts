@@ -750,11 +750,13 @@ export abstract class TableDataExtractor {
         percentAccumulation,
         percentRetirement,
         percentBankrupt,
+        p5PortfolioValue: percentiles.p5,
         p10PortfolioValue: percentiles.p10,
         p25PortfolioValue: percentiles.p25,
         p50PortfolioValue: percentiles.p50,
         p75PortfolioValue: percentiles.p75,
         p90PortfolioValue: percentiles.p90,
+        p95PortfolioValue: percentiles.p95,
       });
     }
 

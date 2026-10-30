@@ -78,11 +78,13 @@ export const yearlyAggregateTableRowSchema = z.object({
   percentRetirement: z.number(),
   percentBankrupt: z.number(),
 
+  p5PortfolioValue: z.number(),
   p10PortfolioValue: z.number(),
   p25PortfolioValue: z.number(),
   p50PortfolioValue: z.number(),
   p75PortfolioValue: z.number(),
   p90PortfolioValue: z.number(),
+  p95PortfolioValue: z.number(),
 });
 
 export type YearlyAggregateTableRow = z.infer<typeof yearlyAggregateTableRowSchema>;
@@ -93,11 +95,13 @@ const YEARLY_AGGREGATE_COLUMNS = {
   percentAccumulation: { title: '% Accumulation Phase', format: 'percentage' },
   percentRetirement: { title: '% Retirement Phase', format: 'percentage' },
   percentBankrupt: { title: '% Bankrupt', format: 'percentage' },
+  p5PortfolioValue: { title: 'P5 Portfolio Value', format: 'currency' },
   p10PortfolioValue: { title: 'P10 Portfolio Value', format: 'currency' },
   p25PortfolioValue: { title: 'P25 Portfolio Value', format: 'currency' },
   p50PortfolioValue: { title: 'P50 Portfolio Value', format: 'currency' },
   p75PortfolioValue: { title: 'P75 Portfolio Value', format: 'currency' },
   p90PortfolioValue: { title: 'P90 Portfolio Value', format: 'currency' },
+  p95PortfolioValue: { title: 'P95 Portfolio Value', format: 'currency' },
 } as const;
 
 export const YEARLY_AGGREGATE_TABLE_CONFIG: Record<keyof YearlyAggregateTableRow, { title: string; format: ColumnFormat }> =

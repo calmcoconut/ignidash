@@ -17,8 +17,12 @@
  *
  * - **Reached retirement** comes from `SimulationDataExtractor.getMilestonesData`, the same
  *   helper the per-row table uses: the run's phase reached `retirement` at some data point, so
- *   the age is `null` when it never did (a plan that ran out of money first, or one whose
- *   retirement age sits past life expectancy).
+ *   the age is `null` only when the phase never got there. Which runs can miss it depends on the
+ *   strategy. With `swrTarget` the phase starts once the target withdrawal rate is sustainable,
+ *   so a plan that runs out of money first never reaches it. With `fixedAge` the phase is purely
+ *   age-based: a plan that goes bankrupt at 36 still enters retirement at 65, so the milestone is
+ *   present and this predicate fails on its shortfall and final-balance terms instead. Only a
+ *   `fixedAge` retirement age past the horizon (life expectancy) leaves the age `null`.
  * - **Shortfall** is the engine's own `PortfolioData.shortfall`, the amount an annual period
  *   could not fund after every account was drained (`portfolio.ts`). A run that ever recorded
  *   one failed that year, even if a later surplus repaid it: `shortfallRepaid` and

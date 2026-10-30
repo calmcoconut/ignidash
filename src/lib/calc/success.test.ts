@@ -11,7 +11,6 @@ import { evaluateSuccess, SUCCESS_MINIMUM_FINAL_PORTFOLIO } from './success';
 import { simulate } from './simulate';
 import {
   create401kAccount,
-  createContributionRule,
   createDefaultTimeline,
   createEmptyPortfolioData,
   createLivingExpense,
@@ -251,13 +250,14 @@ describe('success rate is one number across every readout', () => {
   });
 
   it('makes the headline percentage equal the per-row success column on real simulations', () => {
-    // Real engine output, so every extractor below runs against its normal input.
+    // Real engine output, so every extractor below runs against its normal input. The plan is
+    // deliberately marginal — low balance against high spending — so the six seeds do not all
+    // land on the same verdict; otherwise every readout would return 1 and prove nothing.
     const inputs: SimulatorInputs = createSimulatorInputs({
       timeline: { ...createDefaultTimeline(), birthMonth: 6, birthYear: 1990, lifeExpectancy: 88 },
-      accounts: { '401k-1': create401kAccount({ id: '401k-1', balance: 300000 }) },
-      incomes: { 'income-1': createWageIncome({ id: 'income-1', amount: 85000 }) },
-      expenses: { 'expense-1': createLivingExpense({ id: 'expense-1', amount: 55000 }) },
-      contributionRules: { 'rule-1': createContributionRule({ id: 'rule-1', accountId: '401k-1' }) },
+      accounts: { '401k-1': create401kAccount({ id: '401k-1', balance: 500000 }) },
+      incomes: { 'income-1': createWageIncome({ id: 'income-1', amount: 90000 }) },
+      expenses: { 'expense-1': createLivingExpense({ id: 'expense-1', amount: 70000 }) },
     });
 
     const simulations = [11, 22, 33, 44, 55, 66].map((seed): [number, SimulationResult] => {
@@ -271,6 +271,12 @@ describe('success rate is one number across every readout', () => {
     const rowSuccessRate = rows.filter((row) => row.success).length / rows.length;
     const headline = KeyMetricsExtractor.extractMultiSimulationMetrics(multi).success;
     const analysis = MultiSimulationAnalyzer.analyze(multi, 'finalPortfolioValue');
+
+    // Guard the fixture itself: a mix is what makes the equality below discriminating.
+    expect(rows.some((row) => row.success)).toBe(true);
+    expect(rows.some((row) => !row.success)).toBe(true);
+    expect(rowSuccessRate).toBeGreaterThan(0);
+    expect(rowSuccessRate).toBeLessThan(1);
 
     // The Verify item: the headline % is the per-row column, not a second opinion.
     expect(rows.map((row) => row.success)).toEqual(simulations.map(([, sim]) => evaluateSuccess(sim)));
