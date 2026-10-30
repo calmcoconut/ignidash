@@ -4,6 +4,11 @@
  * Computes income tax, capital gains tax, NIIT, Social Security taxation,
  * and early withdrawal penalties. Handles progressive bracket stacking,
  * capital loss carryover, and Section 121 primary residence exclusion.
+ *
+ * Every amount comes from the ruleset for the tax year being settled
+ * (`getRules(taxYear)` in `./tax-data`), never from a module-level constant, so a future year's
+ * rules only apply to returns filed under them. The year is passed in explicitly by the engine
+ * from its clock; see `setTaxYear`.
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
@@ -15,31 +20,14 @@ import type { PortfolioData } from './portfolio';
 import type { ReturnsData } from './returns';
 import type { PhysicalAssetsData } from './physical-assets';
 import { sumFlows } from './asset';
-import {
-  STANDARD_DEDUCTION_SINGLE,
-  STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY,
-  STANDARD_DEDUCTION_HEAD_OF_HOUSEHOLD,
-} from './tax-data/standard-deduction';
-import {
-  type FederalIncomeTaxBracket,
-  FEDERAL_INCOME_TAX_BRACKETS_SINGLE,
-  FEDERAL_INCOME_TAX_BRACKETS_MARRIED_FILING_JOINTLY,
-  FEDERAL_INCOME_TAX_BRACKETS_HEAD_OF_HOUSEHOLD,
-} from './tax-data/federal-income-tax-brackets';
-import {
-  type CapitalGainsTaxBracket,
-  CAPITAL_GAINS_TAX_BRACKETS_SINGLE,
-  CAPITAL_GAINS_TAX_BRACKETS_MARRIED_FILING_JOINTLY,
-  CAPITAL_GAINS_TAX_BRACKETS_HEAD_OF_HOUSEHOLD,
-} from './tax-data/capital-gains-tax-brackets';
-import { NIIT_RATE, NIIT_THRESHOLDS } from './tax-data/niit-thresholds';
-import {
-  type SocialSecurityTaxThreshold,
-  SOCIAL_SECURITY_TAX_THRESHOLDS_SINGLE,
-  SOCIAL_SECURITY_TAX_THRESHOLDS_MARRIED_FILING_JOINTLY,
-  SOCIAL_SECURITY_TAX_THRESHOLDS_HEAD_OF_HOUSEHOLD,
-} from './tax-data/social-security-tax-brackets';
-import { SECTION_121_EXCLUSION } from './tax-data/section-121-exclusion';
+import { getRules, LATEST_TAX_YEAR } from './tax-data';
+import type {
+  CapitalGainsTaxBracket,
+  FederalIncomeTaxBracket,
+  FederalTaxRuleset,
+  SocialSecurityTaxThreshold,
+  TaxYear,
+} from './tax-data/types';
 
 export interface CapitalGainsTaxesData {
   taxableIncomeTaxedAsCapitalGains: number;
@@ -132,11 +120,30 @@ export interface IncomeSourcesData {
 export class TaxProcessor {
   private capitalLossCarryover = 0;
   private capitalLossCarryoverSnapshot: number | null = null;
+  private ruleset: FederalTaxRuleset;
 
+  /**
+   * @param taxYear - The tax year to settle, resolved through `getRules(taxYear)`.
+   * @param rulesetOverride - Test-only injection of a ruleset (e.g. one whose `taxablePercentage`
+   *   differs from the current law). Production callers resolve from `taxYear`.
+   */
   constructor(
     private simulationState: SimulationState,
-    private filingStatus: FilingStatus
-  ) {}
+    private filingStatus: FilingStatus,
+    taxYear: TaxYear = LATEST_TAX_YEAR,
+    rulesetOverride?: FederalTaxRuleset
+  ) {
+    this.ruleset = rulesetOverride ?? getRules(taxYear);
+  }
+
+  /**
+   * Points the processor at the ruleset for the year being settled. The engine calls this at each
+   * annual reconciliation with the year its clock has reached, so a long projection does not
+   * freeze the first year's rules for the whole run.
+   */
+  setTaxYear(taxYear: TaxYear): void {
+    this.ruleset = getRules(taxYear);
+  }
 
   /** Save carryover state before first tax calculation of the year */
   saveCarryoverSnapshot(): void {
@@ -454,7 +461,8 @@ export class TaxProcessor {
 
   /** Calculates Net Investment Income Tax — IRC §1411: 3.8% on lesser of NII or MAGI over threshold */
   private processNIIT(incomeData: IncomeSourcesData): NIITData {
-    const threshold = NIIT_THRESHOLDS[this.filingStatus];
+    const { rate, thresholds } = this.ruleset.tables.netInvestmentIncomeTax.values;
+    const threshold = thresholds[this.filingStatus];
 
     const { taxableDividendIncome, taxableInterestIncome, capitalLossDeduction, realizedGains, adjustedGrossIncome } = incomeData;
 
@@ -463,7 +471,7 @@ export class TaxProcessor {
 
     const magiOverThreshold = Math.max(0, adjustedGrossIncome - threshold);
     const incomeSubjectToNiit = Math.min(netInvestmentIncome, magiOverThreshold);
-    const niitAmount = incomeSubjectToNiit * NIIT_RATE;
+    const niitAmount = incomeSubjectToNiit * rate;
 
     return { netInvestmentIncome, incomeSubjectToNiit, niitAmount, threshold };
   }
@@ -482,6 +490,10 @@ export class TaxProcessor {
    * Uses provisional income (AGI + tax-exempt interest + 50% of SS benefits) to
    * determine 0%, 50%, or up to 85% taxable. Maximum 85% of benefits can be
    * taxed regardless of income level.
+   *
+   * Every percentage below is read from the ruleset's §86 tiers — the dataset's
+   * `taxablePercentage` — rather than hard-coded, so a ruleset that changes a tier amount
+   * (e.g. the 85%-from-dollar-one flag in P3-P1b) flows through without touching this code.
    */
   private getTaxablePortionOfSocialSecurityIncome({
     provisionalIncome,
@@ -490,27 +502,35 @@ export class TaxProcessor {
     provisionalIncome: number;
     socialSecurityIncome: number;
   }): { taxableSocialSecurityIncome: number; maxTaxableSocialSecurityPercentage: number } {
-    const thresholds = this.getSocialSecurityTaxThresholds();
+    const tiers = this.getSocialSecurityTaxThresholds();
+    const [firstTier, secondTier] = tiers;
 
-    if (provisionalIncome <= thresholds[0].max) return { taxableSocialSecurityIncome: 0, maxTaxableSocialSecurityPercentage: 0 };
+    if (provisionalIncome <= firstTier.max) {
+      return { taxableSocialSecurityIncome: 0, maxTaxableSocialSecurityPercentage: firstTier.taxablePercentage };
+    }
 
-    if (provisionalIncome > thresholds[1].min && provisionalIncome <= thresholds[1].max) {
-      const excessIncome = provisionalIncome - thresholds[1].min;
+    if (provisionalIncome > secondTier.min && provisionalIncome <= secondTier.max) {
+      const excessIncome = provisionalIncome - secondTier.min;
       return {
-        taxableSocialSecurityIncome: Math.min(excessIncome * 0.5, socialSecurityIncome * 0.5),
-        maxTaxableSocialSecurityPercentage: 0.5,
+        taxableSocialSecurityIncome: Math.min(
+          excessIncome * secondTier.taxablePercentage,
+          socialSecurityIncome * secondTier.taxablePercentage
+        ),
+        maxTaxableSocialSecurityPercentage: secondTier.taxablePercentage,
       };
     }
 
-    const tier1Excess = thresholds[1].max - thresholds[1].min;
-    const tier1Amount = Math.min(tier1Excess * 0.5, socialSecurityIncome * 0.5);
+    const topTier = tiers[tiers.length - 1];
 
-    const tier2Excess = provisionalIncome - thresholds[2].min;
-    const tier2Amount = tier2Excess * 0.85;
+    const tier1Excess = secondTier.max - secondTier.min;
+    const tier1Amount = Math.min(tier1Excess * secondTier.taxablePercentage, socialSecurityIncome * secondTier.taxablePercentage);
+
+    const tier2Excess = provisionalIncome - topTier.min;
+    const tier2Amount = tier2Excess * topTier.taxablePercentage;
 
     return {
-      taxableSocialSecurityIncome: Math.min(tier1Amount + tier2Amount, socialSecurityIncome * 0.85),
-      maxTaxableSocialSecurityPercentage: 0.85,
+      taxableSocialSecurityIncome: Math.min(tier1Amount + tier2Amount, socialSecurityIncome * topTier.taxablePercentage),
+      maxTaxableSocialSecurityPercentage: topTier.taxablePercentage,
     };
   }
 
@@ -524,47 +544,19 @@ export class TaxProcessor {
   }
 
   private getStandardDeduction(): number {
-    switch (this.filingStatus) {
-      case 'single':
-        return STANDARD_DEDUCTION_SINGLE;
-      case 'marriedFilingJointly':
-        return STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY;
-      case 'headOfHousehold':
-        return STANDARD_DEDUCTION_HEAD_OF_HOUSEHOLD;
-    }
+    return this.ruleset.tables.standardDeduction.values[this.filingStatus];
   }
 
   private getFederalIncomeTaxBrackets(): FederalIncomeTaxBracket[] {
-    switch (this.filingStatus) {
-      case 'single':
-        return FEDERAL_INCOME_TAX_BRACKETS_SINGLE;
-      case 'marriedFilingJointly':
-        return FEDERAL_INCOME_TAX_BRACKETS_MARRIED_FILING_JOINTLY;
-      case 'headOfHousehold':
-        return FEDERAL_INCOME_TAX_BRACKETS_HEAD_OF_HOUSEHOLD;
-    }
+    return this.ruleset.tables.incomeTaxBrackets.values[this.filingStatus];
   }
 
   private getCapitalGainsTaxBrackets(): CapitalGainsTaxBracket[] {
-    switch (this.filingStatus) {
-      case 'single':
-        return CAPITAL_GAINS_TAX_BRACKETS_SINGLE;
-      case 'marriedFilingJointly':
-        return CAPITAL_GAINS_TAX_BRACKETS_MARRIED_FILING_JOINTLY;
-      case 'headOfHousehold':
-        return CAPITAL_GAINS_TAX_BRACKETS_HEAD_OF_HOUSEHOLD;
-    }
+    return this.ruleset.tables.capitalGainsTaxBrackets.values[this.filingStatus];
   }
 
   private getSocialSecurityTaxThresholds(): SocialSecurityTaxThreshold[] {
-    switch (this.filingStatus) {
-      case 'single':
-        return SOCIAL_SECURITY_TAX_THRESHOLDS_SINGLE;
-      case 'marriedFilingJointly':
-        return SOCIAL_SECURITY_TAX_THRESHOLDS_MARRIED_FILING_JOINTLY;
-      case 'headOfHousehold':
-        return SOCIAL_SECURITY_TAX_THRESHOLDS_HEAD_OF_HOUSEHOLD;
-    }
+    return this.ruleset.tables.socialSecurityTaxation.values[this.filingStatus];
   }
 
   /** Applies Section 121 exclusion for primary residence sale gains */
@@ -572,7 +564,7 @@ export class TaxProcessor {
     section121Exclusion: number;
     physicalAssetRealizedGains: number;
   } {
-    const maxExclusion = SECTION_121_EXCLUSION[this.filingStatus];
+    const maxExclusion = this.ruleset.tables.section121Exclusion.values[this.filingStatus];
 
     // Technically, there should only be one primary residence asset, but just in case...
     const section121Exclusion = Object.values(physicalAssetsData.perAssetData)

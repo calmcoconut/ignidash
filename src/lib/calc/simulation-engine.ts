@@ -137,7 +137,14 @@ export class FinancialSimulationEngine {
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
     const portfolioProcessor = new PortfolioProcessor(simulationState, simulationContext, contributionRules, this.inputs.glidePath);
-    const taxProcessor = new TaxProcessor(simulationState, this.inputs.taxSettings.filingStatus);
+    // The tax year is explicit: the ruleset (bracket thresholds, deductions, §86 tiers) is resolved
+    // for the year being settled, never from a module-level constant. The engine's only calendar
+    // source is the clock, so this stays deterministic; it is re-resolved below for every year.
+    const taxProcessor = new TaxProcessor(
+      simulationState,
+      this.inputs.taxSettings.filingStatus,
+      simulationState.time.date.getUTCFullYear()
+    );
 
     // Init phase identifier
     const phaseIdentifier = new PhaseIdentifier(simulationState, timeline);
@@ -166,6 +173,9 @@ export class FinancialSimulationEngine {
       if (monthlyDiscretionaryExpense) expensesProcessor.processDiscretionaryExpense(monthlyDiscretionaryExpense);
 
       if (simulationState.time.month % 12 === 0) {
+        // Settle the year that just closed under its own ruleset, not the run's first year's.
+        taxProcessor.setTaxYear(simulationState.time.date.getUTCFullYear());
+
         // Get annual data from processors
         const annualPortfolioDataBeforeTaxes = portfolioProcessor.getAnnualData();
         const annualIncomesData = incomesProcessor.getAnnualData();

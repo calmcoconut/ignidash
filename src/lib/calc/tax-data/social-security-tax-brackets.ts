@@ -1,28 +1,21 @@
 /**
- * Social Security benefit taxation thresholds by filing status
+ * Social Security benefit taxation thresholds by filing status — 2026 aliases.
  *
- * Determines what percentage of Social Security benefits are subject to income tax
- * based on combined income (AGI + nontaxable interest + half of SS benefits).
- * Source: IRS Publication 915.
+ * The values live in the 2026 federal ruleset (`./years/2026.ts`, table `socialSecurityTaxation`).
+ * These named exports are kept so pre-harness call sites and assertions keep working; new code
+ * should resolve `getRules(year).tables.socialSecurityTaxation.values`. The tax processor reads
+ * each tier's `taxablePercentage` directly — no tier percentage is hard-coded there.
  */
 
-/** Threshold determining taxable percentage of Social Security benefits */
-export type SocialSecurityTaxThreshold = { min: number; max: number; taxablePercentage: number };
+import { getRules } from './index';
+import type { SocialSecurityTaxThreshold } from './types';
 
-export const SOCIAL_SECURITY_TAX_THRESHOLDS_SINGLE: SocialSecurityTaxThreshold[] = [
-  { min: 0, max: 25000, taxablePercentage: 0 },
-  { min: 25000, max: 34000, taxablePercentage: 0.5 },
-  { min: 34000, max: Infinity, taxablePercentage: 0.85 },
-];
+export type { SocialSecurityTaxThreshold };
 
-export const SOCIAL_SECURITY_TAX_THRESHOLDS_MARRIED_FILING_JOINTLY: SocialSecurityTaxThreshold[] = [
-  { min: 0, max: 32000, taxablePercentage: 0 },
-  { min: 32000, max: 44000, taxablePercentage: 0.5 },
-  { min: 44000, max: Infinity, taxablePercentage: 0.85 },
-];
+const SOCIAL_SECURITY_TAX_THRESHOLDS = getRules(2026).tables.socialSecurityTaxation.values;
 
-export const SOCIAL_SECURITY_TAX_THRESHOLDS_HEAD_OF_HOUSEHOLD: SocialSecurityTaxThreshold[] = [
-  { min: 0, max: 25000, taxablePercentage: 0 },
-  { min: 25000, max: 34000, taxablePercentage: 0.5 },
-  { min: 34000, max: Infinity, taxablePercentage: 0.85 },
-];
+export const SOCIAL_SECURITY_TAX_THRESHOLDS_SINGLE: SocialSecurityTaxThreshold[] = SOCIAL_SECURITY_TAX_THRESHOLDS.single;
+export const SOCIAL_SECURITY_TAX_THRESHOLDS_MARRIED_FILING_JOINTLY: SocialSecurityTaxThreshold[] =
+  SOCIAL_SECURITY_TAX_THRESHOLDS.marriedFilingJointly;
+export const SOCIAL_SECURITY_TAX_THRESHOLDS_HEAD_OF_HOUSEHOLD: SocialSecurityTaxThreshold[] =
+  SOCIAL_SECURITY_TAX_THRESHOLDS.headOfHousehold;

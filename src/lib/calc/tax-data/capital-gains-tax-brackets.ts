@@ -1,26 +1,18 @@
 /**
- * Federal long-term capital gains tax brackets by filing status
+ * Federal long-term capital gains tax brackets by filing status — 2026 aliases.
  *
- * Tax year 2026. Source: IRS 2026 inflation adjustments (including OBBBA amendments).
+ * The values live in the 2026 federal ruleset (`./years/2026.ts`, table `capitalGainsTaxBrackets`).
+ * These named exports are kept so pre-harness call sites and assertions keep working; new code
+ * should resolve `getRules(year).tables.capitalGainsTaxBrackets.values`.
  */
 
-/** Progressive bracket for long-term capital gains taxation */
-export type CapitalGainsTaxBracket = { min: number; max: number; rate: number };
+import { getRules } from './index';
+import type { CapitalGainsTaxBracket } from './types';
 
-export const CAPITAL_GAINS_TAX_BRACKETS_SINGLE: CapitalGainsTaxBracket[] = [
-  { min: 0, max: 49450, rate: 0.0 },
-  { min: 49450, max: 545500, rate: 0.15 },
-  { min: 545500, max: Infinity, rate: 0.2 },
-];
+export type { CapitalGainsTaxBracket };
 
-export const CAPITAL_GAINS_TAX_BRACKETS_MARRIED_FILING_JOINTLY: CapitalGainsTaxBracket[] = [
-  { min: 0, max: 98900, rate: 0.0 },
-  { min: 98900, max: 613700, rate: 0.15 },
-  { min: 613700, max: Infinity, rate: 0.2 },
-];
+const CAPITAL_GAINS_TAX_BRACKETS = getRules(2026).tables.capitalGainsTaxBrackets.values;
 
-export const CAPITAL_GAINS_TAX_BRACKETS_HEAD_OF_HOUSEHOLD: CapitalGainsTaxBracket[] = [
-  { min: 0, max: 66200, rate: 0.0 },
-  { min: 66200, max: 579600, rate: 0.15 },
-  { min: 579600, max: Infinity, rate: 0.2 },
-];
+export const CAPITAL_GAINS_TAX_BRACKETS_SINGLE: CapitalGainsTaxBracket[] = CAPITAL_GAINS_TAX_BRACKETS.single;
+export const CAPITAL_GAINS_TAX_BRACKETS_MARRIED_FILING_JOINTLY: CapitalGainsTaxBracket[] = CAPITAL_GAINS_TAX_BRACKETS.marriedFilingJointly;
+export const CAPITAL_GAINS_TAX_BRACKETS_HEAD_OF_HOUSEHOLD: CapitalGainsTaxBracket[] = CAPITAL_GAINS_TAX_BRACKETS.headOfHousehold;
