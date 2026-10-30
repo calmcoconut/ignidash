@@ -17,7 +17,7 @@ import { physicalAssetFormSchema } from '@/lib/schemas/inputs/physical-asset-for
 import { privacySettingsFormSchema } from '@/lib/schemas/inputs/privacy-settings-form-schema';
 import { simulationSettingsSchema } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 import { taxSettingsFormSchema } from '@/lib/schemas/inputs/tax-settings-form-schema';
-import { timelineBaseSchema } from '@/lib/schemas/inputs/timeline-form-schema';
+import { calculatePreciseAge, timelineBaseSchema } from '@/lib/schemas/inputs/timeline-form-schema';
 import { assetFormSchema } from '@/lib/schemas/finances/asset-form-schema';
 import { liabilityFormSchema } from '@/lib/schemas/finances/liability-form-schema';
 import {
@@ -486,23 +486,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * perfectly well would be stuck outside the app. So the semantic layer is split by what the
  * ENGINE needs, not by what the forms prefer.
  *
- * BLOCKING (`engineContractIssues`) — only what would crash, corrupt, or produce nothing:
- *   - `simulationSettings.asOfDate`: `fixedClock` parses it and throws on anything that is
- *     not a real calendar date, putting that plan's simulator page on the error boundary.
- *   - `timeline.birthMonth`: `calculatePreciseAge` subtracts it as a month index, so 0 or 13
- *     silently shifts every age (and every retirement date) by a year.
- *   - `timeline.birthYear`: outside 1900..2100 the age arithmetic and the 1960 RMD boundary
- *     cannot mean anything.
- *   - `timeline.lifeExpectancy`: `yearsToSimulate` becomes zero or negative, so the run has
- *     no months and every readout is empty.
- *   - `accounts[i].percentBonds` on an investment account: `Account` computes
- *     `percentBonds / 100`, so an absent value turns every balance in the plan into NaN.
- *   - `debts[i].compoundingFrequency` on a compound debt: `Debt.calculateMonthlyInterest`
- *     throws "Missing compoundingFrequency".
- *   - `glidePath.endTimePoint` when enabled: `timePointProgress` reads its age/date directly,
- *     so a missing value makes the bond allocation NaN.
- *   - `marketAssumptions.inflationRate` at or below -100%: the real/nominal conversion
- *     divides by `(1 + rate)^years`, which is zero there.
+ * BLOCKING (`engineContractIssues`) — a value the engine would throw on, turn into NaN, run
+ * with no months, or silently shift into different numbers. The fourth clause matters:
+ * `birthMonth: 13` crashes nothing and NaNs nothing, it makes `calculatePreciseAge` return an
+ * age a year off, which moves every number in the plan. A plan that renders is not the same
+ * as a plan whose figures mean what the file says, so silent corruption blocks too. Each rule
+ * cites the code path that makes it blocking, beside the rule in `engineContractIssues`.
  *
  * WARNING (`planDomainChecks` below, i.e. the app's own per-domain schemas) — anything the
  * engine runs fine without: a wage income with no withholding (the engine applies `?? 0`),
@@ -534,7 +523,9 @@ function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
 
   plans.forEach((plan, index) => {
     const prefix: PropertyKey[] = single ? ['plan'] : ['plans', index];
-    blocking.push(...engineContractIssues(plan, prefix));
+    const contract = engineContractIssues(plan, prefix, envelope.exportedAt);
+    blocking.push(...contract.blocking);
+    warnings.push(...contract.warnings);
   });
 
   // A path the engine needs is reported once, as a blocker: drop the form schema's echo.
@@ -565,41 +556,89 @@ function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
 }
 
 /**
- * The engine contract: values whose absence or impossibility crashes the run, corrupts it
- * with NaN, or leaves it with nothing to simulate. Everything else is a form preference.
+ * The engine contract: values whose absence or impossibility makes the engine throw, produce
+ * NaN, simulate no months, or silently shift the computed numbers. Everything else is a form
+ * preference (a warning).
  */
-function engineContractIssues(plan: PlanExport, prefix: PropertyKey[]): ImportIssue[] {
-  const issues: ImportIssue[] = [];
-  const block = (parts: PropertyKey[], message: string) => issues.push({ path: formatPath(parts), message });
+function engineContractIssues(plan: PlanExport, prefix: PropertyKey[], exportedAt: string): AppRuleFindings {
+  const blocking: ImportIssue[] = [];
+  const warnings: ImportIssue[] = [];
+  const block = (parts: PropertyKey[], message: string) => blocking.push({ path: formatPath(parts), message });
+  const warn = (parts: PropertyKey[], message: string) => warnings.push({ path: formatPath(parts), message });
 
+  // `useSimulationClock` hands this to `fixedClock`, and `parseISODateString` (clock.ts)
+  // THROWS on anything that is not a real calendar date, which puts that plan's simulator
+  // page on the error boundary with no in-page way to repair it.
   const asOfDate = plan.simulationSettings.asOfDate;
-  if (asOfDate !== undefined && !isISODateString(asOfDate)) {
+  const asOfDateIsValid = asOfDate !== undefined && isISODateString(asOfDate);
+  if (asOfDate !== undefined && !asOfDateIsValid) {
     block([...prefix, 'simulationSettings', 'asOfDate'], 'As-of date must be a valid ISO date (YYYY-MM-DD)');
   }
 
   const timeline = plan.timeline;
   if (timeline) {
     const { birthMonth, birthYear, lifeExpectancy } = timeline;
-    if (!isIntegerWithin(birthMonth, 1, 12)) {
+
+    // `calculatePreciseAge` (timeline-form-schema.ts) computes `currentMonth - birthMonth`
+    // over 12, so a month outside 1..12 shifts the age by up to a year and every dated number
+    // in the plan with it. No throw, no NaN: silent corruption.
+    const birthMonthIsValid = isIntegerWithin(birthMonth, 1, 12);
+    if (!birthMonthIsValid) {
       block(
         [...prefix, 'timeline', 'birthMonth'],
         'Birth month must be a whole month from 1 to 12; the age arithmetic reads it as a month index.'
       );
     }
-    if (!isIntegerWithin(birthYear, 1900, 2100)) {
+
+    // The same arithmetic: a year outside 1900..2100 gives a nonsense starting age, and
+    // `initSimulationContext` also derives the RMD age from `birthYear >= 1960`.
+    const birthYearIsValid = isIntegerWithin(birthYear, 1900, 2100);
+    if (!birthYearIsValid) {
       block(
         [...prefix, 'timeline', 'birthYear'],
         'Birth year must be a whole year from 1900 to 2100; the ages and the RMD age are derived from it.'
       );
     }
+
+    // `SimulationEngine.initSimulationContext` computes
+    // `yearsToSimulate = Math.ceil(lifeExpectancy - startAge)` and the month loop runs
+    // `yearsToSimulate * 12` times: zero or negative means no months at all, so every readout
+    // is empty.
     if (!(lifeExpectancy > 0)) {
       block(
         [...prefix, 'timeline', 'lifeExpectancy'],
         'Life expectancy must be a positive number of years; otherwise the run has no months to simulate.'
       );
+    } else if (birthMonthIsValid && birthYearIsValid) {
+      // The same empty-run arm when the horizon is already behind the plan holder. The
+      // current age needs a date, and there are only two the file carries: its own
+      // `asOfDate` (exact, so it can block) and its `exportedAt`. Ages only grow from the
+      // export date, so that is a sound lower bound for today — never an invented "today".
+      const ageAtAsOf = asOfDateIsValid ? calculatePreciseAge(birthMonth, birthYear, asOfDate) : undefined;
+      if (ageAtAsOf !== undefined && lifeExpectancy <= ageAtAsOf) {
+        block(
+          [...prefix, 'timeline', 'lifeExpectancy'],
+          `Life expectancy (${lifeExpectancy}) is at or below the plan holder's age on the as-of date (${formatAge(ageAtAsOf)}), so the run has no months to simulate.`
+        );
+      } else if (asOfDate === undefined) {
+        // `exportedAt` is a full timestamp; `calculatePreciseAge` takes `YYYY-MM-DD`, so use
+        // the timestamp's own calendar date and only when that date is real.
+        const exportedOn = exportedAt.slice(0, 10);
+        const ageAtExport = isISODateString(exportedOn) ? calculatePreciseAge(birthMonth, birthYear, exportedOn) : Number.NaN;
+        if (lifeExpectancy <= ageAtExport) {
+          warn(
+            [...prefix, 'timeline', 'lifeExpectancy'],
+            `Life expectancy (${lifeExpectancy}) is at or below the plan holder's age on this file's export date (${formatAge(ageAtExport)}), so the run may have no months. This file pins no asOfDate, so the importer cannot check the horizon against today without inventing a date; set simulationSettings.asOfDate or raise the life expectancy.`
+          );
+        }
+      }
     }
   }
 
+  // `TimeBinding.amountScale` (time-binding.ts) divides by
+  // `cumulativeInflationIndex` = `Math.pow(1 + rate / 100, years)`. At exactly -100% that
+  // divisor is 0, so a nominal amount becomes Infinity; below -100% the base is negative, so
+  // a fractional-year event yields NaN and an integer-year one flips the amount's sign.
   const inflationRate = plan.marketAssumptions.inflationRate;
   if (!Number.isFinite(inflationRate) || inflationRate <= -100) {
     block(
@@ -609,7 +648,9 @@ function engineContractIssues(plan: PlanExport, prefix: PropertyKey[]): ImportIs
   }
 
   for (const [index, account] of plan.accounts.entries()) {
-    // Savings hold cash only; every other type is allocated with its bond percentage.
+    // `Account` (account.ts) sets `currPercentBonds = percentBonds / 100` and derives the
+    // stock share from it, so an absent value turns every balance in the plan into NaN.
+    // Savings hold cash only and carry no percentage.
     if (account.type === 'savings') continue;
     if (typeof account.percentBonds !== 'number' || !Number.isFinite(account.percentBonds)) {
       block(
@@ -620,6 +661,8 @@ function engineContractIssues(plan: PlanExport, prefix: PropertyKey[]): ImportIs
   }
 
   for (const [index, debt] of (plan.debts ?? []).entries()) {
+    // `Debt.calculateMonthlyInterest` (debts.ts) throws "Missing compoundingFrequency" for a
+    // compound debt that has none.
     if (debt.interestType === 'compound' && debt.compoundingFrequency === undefined) {
       block(
         [...prefix, 'debts', index, 'compoundingFrequency'],
@@ -628,6 +671,8 @@ function engineContractIssues(plan: PlanExport, prefix: PropertyKey[]): ImportIs
     }
   }
 
+  // `timePointProgress` (time-binding.ts) reads the end point's age/month/year directly and
+  // returns a NaN fraction without them, which makes the glide path's bond allocation NaN.
   const glidePath = plan.glidePath;
   if (glidePath?.enabled && !hasResolvableEndPoint(glidePath.endTimePoint)) {
     block(
@@ -636,7 +681,12 @@ function engineContractIssues(plan: PlanExport, prefix: PropertyKey[]): ImportIs
     );
   }
 
-  return issues;
+  return { blocking, warnings };
+}
+
+/** Ages are fractional; one decimal is enough to show why a horizon failed. */
+function formatAge(age: number): string {
+  return String(Math.round(age * 10) / 10);
 }
 
 function isIntegerWithin(value: number, min: number, max: number): boolean {
@@ -773,6 +823,48 @@ export type ImportPlan =
  * caller when `confirmReplaceFinances` is set, and the returned `snapshot` is the
  * pre-import backup the caller must download before applying anything.
  */
+/** The plan-data half of an export, in the shape `createPlanWithData` takes it. */
+export type PastedPlanData = Omit<PlanExport, 'name' | 'isDefault'>;
+
+export type PastedPlanImport = { ok: false; issues: ImportIssue[] } | { ok: true; planData: PastedPlanData; warnings: ImportIssue[] };
+
+/**
+ * The "paste a plan" path (Dashboard → New plan → Import from JSON).
+ *
+ * Uses the same envelope reader and the same guards as the Settings restore, minus the two
+ * things this path cannot do: a bulk file has nowhere to go (one dialog, one plan), and
+ * finances must be replaced with an explicit confirmation (Settings). What it must NOT drop
+ * is `warnings` — a pasted plan the engine can run is not refused for a form-level rule, and
+ * a warning nobody sees is the same bug as a refusal. The caller shows them and continues.
+ */
+export function preparePastedPlan(text: string): PastedPlanImport {
+  const parsed = parseEnvelope(text);
+  if (!parsed.ok) return { ok: false, issues: parsed.issues };
+
+  if (parsed.envelope.kind !== PLAN_EXPORT_KIND) {
+    return {
+      ok: false,
+      issues: [{ path: 'kind', message: 'This file contains several plans. Restore it from Settings → Backup & restore.' }],
+    };
+  }
+
+  if (parsed.envelope.finances) {
+    return {
+      ok: false,
+      issues: [
+        {
+          path: 'finances',
+          message: 'This file also contains finances. Restore it from Settings → Backup & restore so replacing them can be confirmed.',
+        },
+      ],
+    };
+  }
+
+  const { name: _name, isDefault: _isDefault, ...planData } = parsed.envelope.plan;
+
+  return { ok: true, planData, warnings: parsed.warnings };
+}
+
 export function prepareImport(envelope: ExportEnvelope, existing: ExistingExportState, options: ImportOptions): ImportPlan {
   const plans = envelope.kind === PLAN_EXPORT_KIND ? [envelope.plan] : envelope.plans;
   const maxPlans = options.maxPlans ?? 10;

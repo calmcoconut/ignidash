@@ -17,6 +17,7 @@ import {
   planExportKeys,
   planExportSchema,
   prepareImport,
+  preparePastedPlan,
   serializeEnvelope,
   toFinancesExport,
   toPlanExport,
@@ -486,6 +487,60 @@ describe('the semantic layer blocks only what the engine cannot run', () => {
     expect(inflation.map((issue) => issue.path)).toContain('plan.marketAssumptions.inflationRate');
   });
 
+  it('refuses a life expectancy the plan holder has already reached, when the plan pins an as-of date', () => {
+    const issues = issuesFor((envelope) => {
+      const plan = envelope.plan as Record<string, unknown>;
+      const timeline = plan.timeline as Record<string, unknown>;
+      timeline.birthYear = 1960;
+      timeline.lifeExpectancy = 60;
+      (plan.simulationSettings as Record<string, unknown>).asOfDate = '2026-10-30';
+    });
+
+    // `yearsToSimulate = ceil(lifeExpectancy - startAge)` = ceil(60 - 66.8) <= 0: no months.
+    const horizon = issues.find((issue) => issue.path === 'plan.timeline.lifeExpectancy');
+    expect(horizon?.message).toBe(
+      "Life expectancy (60) is at or below the plan holder's age on the as-of date (66.8), so the run has no months to simulate."
+    );
+  });
+
+  it('refuses a timestamp-shaped asOfDate at the date gate, before any age is computed from it', () => {
+    // `calculatePreciseAge` takes `YYYY-MM-DD` and normalises through `parseISODateString`,
+    // which THROWS on a timestamp. The timeline below would fail the horizon check if the
+    // timestamp reached the age arithmetic (age 66.8 vs a 60-year horizon), so the only issue
+    // reported must be the date itself — and `parseEnvelope` must not throw.
+    const issues = issuesFor((envelope) => {
+      const plan = envelope.plan as Record<string, unknown>;
+      (plan.simulationSettings as Record<string, unknown>).asOfDate = '2026-10-30T12:00:00.000Z';
+      const timeline = plan.timeline as Record<string, unknown>;
+      timeline.birthYear = 1960;
+      timeline.lifeExpectancy = 60;
+    });
+
+    expect(issues).toEqual([{ path: 'plan.simulationSettings.asOfDate', message: 'As-of date must be a valid ISO date (YYYY-MM-DD)' }]);
+  });
+
+  it('warns instead when the file pins no as-of date to check that horizon against', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const mutated = structuredClone(envelope) as unknown as Record<string, unknown>;
+    const plan = mutated.plan as Record<string, unknown>;
+    const timeline = plan.timeline as Record<string, unknown>;
+    timeline.birthYear = 1960;
+    timeline.lifeExpectancy = 60;
+    expect((plan.simulationSettings as Record<string, unknown>).asOfDate).toBeUndefined();
+
+    const parsed = parseEnvelope(JSON.stringify(mutated));
+
+    // The age at the file's own export date (2026-10-30) already passes the horizon, but the
+    // importer refuses to invent a "today" to block on.
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.warnings).toContainEqual({
+      path: 'plan.timeline.lifeExpectancy',
+      message:
+        "Life expectancy (60) is at or below the plan holder's age on this file's export date (66.8), so the run may have no months. This file pins no asOfDate, so the importer cannot check the horizon against today without inventing a date; set simulationSettings.asOfDate or raise the life expectancy.",
+    });
+  });
+
   it('imports a plan an older build saved: no v2 fields, no withholding the form now requires', () => {
     // The exact P1 repro, as old as such a file can be. `withholding` became a refine for
     // wage income in d9915666, while Convex still stores it as optional and the engine runs
@@ -703,6 +758,71 @@ describe('finances import needs confirmation and produces a pre-import snapshot'
     if (plan.ok) return;
     expect(plan.issues[0].path).toBe('plans');
     expect(plan.issues[0].message).toMatch(/10-plan limit/);
+  });
+});
+
+describe('the paste-a-plan path (dashboard → new plan → import from JSON)', () => {
+  const textFor = (plan = makePlanDoc(), finances: ReturnType<typeof toFinancesExport> = null) =>
+    serializeEnvelope(createPlanEnvelope({ plan, finances, exportedAt: EXPORTED_AT }));
+
+  it('returns the plan data without the two document fields', () => {
+    const { name: _name, isDefault: _isDefault, ...expected } = toPlanExport(makePlanDoc());
+
+    const prepared = preparePastedPlan(textFor());
+
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(prepared.planData).toStrictEqual(expected);
+    expect(prepared.planData).not.toHaveProperty('name');
+    expect(prepared.planData).not.toHaveProperty('isDefault');
+    expect(prepared.warnings).toEqual([]);
+  });
+
+  it('surfaces warnings instead of writing past them', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const mutated = structuredClone(envelope) as unknown as Record<string, unknown>;
+    const incomes = (mutated.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
+    delete (incomes[0].taxes as Record<string, unknown>).withholding;
+
+    const prepared = preparePastedPlan(JSON.stringify(mutated));
+
+    // The dialog stashes these and asks before it calls the mutation; this is the value it
+    // reads, so a warning here can never be dropped on that path again.
+    expect(prepared.ok).toBe(true);
+    if (!prepared.ok) return;
+    expect(prepared.warnings).toContainEqual({
+      path: 'plan.incomes[0].taxes.withholding',
+      message: 'Withholding required for wage income',
+    });
+  });
+
+  it('still refuses a bulk file, a file with finances and a file the engine cannot run', () => {
+    const bulk = preparePastedPlan(
+      serializeEnvelope(createPlansEnvelope({ plans: [makePlanDoc()], finances: null, exportedAt: EXPORTED_AT }))
+    );
+    expect(bulk.ok).toBe(false);
+    if (bulk.ok) return;
+    expect(bulk.issues).toEqual([
+      { path: 'kind', message: 'This file contains several plans. Restore it from Settings → Backup & restore.' },
+    ]);
+
+    const withFinances = preparePastedPlan(textFor(makePlanDoc(), toFinancesExport(makeFinancesDoc())));
+    expect(withFinances.ok).toBe(false);
+    if (withFinances.ok) return;
+    expect(withFinances.issues[0].path).toBe('finances');
+
+    const broken = preparePastedPlan('{ not json');
+    expect(broken.ok).toBe(false);
+    if (broken.ok) return;
+    expect(broken.issues[0].path).toBe('');
+
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const unreadable = structuredClone(envelope) as unknown as Record<string, unknown>;
+    ((unreadable.plan as Record<string, unknown>).simulationSettings as Record<string, unknown>).asOfDate = 'not-a-date';
+    const refused = preparePastedPlan(JSON.stringify(unreadable));
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.issues.map((issue) => issue.path)).toContain('plan.simulationSettings.asOfDate');
   });
 });
 
