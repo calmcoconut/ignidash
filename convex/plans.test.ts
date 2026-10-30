@@ -48,6 +48,10 @@ const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets
       monthlyPayment: 1500,
       disabled: false,
       syncedFinanceId: 'finance-1',
+      // P1-P2: an owner and a property regime ride inside the collection, so the derived
+      // round-trip below proves `clonePlan` carries them.
+      owner: 'joint',
+      propertyRegime: 'jointTenancy',
     },
   ],
   physicalAssets: [
@@ -63,6 +67,7 @@ const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets
       paymentMethod: { type: 'loan', downPayment: 120000, loanBalance: 480000, apr: 5, monthlyPayment: 2500 },
       syncedAssetId: 'asset-sync-1',
       syncedLiabilityId: 'liability-sync-1',
+      owner: 'partner',
     },
   ],
   glidePath: {

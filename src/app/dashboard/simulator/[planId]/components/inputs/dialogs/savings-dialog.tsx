@@ -10,6 +10,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 
 import { accountToConvex } from '@/lib/utils/data-transformers';
+import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import { accountFormSchema, type AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import { assetTypeForDisplay, type AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
@@ -23,6 +24,7 @@ import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
 import { useLinkableFinances } from '@/hooks/use-linkable-finances';
 import { getErrorMessages } from '@/lib/utils/form-utils';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
+import OwnershipFields from './ownership-fields';
 
 import SyncWithNetWorthTrackerSelect from './sync-with-nw-tracker-select';
 
@@ -45,6 +47,7 @@ export default function SavingsDialog({ onClose, selectedAccount: _selectedAccou
       ({
         name: 'Savings ' + (numAccounts + 1),
         id: '',
+        owner: 'primary',
         type: 'savings' as AccountInputs['type'],
       }) as const satisfies Partial<AccountInputs>,
     [numAccounts]
@@ -93,7 +96,7 @@ export default function SavingsDialog({ onClose, selectedAccount: _selectedAccou
     const accountId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ account: accountToConvex({ ...data, id: accountId }), planId });
+      await m({ account: accountToConvex(ownershipForStorage({ ...data, id: accountId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save account.');
@@ -149,6 +152,7 @@ export default function SavingsDialog({ onClose, selectedAccount: _selectedAccou
                 />
                 {errors.balance && <ErrorMessage>{errors.balance?.message}</ErrorMessage>}
               </Field>
+              <OwnershipFields control={control} register={register} errors={errors} className="" />
             </FieldGroup>
           </DialogBody>
         </Fieldset>

@@ -39,7 +39,14 @@ import type { SimulationResult } from '@/lib/calc/simulation-engine';
 // percentBonds is optional in Convex (not applicable to savings), but guaranteed by the
 // Zod discriminated union for investment account types — hence the non-null assertions.
 export function accountFromConvex(account: Doc<'plans'>['accounts'][number]): AccountInputs {
-  const base = { id: account.id, name: account.name, balance: account.balance, syncedFinanceId: account.syncedFinanceId };
+  const base = {
+    id: account.id,
+    name: account.name,
+    balance: account.balance,
+    syncedFinanceId: account.syncedFinanceId,
+    owner: account.owner,
+    propertyRegime: account.propertyRegime,
+  };
 
   switch (account.type) {
     case 'savings':
@@ -103,6 +110,8 @@ export function expenseFromConvex(expense: Doc<'plans'>['expenses'][number]): Ex
     name: expense.name,
     amount: expense.amount,
     amountBasis: expense.amountBasis,
+    owner: expense.owner,
+    propertyRegime: expense.propertyRegime,
     frequency: expense.frequency,
     timeframe: { start: expense.timeframe.start, end: expense.timeframe.end },
     growth: expense.growth,
@@ -121,6 +130,8 @@ export function debtFromConvex(debt: NonNullable<Doc<'plans'>['debts']>[number])
     startDate: { ...debt.startDate },
     monthlyPayment: debt.monthlyPayment,
     amountBasis: debt.amountBasis,
+    owner: debt.owner,
+    propertyRegime: debt.propertyRegime,
     disabled: debt.disabled ?? false,
     syncedFinanceId: debt.syncedFinanceId,
   };
@@ -138,6 +149,8 @@ export function physicalAssetFromConvex(physicalAsset: NonNullable<Doc<'plans'>[
     appreciationRate: physicalAsset.appreciationRate,
     saleDate: physicalAsset.saleDate ? { ...physicalAsset.saleDate } : { type: 'atLifeExpectancy' },
     amountBasis: physicalAsset.amountBasis,
+    owner: physicalAsset.owner,
+    propertyRegime: physicalAsset.propertyRegime,
     paymentMethod: physicalAsset.paymentMethod,
     syncedAssetId: physicalAsset.syncedAssetId,
     syncedLiabilityId: physicalAsset.syncedLiabilityId,
@@ -152,6 +165,8 @@ export function incomeFromConvex(income: Doc<'plans'>['incomes'][number]): Incom
     frequency: income.frequency,
     timeframe: { start: income.timeframe.start, end: income.timeframe.end },
     amountBasis: income.amountBasis,
+    owner: income.owner,
+    propertyRegime: income.propertyRegime,
     growth: income.growth,
     taxes: { incomeType: income.taxes.incomeType, withholding: income.taxes.withholding },
     disabled: income.disabled ?? false,
@@ -218,7 +233,14 @@ export function glidePathFromConvex(glidePath: Doc<'plans'>['glidePath']): Glide
 // ============================================================================
 
 export function accountToConvex(account: AccountInputs): Doc<'plans'>['accounts'][number] {
-  const base = { id: account.id, name: account.name, balance: account.balance, syncedFinanceId: account.syncedFinanceId };
+  const base = {
+    id: account.id,
+    name: account.name,
+    balance: account.balance,
+    syncedFinanceId: account.syncedFinanceId,
+    owner: account.owner,
+    propertyRegime: account.propertyRegime,
+  };
 
   switch (account.type) {
     case 'savings':
@@ -282,6 +304,8 @@ export function expenseToConvex(expense: ExpenseInputs): Doc<'plans'>['expenses'
     name: expense.name,
     amount: expense.amount,
     amountBasis: expense.amountBasis,
+    owner: expense.owner,
+    propertyRegime: expense.propertyRegime,
     frequency: expense.frequency,
     timeframe: { start: expense.timeframe.start, end: expense.timeframe.end },
     growth: expense.growth,
@@ -300,6 +324,8 @@ export function debtToConvex(debt: DebtInputs): NonNullable<Doc<'plans'>['debts'
     startDate: { ...debt.startDate },
     monthlyPayment: debt.monthlyPayment,
     amountBasis: debt.amountBasis,
+    owner: debt.owner,
+    propertyRegime: debt.propertyRegime,
     disabled: debt.disabled ?? false,
     syncedFinanceId: debt.syncedFinanceId,
   };
@@ -316,6 +342,8 @@ export function physicalAssetToConvex(physicalAsset: PhysicalAssetInputs): NonNu
     appreciationRate: physicalAsset.appreciationRate,
     saleDate: physicalAsset.saleDate ? { ...physicalAsset.saleDate } : undefined,
     amountBasis: physicalAsset.amountBasis,
+    owner: physicalAsset.owner,
+    propertyRegime: physicalAsset.propertyRegime,
     paymentMethod: physicalAsset.paymentMethod,
     syncedAssetId: physicalAsset.syncedAssetId,
     syncedLiabilityId: physicalAsset.syncedLiabilityId,
@@ -330,6 +358,8 @@ export function incomeToConvex(income: IncomeInputs): Doc<'plans'>['incomes'][nu
     frequency: income.frequency,
     timeframe: { start: income.timeframe.start, end: income.timeframe.end },
     amountBasis: income.amountBasis,
+    owner: income.owner,
+    propertyRegime: income.propertyRegime,
     growth: income.growth,
     taxes: { incomeType: income.taxes.incomeType, withholding: income.taxes.withholding },
     disabled: income.disabled ?? false,

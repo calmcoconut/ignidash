@@ -10,6 +10,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 
 import { accountToConvex } from '@/lib/utils/data-transformers';
+import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import { accountFormSchema, type AccountInputs, isRothAccount, type RothAccountType } from '@/lib/schemas/inputs/account-form-schema';
 import { assetTypeForDisplay, type AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
@@ -25,6 +26,7 @@ import { useLinkableFinances } from '@/hooks/use-linkable-finances';
 import { getErrorMessages } from '@/lib/utils/form-utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
+import OwnershipFields from './ownership-fields';
 
 import SyncWithNetWorthTrackerSelect from './sync-with-nw-tracker-select';
 
@@ -56,6 +58,7 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
       ({
         name: 'Investment ' + (numAccounts + 1),
         id: '',
+        owner: 'primary',
         type: '401k' as AccountInputs['type'],
         percentBonds: 0,
       }) as const satisfies Partial<AccountInputs>,
@@ -98,7 +101,7 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
     const accountId = processedData.id === '' ? uuidv4() : processedData.id;
     try {
       setSaveError(null);
-      await m({ account: accountToConvex({ ...processedData, id: accountId }), planId });
+      await m({ account: accountToConvex(ownershipForStorage({ ...processedData, id: accountId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save account.');
@@ -299,6 +302,7 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
                   />
                   {percentBondsError && <ErrorMessage>{percentBondsError.message}</ErrorMessage>}
                 </Field>
+                <OwnershipFields control={control} register={register} errors={errors} />
               </div>
             </FieldGroup>
           </DialogBody>

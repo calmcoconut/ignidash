@@ -10,6 +10,9 @@ export const earlyRetirementTemplate: Omit<Doc<'plans'>, '_id' | '_creationTime'
       safeWithdrawalRate: 3.5,
       type: 'swrTarget',
     },
+    // One person to start with (P1-P2). A couple adds a `partner` member; every entity's
+    // `owner` defaults to `primary` until the user says otherwise.
+    household: { members: [{ id: 'primary', role: 'primary' }] },
   },
   incomes: [
     {

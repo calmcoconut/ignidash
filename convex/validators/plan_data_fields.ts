@@ -13,7 +13,13 @@ import { taxSettingsValidator } from './tax_settings_validator';
 import { privacySettingsValidator } from './privacy_settings_validator';
 import { simulationSettingsValidator } from './simulation_settings_validator';
 
-/** Plan data fields shared between `plans` and `planSnapshots` tables. */
+/**
+ * Plan data fields shared between `plans` and `planSnapshots` tables.
+ *
+ * The household (P1-P2) is part of `timeline`, not a field of its own: who is in the plan
+ * belongs with the people, and `timelineValidator` already carries it, so old plans need no
+ * new top-level key. Per-entity `owner`/`propertyRegime` ride inside their own arrays.
+ */
 export const planDataFields = {
   timeline: v.union(timelineValidator, v.null()),
   incomes: v.array(incomeValidator),

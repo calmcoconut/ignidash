@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { currencyFieldForbidsZero } from '@/lib/utils/zod-utils';
 
+import { ownerSchema, propertyRegimeSchema } from './household-schema';
 import { amountBasisSchema, growthSchema, frequencyTimeframeSchema } from './income-expenses-shared-schemas';
 
 export const expenseFormSchema = z
@@ -10,6 +11,9 @@ export const expenseFormSchema = z
     name: z.string().min(2, 'Name must be at least 2 characters').max(50, 'Name must be at most 50 characters'),
     amount: currencyFieldForbidsZero('Expense cannot be negative or zero'),
     amountBasis: amountBasisSchema.optional(),
+    // Whose expense this is (P1-P2). Absent means `primary`.
+    owner: ownerSchema.optional(),
+    propertyRegime: propertyRegimeSchema.optional(),
     growth: growthSchema.optional(),
     disabled: z.boolean().optional(),
   })

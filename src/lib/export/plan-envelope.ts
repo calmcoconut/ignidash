@@ -41,12 +41,12 @@ import {
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 2 (P5-P1, bumped by P1-P1).
+ * Export/import envelope, version 3 (P5-P1, bumped by P1-P1 and P1-P2).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 2, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 2, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 3, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 3, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -59,6 +59,8 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *   1 — the P5-P1 envelope: plan data plus finances.
  *   2 — P1-P1 time binding: `everyNYears`/`recurrenceYears` on a time point and
  *       `amountBasis` on incomes, expenses, debts and physical assets.
+ *   3 — P1-P2 couples foundation: `owner`/`propertyRegime` on accounts, incomes, expenses,
+ *       debts and physical assets, and `household` inside `timeline`.
  *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
@@ -71,7 +73,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 2;
+export const EXPORT_SCHEMA_VERSION = 3;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

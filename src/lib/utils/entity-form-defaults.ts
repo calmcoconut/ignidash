@@ -18,6 +18,7 @@ export const newIncomeDefaults = (numIncomes: number) =>
   ({
     name: 'Income ' + (numIncomes + 1),
     id: '',
+    owner: 'primary',
     frequency: 'yearly',
     timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } },
     growth: { growthRate: 0 },
@@ -28,6 +29,7 @@ export const newExpenseDefaults = (numExpenses: number) =>
   ({
     name: 'Expense ' + (numExpenses + 1),
     id: '',
+    owner: 'primary',
     frequency: 'yearly',
     timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
     growth: { growthRate: 0 },
@@ -36,6 +38,7 @@ export const newExpenseDefaults = (numExpenses: number) =>
 export const newDebtDefaults = (numDebts: number) =>
   ({
     id: '',
+    owner: 'primary',
     name: 'Debt ' + (numDebts + 1),
     apr: 24,
     interestType: 'compound',
@@ -46,6 +49,7 @@ export const newDebtDefaults = (numDebts: number) =>
 export const newPhysicalAssetDefaults = (numPhysicalAssets: number) =>
   ({
     id: '',
+    owner: 'primary',
     name: 'Asset ' + (numPhysicalAssets + 1),
     assetType: 'other',
     purchaseDate: { type: 'now' },

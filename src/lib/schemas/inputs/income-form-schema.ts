@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 import { currencyFieldForbidsZero, optionalPercentageField } from '@/lib/utils/zod-utils';
 
+import { ownerSchema, propertyRegimeSchema } from './household-schema';
 import { amountBasisSchema, growthSchema, frequencyTimeframeSchema } from './income-expenses-shared-schemas';
 
 export type IncomeType = 'wage' | 'socialSecurity' | 'exempt' | 'selfEmployment' | 'pension';
@@ -61,6 +62,9 @@ export const incomeFormSchema = z
     name: z.string().min(2, 'Name must be at least 2 characters').max(50, 'Name must be at most 50 characters'),
     amount: currencyFieldForbidsZero('Income cannot be negative or zero'),
     amountBasis: amountBasisSchema.optional(),
+    // Whose income this is (P1-P2). Absent means `primary`; `joint` carries a property regime.
+    owner: ownerSchema.optional(),
+    propertyRegime: propertyRegimeSchema.optional(),
     growth: growthSchema.optional(),
     taxes: incomeTaxSchema,
     disabled: z.boolean().optional(),

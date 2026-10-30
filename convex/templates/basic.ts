@@ -10,6 +10,9 @@ export const basicTemplate: Omit<Doc<'plans'>, '_id' | '_creationTime' | 'userId
       safeWithdrawalRate: 4,
       type: 'swrTarget',
     },
+    // One person to start with (P1-P2). A couple adds a `partner` member; every entity's
+    // `owner` defaults to `primary` until the user says otherwise.
+    household: { members: [{ id: 'primary', role: 'primary' }] },
   },
   incomes: [
     {

@@ -10,6 +10,8 @@ import { z } from 'zod';
 import { type ISODateString, parseISODateString } from '@/lib/calc/clock';
 import { ageField, percentageField } from '@/lib/utils/zod-utils';
 
+import { householdSchema } from './household-schema';
+
 export const retirementStrategySchema = z.discriminatedUnion('type', [
   z.object({
     retirementAge: ageField(19, 73, {
@@ -39,6 +41,10 @@ export const timelineBaseSchema = z.object({
     max: 'Life expectancy must be at most 110 years',
   }),
   retirementStrategy: retirementStrategySchema,
+  // Who is in the plan (P1-P2): one member, or two. Absent means "one person" — every plan
+  // written before households existed. The stored plan carries it inside `timeline`
+  // (`planDataFields.timeline`), so no separate plan field was needed.
+  household: householdSchema.optional(),
 });
 
 export type RetirementStrategyInputs = z.infer<typeof retirementStrategySchema>;

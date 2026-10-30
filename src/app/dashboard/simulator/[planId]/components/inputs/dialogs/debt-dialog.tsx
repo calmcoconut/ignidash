@@ -16,6 +16,7 @@ import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
 import { useLinkableFinances } from '@/hooks/use-linkable-finances';
 import { usePayoffEstimate } from '@/hooks/use-payoff-estimate';
 import { debtToConvex } from '@/lib/utils/data-transformers';
+import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import type { DisclosureState } from '@/lib/types/disclosure-state';
 import { debtFormSchema, type DebtInputs } from '@/lib/schemas/inputs/debt-form-schema';
 import { liabilityTypeForDisplay, type LiabilityInputs } from '@/lib/schemas/finances/liability-form-schema';
@@ -44,6 +45,7 @@ import { getErrorMessages } from '@/lib/utils/form-utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Divider } from '@/components/catalyst/divider';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
+import OwnershipFields from './ownership-fields';
 
 import SyncWithNetWorthTrackerSelect from './sync-with-nw-tracker-select';
 import { PayoffEstimate } from './payoff-estimate';
@@ -108,7 +110,7 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
     const debtId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ debt: debtToConvex({ ...data, id: debtId }), planId });
+      await m({ debt: debtToConvex(ownershipForStorage({ ...data, id: debtId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save debt.');
@@ -326,6 +328,7 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                   </Field>
                 )}
                 <PayoffEstimate months={payoffMonths} className="col-span-2" />
+                <OwnershipFields control={control} register={register} errors={errors} />
               </div>
               <Disclosure as="div" className="border-border/25 border-t pt-4">
                 {({ open, close }) => (

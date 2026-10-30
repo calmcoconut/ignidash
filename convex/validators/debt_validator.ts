@@ -1,5 +1,7 @@
 import { v } from 'convex/values';
 
+import { ownerValidator, propertyRegimeValidator } from './household_validator';
+
 const debtTimePointValidator = v.object({
   type: v.union(
     v.literal('now'),
@@ -26,6 +28,9 @@ export const debtValidator = v.object({
   monthlyPayment: v.number(),
   // real (today's dollars, default) | nominal (dollars of the start date)
   amountBasis: v.optional(v.union(v.literal('real'), v.literal('nominal'))),
+  // Whose item this is (P1-P2). Absent means `primary`.
+  owner: v.optional(ownerValidator),
+  propertyRegime: v.optional(propertyRegimeValidator),
   disabled: v.optional(v.boolean()),
   syncedFinanceId: v.optional(v.string()),
 });

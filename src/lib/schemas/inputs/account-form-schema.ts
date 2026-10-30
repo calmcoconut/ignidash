@@ -11,11 +11,16 @@ import { z } from 'zod';
 import { currencyFieldAllowsZero, optionalCurrencyFieldAllowsZero, percentageField } from '@/lib/utils/zod-utils';
 import type { TaxCategory } from '@/lib/calc/asset';
 
+import { ownerSchema, propertyRegimeSchema } from './household-schema';
+
 const baseAccountSchema = z.object({
   id: z.string(),
   name: z.string().min(2, 'Name must be at least 2 characters').max(50, 'Name must be at most 50 characters'),
   balance: currencyFieldAllowsZero('Balance cannot be negative'),
   syncedFinanceId: z.string().optional(),
+  // Whose account this is (P1-P2). Absent means `primary`.
+  owner: ownerSchema.optional(),
+  propertyRegime: propertyRegimeSchema.optional(),
 });
 
 const investmentAccountSchema = baseAccountSchema.extend({

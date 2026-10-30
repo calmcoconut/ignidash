@@ -61,6 +61,39 @@
                   ]
                 }
               ]
+            },
+            "household": {
+              "type": "object",
+              "properties": {
+                "members": {
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "primary",
+                          "partner"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "role"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "members"
+              ]
             }
           },
           "required": [
@@ -101,6 +134,21 @@
             "enum": [
               "real",
               "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
             ]
           },
           "growth": {
@@ -286,6 +334,21 @@
               "syncedFinanceId": {
                 "type": "string"
               },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
               "type": {
                 "type": "string",
                 "const": "savings"
@@ -316,6 +379,21 @@
               },
               "syncedFinanceId": {
                 "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
               },
               "percentBonds": {
                 "type": "number",
@@ -358,6 +436,21 @@
               },
               "syncedFinanceId": {
                 "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
               },
               "percentBonds": {
                 "type": "number",
@@ -405,6 +498,21 @@
               "syncedFinanceId": {
                 "type": "string"
               },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
               "percentBonds": {
                 "type": "number",
                 "minimum": 0,
@@ -445,6 +553,21 @@
               },
               "syncedFinanceId": {
                 "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
               },
               "percentBonds": {
                 "type": "number",
@@ -545,6 +668,21 @@
             "enum": [
               "real",
               "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
             ]
           },
           "growth": {
@@ -775,6 +913,21 @@
               "nominal"
             ]
           },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
+            ]
+          },
           "disabled": {
             "type": "boolean"
           },
@@ -879,6 +1032,21 @@
             "enum": [
               "real",
               "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
             ]
           },
           "saleDate": {

@@ -1,5 +1,7 @@
 import { v } from 'convex/values';
 
+import { ownerValidator, propertyRegimeValidator } from './household_validator';
+
 export const accountValidator = v.object({
   id: v.string(),
   name: v.string(),
@@ -19,4 +21,7 @@ export const accountValidator = v.object({
   costBasis: v.optional(v.number()),
   contributionBasis: v.optional(v.number()),
   syncedFinanceId: v.optional(v.string()),
+  // Whose item this is (P1-P2). Absent means `primary`.
+  owner: v.optional(ownerValidator),
+  propertyRegime: v.optional(propertyRegimeValidator),
 });

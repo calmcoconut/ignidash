@@ -53,6 +53,7 @@ const SEED_INCOME: Doc<'plans'>['incomes'][number] = {
   id: 'income-1',
   name: 'Consulting',
   amount: 50000,
+  owner: 'partner',
   frequency: 'yearly',
   timeframe: {
     start: {
@@ -72,6 +73,8 @@ const SEED_EXPENSE: Doc<'plans'>['expenses'][number] = {
   id: 'expense-1',
   name: 'Tuition',
   amount: 30000,
+  owner: 'joint',
+  propertyRegime: 'community',
   frequency: 'yearly',
   timeframe: {
     start: {
@@ -90,6 +93,16 @@ const SEED_EXPENSE: Doc<'plans'>['expenses'][number] = {
 function seedPlan(overrides: Partial<Omit<Doc<'plans'>, '_id' | '_creationTime'>> = {}): Omit<Doc<'plans'>, '_id' | '_creationTime'> {
   return {
     ...basicTemplate,
+    // A two-member household (P1-P2), so the round trip proves `timeline.household` survives.
+    timeline: {
+      ...basicTemplate.timeline!,
+      household: {
+        members: [
+          { id: 'primary', role: 'primary' as const },
+          { id: 'partner', role: 'partner' as const },
+        ],
+      },
+    },
     userId: TEST_USER,
     name: 'Source Plan',
     glidePath: GLIDE_PATH,
@@ -115,6 +128,8 @@ function seedPlan(overrides: Partial<Omit<Doc<'plans'>, '_id' | '_creationTime'>
         },
         monthlyPayment: 1500,
         amountBasis: TIME_BINDING_FIXTURES.debt.amountBasis,
+        owner: 'joint',
+        propertyRegime: 'jointTenancy',
         syncedFinanceId: 'liability-1',
       },
     ],
@@ -132,6 +147,7 @@ function seedPlan(overrides: Partial<Omit<Doc<'plans'>, '_id' | '_creationTime'>
         purchasePrice: 300000,
         appreciationRate: 3,
         amountBasis: TIME_BINDING_FIXTURES.physicalAsset.amountBasis,
+        owner: 'primary',
         paymentMethod: { type: 'cash' },
       },
     ],
@@ -223,6 +239,18 @@ describe('export → import through the real mutations', () => {
       expect(importedDoc!.debts![0].startDate.recurrenceYears).toBe(TIME_BINDING_FIXTURES.debt.recurrenceYears);
       expect(importedDoc!.physicalAssets![0].amountBasis).toBe(TIME_BINDING_FIXTURES.physicalAsset.amountBasis);
       expect(importedDoc!.physicalAssets![0].purchaseDate.everyNYears).toBe(TIME_BINDING_FIXTURES.physicalAsset.everyNYears);
+
+      // ...and the ownership fields, plus the household inside the timeline.
+      expect(importedDoc!.incomes[0].owner).toBe('partner');
+      expect(importedDoc!.expenses[0]).toMatchObject({ owner: 'joint', propertyRegime: 'community' });
+      expect(importedDoc!.debts![0]).toMatchObject({ owner: 'joint', propertyRegime: 'jointTenancy' });
+      expect(importedDoc!.physicalAssets![0].owner).toBe('primary');
+      expect(importedDoc!.timeline!.household).toEqual({
+        members: [
+          { id: 'primary', role: 'primary' },
+          { id: 'partner', role: 'partner' },
+        ],
+      });
       expect(importedDoc!.accounts[0].syncedFinanceId).toBe('finance-asset-1');
       expect(importedDoc!.debts![0].syncedFinanceId).toBe('liability-1');
 

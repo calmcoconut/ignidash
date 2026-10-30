@@ -16,6 +16,7 @@ import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
 import { useLinkableFinances } from '@/hooks/use-linkable-finances';
 import { usePayoffEstimate } from '@/hooks/use-payoff-estimate';
 import { physicalAssetToConvex } from '@/lib/utils/data-transformers';
+import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import type { DisclosureState } from '@/lib/types/disclosure-state';
 import { physicalAssetFormSchema, type PhysicalAssetInputs } from '@/lib/schemas/inputs/physical-asset-form-schema';
 import { assetTypeForDisplay, type AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
@@ -45,6 +46,7 @@ import { getErrorMessages } from '@/lib/utils/form-utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Divider } from '@/components/catalyst/divider';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
+import OwnershipFields from './ownership-fields';
 
 import SyncWithNetWorthTrackerSelect from './sync-with-nw-tracker-select';
 import { PayoffEstimate } from './payoff-estimate';
@@ -105,7 +107,7 @@ export default function PhysicalAssetDialog({
     const assetId = processedData.id === '' ? uuidv4() : processedData.id;
     try {
       setSaveError(null);
-      await m({ physicalAsset: physicalAssetToConvex({ ...processedData, id: assetId }), planId });
+      await m({ physicalAsset: physicalAssetToConvex(ownershipForStorage({ ...processedData, id: assetId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save physical asset.');
@@ -400,6 +402,7 @@ export default function PhysicalAssetDialog({
                   />
                   {errors.appreciationRate && <ErrorMessage>{errors.appreciationRate?.message}</ErrorMessage>}
                 </Field>
+                <OwnershipFields control={control} register={register} errors={errors} />
               </div>
               <Disclosure as="div" className="border-border/25 border-t pt-4">
                 {({ open, close }) => (

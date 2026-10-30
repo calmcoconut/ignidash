@@ -13,6 +13,7 @@ import { useForm, useWatch, Controller } from 'react-hook-form';
 
 import { useTimelineData } from '@/hooks/use-convex-data';
 import { expenseToConvex } from '@/lib/utils/data-transformers';
+import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import type { DisclosureState } from '@/lib/types/disclosure-state';
 import { expenseFormSchema, type ExpenseInputs } from '@/lib/schemas/inputs/expense-form-schema';
 import { calculateAge } from '@/lib/schemas/inputs/timeline-form-schema';
@@ -44,6 +45,7 @@ import { getErrorMessages } from '@/lib/utils/form-utils';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Divider } from '@/components/catalyst/divider';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
+import OwnershipFields from './ownership-fields';
 
 interface ExpenseDialogProps {
   onClose: () => void;
@@ -80,7 +82,7 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
     const expenseId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ expense: expenseToConvex({ ...data, id: expenseId }), planId });
+      await m({ expense: expenseToConvex(ownershipForStorage({ ...data, id: expenseId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save expense.');
@@ -286,6 +288,7 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
                   </Select>
                   {errors.frequency && <ErrorMessage>{errors.frequency?.message}</ErrorMessage>}
                 </Field>
+                <OwnershipFields control={control} register={register} errors={errors} />
               </div>
               <Disclosure as="div" className="border-border/25 border-t pt-4">
                 {({ open, close }) => (

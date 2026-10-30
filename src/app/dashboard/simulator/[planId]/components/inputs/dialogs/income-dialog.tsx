@@ -13,6 +13,7 @@ import { useForm, useWatch, Controller } from 'react-hook-form';
 
 import { useTimelineData } from '@/hooks/use-convex-data';
 import { incomeToConvex } from '@/lib/utils/data-transformers';
+import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import type { DisclosureState } from '@/lib/types/disclosure-state';
 import {
   incomeFormSchema,
@@ -51,6 +52,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { Divider } from '@/components/catalyst/divider';
 import { getCurrencySymbol, formatCurrencyPlaceholder } from '@/lib/utils/number-formatters';
 
+import OwnershipFields from './ownership-fields';
+
 interface IncomeDialogProps {
   onClose: () => void;
   selectedIncome: IncomeInputs | null;
@@ -86,7 +89,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
     const incomeId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ income: incomeToConvex({ ...data, id: incomeId }), planId });
+      await m({ income: incomeToConvex(ownershipForStorage({ ...data, id: incomeId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save income.');
@@ -325,6 +328,7 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
                   </Select>
                   {errors.frequency && <ErrorMessage>{errors.frequency?.message}</ErrorMessage>}
                 </Field>
+                <OwnershipFields control={control} register={register} errors={errors} />
               </div>
               <Disclosure as="div" className="border-border/25 border-t pt-4">
                 {({ open, close }) => (

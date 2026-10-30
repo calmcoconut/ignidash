@@ -1,5 +1,7 @@
 import { v, type Infer } from 'convex/values';
 
+import { ownerValidator, propertyRegimeValidator } from './household_validator';
+
 const expenseTimePointValidator = v.object({
   type: v.union(
     v.literal('now'),
@@ -39,6 +41,9 @@ export const expenseValidator = v.object({
   ),
   // real (today's dollars, default) | nominal (dollars of the event's own date)
   amountBasis: v.optional(v.union(v.literal('real'), v.literal('nominal'))),
+  // Whose item this is (P1-P2). Absent means `primary`.
+  owner: v.optional(ownerValidator),
+  propertyRegime: v.optional(propertyRegimeValidator),
   disabled: v.boolean(),
 });
 

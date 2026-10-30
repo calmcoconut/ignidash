@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { currencyFieldForbidsZero, percentageField } from '@/lib/utils/zod-utils';
+import { ownerSchema, propertyRegimeSchema } from './household-schema';
 import { amountBasisSchema, timePointSchema } from './income-expenses-shared-schemas';
 
 export const compoundingFrequencySchema = z.enum(['daily', 'monthly']);
@@ -17,6 +18,9 @@ export const debtFormSchema = z
     startDate: timePointSchema,
     monthlyPayment: currencyFieldForbidsZero('Monthly payment must be greater than zero'),
     amountBasis: amountBasisSchema.optional(),
+    // Whose debt this is (P1-P2). Absent means `primary`.
+    owner: ownerSchema.optional(),
+    propertyRegime: propertyRegimeSchema.optional(),
     disabled: z.boolean().optional(),
     syncedFinanceId: z.string().optional(),
   })

@@ -44,14 +44,16 @@ const GLIDE_PATH = {
 
 /** A plan document in the shape the database returns, with every optional field set. */
 function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
-  // P1-P1's time binding, one of each v2 field, so the version-1 fixture below has something
-  // to strip (see `stripVersion2Fields`):
-  //   incomes[0].amountBasis, incomes[0].timeframe.start.everyNYears / .recurrenceYears.
+  // One of each field the bumps added, so the older-version fixtures below have something to
+  // strip (see `stripFields`):
+  //   v2 — incomes[0].amountBasis, incomes[0].timeframe.start.everyNYears / .recurrenceYears.
+  //   v3 — incomes[0].owner, debts[0].owner / .propertyRegime, timeline.household.
   const [firstIncome, ...otherIncomes] = basicTemplate.incomes;
   const incomes = [
     {
       ...firstIncome,
       amountBasis: 'nominal' as const,
+      owner: 'partner' as const,
       timeframe: { ...firstIncome.timeframe, start: { ...firstIncome.timeframe.start, everyNYears: 5, recurrenceYears: 20 } },
     },
     ...otherIncomes,
@@ -78,6 +80,8 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
         monthlyPayment: 1500,
         disabled: false,
         syncedFinanceId: 'liability-1',
+        owner: 'joint' as const,
+        propertyRegime: 'jointTenancy' as const,
       },
     ],
     physicalAssets: [
@@ -153,29 +157,34 @@ function warningsFor(mutate: (envelope: Record<string, unknown>) => void): Impor
  * Fields P1-P1 added in schema version 2. A version 1 file predates all of them, so the v1
  * fixture is the current export with these keys removed wherever they appear.
  */
+/** What the v2 bump (P1-P1) added. */
 const VERSION_2_FIELDS = ['everyNYears', 'recurrenceYears', 'amountBasis'];
 
-function stripVersion2Fields(value: unknown): void {
+/** What the v3 bump (P1-P2) added. */
+const VERSION_3_FIELDS = ['owner', 'propertyRegime', 'household'];
+
+/** Removes every key in `fields` wherever it appears, so a payload can be turned into an older file. */
+function stripFields(value: unknown, fields: readonly string[]): void {
   if (Array.isArray(value)) {
-    for (const entry of value) stripVersion2Fields(entry);
+    for (const entry of value) stripFields(entry, fields);
     return;
   }
   if (typeof value !== 'object' || value === null) return;
 
   const record = value as Record<string, unknown>;
-  for (const field of VERSION_2_FIELDS) delete record[field];
-  for (const entry of Object.values(record)) stripVersion2Fields(entry);
+  for (const field of fields) delete record[field];
+  for (const entry of Object.values(record)) stripFields(entry, fields);
 }
 
-/** How many v2-only fields a payload carries, so the strip above can be shown to have work. */
-function countVersion2Fields(value: unknown): number {
-  if (Array.isArray(value)) return value.reduce<number>((total, entry) => total + countVersion2Fields(entry), 0);
+/** How many fields from `fields` a payload carries, so a strip can be shown to have had work to do. */
+function countFields(value: unknown, fields: readonly string[]): number {
+  if (Array.isArray(value)) return value.reduce<number>((total, entry) => total + countFields(entry, fields), 0);
   if (typeof value !== 'object' || value === null) return 0;
 
   const record = value as Record<string, unknown>;
-  const own = VERSION_2_FIELDS.filter((field) => field in record).length;
+  const own = fields.filter((field) => field in record).length;
 
-  return own + Object.values(record).reduce<number>((total, entry) => total + countVersion2Fields(entry), 0);
+  return own + Object.values(record).reduce<number>((total, entry) => total + countFields(entry, fields), 0);
 }
 
 describe('the export guard is derived from the plans validator', () => {
@@ -320,7 +329,9 @@ describe('malformed files report the exact field paths', () => {
     expect(newer.ok).toBe(false);
     if (older.ok || newer.ok) return;
     expect(older.issues[0].path).toBe('schemaVersion');
-    expect(older.issues[0].message).toMatch(/reads versions 1 through 2/);
+    // Derived from the constants, not a literal: a bump must not need this line edited, and the
+    // message still has to name the real range.
+    expect(older.issues[0].message).toContain(`reads versions ${MIN_EXPORT_SCHEMA_VERSION} through ${EXPORT_SCHEMA_VERSION}`);
     expect(newer.issues[0].message).toMatch(/newer Ignidash/i);
     expect(newer.issues[0].message).toMatch(/Upgrade/i);
   });
@@ -349,16 +360,19 @@ describe('malformed files report the exact field paths', () => {
     }
   });
 
-  it('still imports a version 1 export after the bump to version 2', () => {
+  it('still imports a version 1 export after the bumps to version 2 and version 3', () => {
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
     const v1 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v1.schemaVersion = 1;
 
-    // The strip is guarded in both directions: the fixture really carries one of each v2
-    // field, and none survives, so "a v1 file still imports" is not vacuously true.
-    expect(countVersion2Fields(v1)).toBe(3);
-    stripVersion2Fields(v1);
-    expect(countVersion2Fields(v1)).toBe(0);
+    // The strip is guarded in both directions: the fixture really carries the fields each bump
+    // added, and none survives, so "a v1 file still imports" is not vacuously true.
+    expect(countFields(v1, VERSION_3_FIELDS)).toBe(4);
+    stripFields(v1, VERSION_3_FIELDS);
+    expect(countFields(v1, VERSION_3_FIELDS)).toBe(0);
+    expect(countFields(v1, VERSION_2_FIELDS)).toBe(3);
+    stripFields(v1, VERSION_2_FIELDS);
+    expect(countFields(v1, VERSION_2_FIELDS)).toBe(0);
 
     const parsed = parseEnvelope(JSON.stringify(v1));
 
@@ -382,6 +396,43 @@ describe('malformed files report the exact field paths', () => {
     expect(imported.finances).toStrictEqual(toFinancesExport(makeFinancesDoc()));
     // Re-exporting a restored v1 file writes the current version (contract 3.3).
     expect(imported.snapshot.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
+  });
+
+  it('still imports a version 2 export after the bump to version 3', () => {
+    // The file a build from before P1-P2 writes: it has the v2 time-binding fields and none of
+    // the v3 ownership ones. It must import with the owners absent, not defaulted into the file.
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const v2 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v2.schemaVersion = 2;
+
+    expect(countFields(v2, VERSION_3_FIELDS)).toBe(4);
+    stripFields(v2, VERSION_3_FIELDS);
+    expect(countFields(v2, VERSION_3_FIELDS)).toBe(0);
+    // The v2 fields are still there: this is a v2 file, not a v1 one.
+    expect(countFields(v2, VERSION_2_FIELDS)).toBe(3);
+
+    const parsed = parseEnvelope(JSON.stringify(v2));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(2);
+    expect(parsed.envelope).toStrictEqual(v2);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+    expect(imported.plans).toHaveLength(1);
+    // Absent in the file, absent after import: readers apply `owner ?? 'primary'` and treat a
+    // missing household as one person, so the plan keeps simulating exactly as it did.
+    const plan = imported.plans[0] as unknown as Record<string, unknown>;
+    expect((plan.incomes as Record<string, unknown>[])[0]).not.toHaveProperty('owner');
+    expect(plan).not.toHaveProperty('household');
+    expect(((plan.timeline as Record<string, unknown>) ?? {}).household).toBeUndefined();
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {
@@ -548,7 +599,7 @@ describe('the semantic layer blocks only what the engine cannot run', () => {
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
     const older = structuredClone(envelope) as unknown as Record<string, unknown>;
     older.schemaVersion = 1;
-    stripVersion2Fields(older);
+    stripFields(older, [...VERSION_3_FIELDS, ...VERSION_2_FIELDS]);
     const incomes = (older.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
     delete (incomes[0].taxes as Record<string, unknown>).withholding;
 
