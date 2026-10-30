@@ -50,6 +50,52 @@ export const incomeTaxSchema = z
     }
   );
 
+/**
+ * Social Security benefit inputs on an income (parity plan P1-P8).
+ *
+ * The benefit is estimated in `src/lib/calc/social-security.ts` from either an AIME or a PIA:
+ *
+ * - `mode: 'estimated'` takes the Average Indexed Monthly Earnings and runs them through the PIA
+ *   bend points;
+ * - `mode: 'manual'` takes the monthly PIA directly, for someone who already has the figure from
+ *   their SSA statement.
+ *
+ * `claimAge` is the retirement age the benefit starts at (62–70); the early/delayed adjustment is
+ * relative to the full retirement age, which depends on birth year and therefore lives on the
+ * timeline, not here. `colaRate` is the cost-of-living assumption; the module reads it as real
+ * growth against the plan's inflation assumption.
+ *
+ * Optional on the income, so every plan written before this field existed loads unchanged, and an
+ * income without it simply has no Social Security estimate.
+ *
+ * Spousal and survivor benefits are not modelled (they need the household and survivor rules);
+ * this block describes one earner's own retirement benefit.
+ */
+export const socialSecuritySchema = z
+  .object({
+    mode: z.enum(['manual', 'estimated']),
+    /** Average Indexed Monthly Earnings, in monthly dollars. */
+    aime: currencyFieldForbidsZero('AIME must be greater than zero').optional(),
+    /** Monthly Primary Insurance Amount, in today's dollars. */
+    pia: currencyFieldForbidsZero('PIA must be greater than zero').optional(),
+    claimAge: z
+      .number()
+      .int('Claim age must be a whole age')
+      .min(62, 'Claim age must be at least 62')
+      .max(70, 'Claim age must be at most 70'),
+    colaRate: optionalPercentageField(0, 10, 'COLA rate'),
+  })
+  .refine((data) => data.mode !== 'estimated' || data.aime !== undefined, {
+    message: 'Estimated Social Security needs an AIME',
+    path: ['aime'],
+  })
+  .refine((data) => data.mode !== 'manual' || data.pia !== undefined, {
+    message: 'Manual Social Security needs a PIA',
+    path: ['pia'],
+  });
+
+export type SocialSecurityInputs = z.infer<typeof socialSecuritySchema>;
+
 export const incomeFormSchema = z
   .object({
     id: z.string(),
@@ -61,6 +107,8 @@ export const incomeFormSchema = z
     propertyRegime: propertyRegimeSchema.optional(),
     growth: growthSchema.optional(),
     taxes: incomeTaxSchema,
+    // Social Security estimate for this income (P1-P8). Absent on every older plan.
+    socialSecurity: socialSecuritySchema.optional(),
     disabled: z.boolean().optional(),
   })
   .extend(frequencyTimeframeSchema.shape)

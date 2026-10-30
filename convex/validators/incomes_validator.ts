@@ -39,6 +39,16 @@ export const incomeValidator = v.object({
       growthLimit: v.optional(v.number()),
     })
   ),
+  // Social Security estimate for this income (P1-P8). Optional, so older plans validate.
+  socialSecurity: v.optional(
+    v.object({
+      mode: v.union(v.literal('manual'), v.literal('estimated')),
+      aime: v.optional(v.number()),
+      pia: v.optional(v.number()),
+      claimAge: v.number(),
+      colaRate: v.optional(v.number()),
+    })
+  ),
   taxes: v.object({
     incomeType: v.union(
       v.literal('wage'),

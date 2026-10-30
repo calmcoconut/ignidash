@@ -66,6 +66,8 @@ const SEED_INCOME: Doc<'plans'>['incomes'][number] = {
   },
   taxes: { incomeType: 'wage', withholding: 20 },
   amountBasis: TIME_BINDING_FIXTURES.income.amountBasis,
+  // P1-P8: the Social Security block rides inside the income, so the round trip below proves it.
+  socialSecurity: { mode: 'manual', pia: 2400, claimAge: 67, colaRate: 3 },
   disabled: false,
 };
 
@@ -242,6 +244,7 @@ describe('export → import through the real mutations', () => {
 
       // ...and the ownership fields, plus the household inside the timeline.
       expect(importedDoc!.incomes[0].owner).toBe('partner');
+      expect(importedDoc!.incomes[0].socialSecurity).toEqual({ mode: 'manual', pia: 2400, claimAge: 67, colaRate: 3 });
       expect(importedDoc!.expenses[0]).toMatchObject({ owner: 'joint', propertyRegime: 'community' });
       expect(importedDoc!.debts![0]).toMatchObject({ owner: 'joint', propertyRegime: 'jointTenancy' });
       expect(importedDoc!.physicalAssets![0].owner).toBe('primary');

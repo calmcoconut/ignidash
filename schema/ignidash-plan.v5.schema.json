@@ -189,6 +189,42 @@
               "incomeType"
             ]
           },
+          "socialSecurity": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "estimated"
+                ]
+              },
+              "aime": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "pia": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "claimAge": {
+                "type": "integer",
+                "minimum": 62,
+                "maximum": 70
+              },
+              "colaRate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+              }
+            },
+            "required": [
+              "mode",
+              "claimAge"
+            ]
+          },
           "disabled": {
             "type": "boolean"
           },

@@ -174,3 +174,53 @@ describe('incomeFormSchema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('socialSecurity block (P1-P8)', () => {
+  it('is optional, so every income written before it existed still validates', () => {
+    const result = incomeFormSchema.safeParse({ ...validIncome });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.socialSecurity).toBeUndefined();
+  });
+
+  it('accepts a manual PIA and an estimated AIME', () => {
+    const manual = incomeFormSchema.safeParse({
+      ...validIncome,
+      socialSecurity: { mode: 'manual', pia: 2400, claimAge: 67, colaRate: 3 },
+    });
+    expect(manual.success, JSON.stringify(manual.error?.issues)).toBe(true);
+
+    const estimated = incomeFormSchema.safeParse({
+      ...validIncome,
+      socialSecurity: { mode: 'estimated', aime: 6000, claimAge: 70 },
+    });
+    expect(estimated.success, JSON.stringify(estimated.error?.issues)).toBe(true);
+  });
+
+  it('requires the amount the mode reads', () => {
+    const missingPia = incomeFormSchema.safeParse({ ...validIncome, socialSecurity: { mode: 'manual', claimAge: 67 } });
+    expect(missingPia.success).toBe(false);
+    if (!missingPia.success) expect(missingPia.error.issues[0].path).toEqual(['socialSecurity', 'pia']);
+
+    const missingAime = incomeFormSchema.safeParse({ ...validIncome, socialSecurity: { mode: 'estimated', claimAge: 67 } });
+    expect(missingAime.success).toBe(false);
+    if (!missingAime.success) expect(missingAime.error.issues[0].path).toEqual(['socialSecurity', 'aime']);
+  });
+
+  it('keeps the claim age inside the statutory 62–70 window', () => {
+    for (const claimAge of [61, 71, 67.5]) {
+      const result = incomeFormSchema.safeParse({ ...validIncome, socialSecurity: { mode: 'manual', pia: 2000, claimAge } });
+      expect(result.success, String(claimAge)).toBe(false);
+    }
+
+    for (const claimAge of [62, 67, 70]) {
+      const result = incomeFormSchema.safeParse({ ...validIncome, socialSecurity: { mode: 'manual', pia: 2000, claimAge } });
+      expect(result.success, String(claimAge)).toBe(true);
+    }
+  });
+
+  it('rejects an unknown mode', () => {
+    const result = incomeFormSchema.safeParse({ ...validIncome, socialSecurity: { mode: 'guessed', pia: 2000, claimAge: 67 } });
+    expect(result.success).toBe(false);
+  });
+});

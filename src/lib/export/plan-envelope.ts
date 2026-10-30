@@ -41,12 +41,12 @@ import {
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 4 (P5-P1, bumped by P1-P1, P1-P2 and P2-P4).
+ * Export/import envelope, version 5 (P5-P1, bumped by P1-P1, P1-P2, P2-P4 and P1-P8).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 4, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 4, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 5, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 5, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -65,6 +65,12 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       A version 3 file may already carry it (the build that shipped P2-P4 wrote v3 files
  *       with the field, before the bump landed), so a v3 import keeps it intact rather than
  *       stripping it; only v4 guarantees the field is understood.
+ *   5 — P1-P8 Social Security: `socialSecurity` on an income. Unlike the version 3 accident
+ *       above, a version 4 file **cannot** carry this field: the bump lands in the change that
+ *       adds it, so no build ever wrote `socialSecurity` into a v4 file. A v4 file therefore
+ *       imports with the field absent, and every reader treats that income as having no Social
+ *       Security estimate (`income.socialSecurity === undefined`) — not as a zero benefit, and
+ *       not as an error. The same holds for v1–v3 files, which cannot carry it either.
  *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
@@ -77,7 +83,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 4;
+export const EXPORT_SCHEMA_VERSION = 5;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;
