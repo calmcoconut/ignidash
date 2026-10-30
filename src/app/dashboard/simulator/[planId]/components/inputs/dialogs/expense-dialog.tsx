@@ -24,7 +24,7 @@ import {
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
   amountBasisFieldOptions,
-  clearRecurrence,
+  clearRecurrenceOnAnchorChange,
   isAmountBasisSelectable,
   normalizeStoredAmountBasis,
   OPTIONAL_YEARS_FIELD,
@@ -92,6 +92,9 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
 
   const startTimePoint = useWatch({ control, name: 'timeframe.start' });
   const startType = startTimePoint.type;
+  // Where the anchor was last render, so the cleanup below can tell "changed to now" from
+  // "was already now" — the effect also runs on mount.
+  const prevStartTypeRef = useRef(startType);
 
   const endTimePoint = useWatch({ control, name: 'timeframe.end' });
   const endType = endTimePoint?.type;
@@ -123,11 +126,11 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
       unregister('timeframe.start.age');
     }
 
-    // `now` has no anchor to count a cadence from, so the control disappears; clear the value
-    // too, or a cadence set on a custom start would survive the switch and keep gating it.
-    if (startType === 'now') {
-      clearRecurrence({ setValue, unregister }, 'timeframe.start.everyNYears');
-    }
+    // `now` has no anchor to count a cadence from, so the control disappears; a cadence set on
+    // a custom start must not survive the switch. Only a *transition* is cleared: a plan that
+    // was already `now`-anchored keeps its stored cadence through an untouched save.
+    clearRecurrenceOnAnchorChange({ setValue, unregister }, prevStartTypeRef.current, startType, 'timeframe.start.everyNYears');
+    prevStartTypeRef.current = startType;
 
     if (endType !== 'customDate') {
       unregister('timeframe.end.month');

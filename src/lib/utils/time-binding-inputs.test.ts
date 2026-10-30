@@ -25,7 +25,7 @@ import {
   AMOUNT_BASIS_OPTIONS,
   amountBasisAnchorHint,
   amountBasisFieldOptions,
-  clearRecurrence,
+  clearRecurrenceOnAnchorChange,
   hasDollarDate,
   isAmountBasisSelectable,
   normalizeStoredAmountBasis,
@@ -295,6 +295,61 @@ describe('income dialog', () => {
     expect('everyNYears' in timePointOf(stored(incomeToConvex({ ...values!, id: 'income-1' })), 'timeframe')).toBe(false);
   });
 
+  it('keeps a stored `now`-anchored cadence through an untouched save', async () => {
+    // `timePointSchema` allows a cadence on a `now` anchor and the engine honours it (plan-year
+    // multiples), so the mount-time cleanup must not touch it: the effect also runs when the
+    // dialog opens, and clearing whenever the anchor *is* `now` deleted stored data nobody
+    // asked to change.
+    const existing: Doc<'plans'>['incomes'][number] = {
+      id: 'income-1',
+      name: 'Consulting',
+      amount: 50000,
+      frequency: 'yearly',
+      timeframe: { start: { type: 'now', everyNYears: 3 }, end: { type: 'atRetirement' } },
+      taxes: { incomeType: 'wage', withholding: 20 },
+      disabled: false,
+    };
+
+    const { form, type, submit } = harness<IncomeInputs>(incomeFormSchema, defaults);
+    form.reset(incomeFromConvex(existing));
+    expect(form.getValues('timeframe.start.everyNYears' as never)).toBe(3);
+
+    // What the mount effect does: previous anchor and current anchor are both `now`.
+    clearRecurrenceOnAnchorChange({ setValue: form.setValue, unregister: form.unregister }, 'now', 'now', 'timeframe.start.everyNYears');
+
+    // An unrelated edit, then save.
+    type('amount', '60000');
+
+    const { values, errors } = await submit();
+    expect(errors).toBeUndefined();
+    expect((values!.timeframe.start as { everyNYears?: number }).everyNYears).toBe(3);
+    expect(stored(incomeToConvex({ ...values!, id: 'income-1' }))).toStrictEqual(stored(incomeToConvex({ ...existing, amount: 60000 })));
+  });
+
+  it('clears only on a transition into `now`', () => {
+    const field = 'timeframe.start.everyNYears';
+
+    const valueAfter = (previous: 'customAge' | 'now', next: 'customAge' | 'now') => {
+      const start = { type: previous, age: 45, everyNYears: 5 };
+      const { form } = harness<IncomeInputs>(incomeFormSchema, {
+        ...defaults,
+        timeframe: { start, end: { type: 'atRetirement' } },
+      } as never);
+
+      expect(form.getValues(field as never)).toBe(5);
+      clearRecurrenceOnAnchorChange({ setValue: form.setValue, unregister: form.unregister }, previous, next, field);
+
+      return form.getValues(field as never);
+    };
+
+    // A mount (no transition) keeps it, whichever anchor the plan already had.
+    expect(valueAfter('now', 'now')).toBe(5);
+    // Leaving `now` keeps it as well: the control comes back carrying the value.
+    expect(valueAfter('now', 'customAge')).toBe(5);
+    // The one transition that removes the control also removes the value.
+    expect(valueAfter('customAge', 'now')).toBeUndefined();
+  });
+
   it('reads a mounted basis value, so the untouched case is a real mount', async () => {
     // Positive control for the test above: the harness seeds from the element, so a mounted
     // `nominal` really does reach the payload (and a mounted empty placeholder really does not).
@@ -322,10 +377,15 @@ describe('income dialog', () => {
     expect(form.getValues('timeframe.start.everyNYears' as never)).toBe(5);
 
     // The anchor becomes `now`: the control disappears, and the dialog's cleanup effect runs
-    // `clearRecurrence`. A plain `unregister` there is not enough, because React Hook Form
-    // re-seeds a registered field from `defaultValues`.
+    // the same helper. `setValue` clears the live value; `unregister` drops the field and its
+    // default seed so a re-render cannot restore it.
     type('timeframe.start.type', 'now');
-    clearRecurrence({ setValue: form.setValue, unregister: form.unregister }, 'timeframe.start.everyNYears');
+    clearRecurrenceOnAnchorChange(
+      { setValue: form.setValue, unregister: form.unregister },
+      'customAge',
+      'now',
+      'timeframe.start.everyNYears'
+    );
 
     const { values, errors } = await submit();
     expect(errors).toBeUndefined();

@@ -22,9 +22,15 @@ export interface AmountBasisOption {
 /**
  * Ordered so the empty placeholder is what a freshly mounted `<select>` shows.
  *
- * The placeholder matters: an uncontrolled `<select>` mounts with its first option selected,
- * and React Hook Form seeds a mounted field from the element's value, so a list that started
- * at `real` would quietly store `amountBasis: 'real'` for a dialog nobody touched.
+ * Two separate guards keep an untouched dialog from writing `amountBasis`, and either one
+ * would do it on its own:
+ *
+ * 1. the placeholder is a UX affordance — the control opens on a blank choice ("today's
+ *    dollars") instead of a pre-selected entry, so nothing is asserted before the user looks;
+ * 2. `amountBasisFieldOptions.setValueAs` below is the actual guard against a stored or
+ *    mounted value: it maps both the placeholder and a stale `'real'` to `undefined`.
+ *
+ * Because both are in place, no test can distinguish them; do not remove either.
  */
 export const AMOUNT_BASIS_OPTIONS: readonly AmountBasisOption[] = [
   { value: '', label: "In today's dollars" },
@@ -105,15 +111,32 @@ export interface RecurrenceFormControls {
 }
 
 /**
- * Clears the cadence when its anchor goes away (`now`).
+ * Clears the cadence value and its registration.
  *
- * `unregister` alone is not enough: React Hook Form re-seeds a registered field from
- * `defaultValues`, so the value is overwritten with `undefined` first. Both matter — the
- * `setValue` is what the schema sees, the `unregister` is what stops a re-render restoring it.
+ * `setValue(…, undefined)` clears the live value; `unregister` also drops the field and its
+ * default seed, so a re-render cannot restore it. The order matters less than having both.
  */
 export const clearRecurrence = (form: RecurrenceFormControls, field: string): void => {
   form.setValue(field as never, undefined as never);
   form.unregister(field as never);
+};
+
+/**
+ * Clears the cadence only when the anchor *becomes* `now`, never when it already is.
+ *
+ * The dialogs call this from their cleanup effect, which also runs on mount. Clearing whenever
+ * `startType === 'now'` would therefore delete a stored cadence from a plan that was already
+ * `now`-anchored, on any save — and `timePointSchema` allows that combination while the engine
+ * honours it (a `now` anchor repeats on the plan's year grid). Losing it to an untouched edit
+ * is exactly the data loss the hidden control must not cause.
+ */
+export const clearRecurrenceOnAnchorChange = (
+  form: RecurrenceFormControls,
+  previousStartType: TimePoint['type'],
+  startType: TimePoint['type'],
+  field: string
+): void => {
+  if (previousStartType !== startType && startType === 'now') clearRecurrence(form, field);
 };
 
 /**
