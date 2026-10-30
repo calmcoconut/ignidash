@@ -158,7 +158,11 @@ export interface DebtData {
 export class Debts {
   private readonly debts: Debt[];
 
-  constructor(data: DebtInputs[], context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: DebtInputs[], context: TimeBindingContext) {
     this.debts = data.filter((debt) => !debt.disabled).map((debt) => new Debt(debt, context));
   }
 
@@ -184,7 +188,11 @@ export class Debt {
   private monthlyPayment: number; // Mutable, deflates over time
   private hasBeenIncurred: boolean;
 
-  constructor(data: DebtInputs, context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: DebtInputs, context: TimeBindingContext) {
     this.id = data.id;
     this.name = data.name;
     this.binding = new TimeBinding(data.startDate, undefined, context);

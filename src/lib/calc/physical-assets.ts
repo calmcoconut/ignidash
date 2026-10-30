@@ -269,7 +269,11 @@ export interface PhysicalAssetData {
 export class PhysicalAssets {
   private readonly assets: PhysicalAsset[];
 
-  constructor(data: PhysicalAssetInputs[], context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: PhysicalAssetInputs[], context: TimeBindingContext) {
     this.assets = data.map((asset) => new PhysicalAsset(asset, context));
   }
 
@@ -317,7 +321,11 @@ export class PhysicalAsset {
   private ownershipStatus: OwnershipStatus;
   private hasSecuredDebtBeenIncurred: boolean;
 
-  constructor(data: PhysicalAssetInputs, context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: PhysicalAssetInputs, context: TimeBindingContext) {
     this.id = data.id;
     this.name = data.name;
     this.assetType = data.assetType;

@@ -27,6 +27,7 @@ import { PhaseIdentifier } from './phase';
 import { SeededRandom } from './returns-providers/seeded-random';
 import { TEST_CLOCK } from './__tests__/test-utils';
 import { uniformLifetimeMap } from './historical-data/rmd-table';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 // ============================================================================
 // Test Fixtures
@@ -298,13 +299,16 @@ describe('Incomes', () => {
     const payrollTaxProcessor = () => new PayrollTaxProcessor(2026, 'single');
 
     it('should calculate monthly wage income correctly', () => {
-      const incomes = new Incomes([createWageIncome({ amount: 120000, frequency: 'yearly' })]);
+      const incomes = new Incomes([createWageIncome({ amount: 120000, frequency: 'yearly' })], TEST_TIME_BINDING_CONTEXT);
       const processor = new IncomesProcessor(createMockState(35), incomes, payrollTaxProcessor());
       expect(processor.process().totalIncome).toBe(10000);
     });
 
     it('should calculate withholding and payroll taxes', () => {
-      const incomes = new Incomes([createWageIncome({ amount: 120000, taxes: { incomeType: 'wage', withholding: 22 } })]);
+      const incomes = new Incomes(
+        [createWageIncome({ amount: 120000, taxes: { incomeType: 'wage', withholding: 22 } })],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const processor = new IncomesProcessor(createMockState(35), incomes, payrollTaxProcessor());
       const result = processor.process();
       expect(result.totalAmountWithheld).toBe(2200);
@@ -315,15 +319,19 @@ describe('Incomes', () => {
 
   describe('income timeframes', () => {
     it('should only include income within active timeframe', () => {
-      const incomes = new Incomes([
-        createWageIncome({ timeframe: { start: { type: 'customAge', age: 30 }, end: { type: 'customAge', age: 40 } } }),
-      ]);
+      const incomes = new Incomes(
+        [createWageIncome({ timeframe: { start: { type: 'customAge', age: 30 }, end: { type: 'customAge', age: 40 } } })],
+        TEST_TIME_BINDING_CONTEXT
+      );
       expect(incomes.getActiveIncomesByTimeFrame(createMockState(35)).length).toBe(1);
       expect(incomes.getActiveIncomesByTimeFrame(createMockState(45)).length).toBe(0);
     });
 
     it('should handle retirement-based timeframes', () => {
-      const incomes = new Incomes([createWageIncome({ timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } } })]);
+      const incomes = new Incomes(
+        [createWageIncome({ timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } } })],
+        TEST_TIME_BINDING_CONTEXT
+      );
       expect(incomes.getActiveIncomesByTimeFrame(createMockState(35, 'accumulation')).length).toBe(1);
       expect(incomes.getActiveIncomesByTimeFrame(createMockState(65, 'retirement')).length).toBe(0);
     });
@@ -331,7 +339,10 @@ describe('Incomes', () => {
 
   describe('disabled incomes', () => {
     it('should not include disabled incomes', () => {
-      const incomes = new Incomes([createWageIncome({ disabled: true }), createWageIncome({ id: 'income-2', disabled: false })]);
+      const incomes = new Incomes(
+        [createWageIncome({ disabled: true }), createWageIncome({ id: 'income-2', disabled: false })],
+        TEST_TIME_BINDING_CONTEXT
+      );
       expect(incomes.getActiveIncomesByTimeFrame(createMockState(35)).length).toBe(1);
     });
   });
@@ -351,19 +362,22 @@ describe('Expenses', () => {
 
   describe('expense processing', () => {
     it('should calculate monthly expenses correctly', () => {
-      const expenses = new Expenses([createLivingExpense({ amount: 48000, frequency: 'yearly' })]);
+      const expenses = new Expenses([createLivingExpense({ amount: 48000, frequency: 'yearly' })], TEST_TIME_BINDING_CONTEXT);
       const processor = new ExpensesProcessor(createMockState(35), expenses);
       expect(processor.process().totalExpenses).toBe(4000);
     });
 
     it('should handle monthly frequency', () => {
-      const expenses = new Expenses([createLivingExpense({ amount: 1000, frequency: 'monthly' })]);
+      const expenses = new Expenses([createLivingExpense({ amount: 1000, frequency: 'monthly' })], TEST_TIME_BINDING_CONTEXT);
       const processor = new ExpensesProcessor(createMockState(35), expenses);
       expect(processor.process().totalExpenses).toBe(1000);
     });
 
     it('should handle one-time expenses', () => {
-      const expenses = new Expenses([createLivingExpense({ amount: 5000, frequency: 'oneTime', timeframe: { start: { type: 'now' } } })]);
+      const expenses = new Expenses(
+        [createLivingExpense({ amount: 5000, frequency: 'oneTime', timeframe: { start: { type: 'now' } } })],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const processor = new ExpensesProcessor(createMockState(35), expenses);
       expect(processor.process().totalExpenses).toBe(5000);
       expect(processor.process().totalExpenses).toBe(0);
@@ -372,7 +386,7 @@ describe('Expenses', () => {
 
   describe('discretionary expenses', () => {
     it('should add discretionary expenses to current month data', () => {
-      const expenses = new Expenses([createLivingExpense({ amount: 1000, frequency: 'monthly' })]);
+      const expenses = new Expenses([createLivingExpense({ amount: 1000, frequency: 'monthly' })], TEST_TIME_BINDING_CONTEXT);
       const processor = new ExpensesProcessor(createMockState(35), expenses);
       processor.process();
       processor.processDiscretionaryExpense(500);

@@ -113,7 +113,11 @@ export interface ExpensesData {
 export class Expenses {
   private readonly expenses: Expense[];
 
-  constructor(data: ExpenseInputs[], context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: ExpenseInputs[], context: TimeBindingContext) {
     this.expenses = data.filter((expense) => !expense.disabled).map((expense) => new Expense(expense, context));
   }
 
@@ -144,7 +148,11 @@ export class Expense {
   /** Recurrence year of the most recent active month; see `getIsActiveByTimeFrame`. */
   private currentOccurrenceIndex: number | null = null;
 
-  constructor(data: ExpenseInputs, context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: ExpenseInputs, context: TimeBindingContext) {
     this.hasOneTimeExpenseOccurred = false;
     this.id = data.id;
     this.name = data.name;

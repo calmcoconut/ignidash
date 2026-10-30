@@ -5,6 +5,7 @@ import { PhysicalAsset } from './physical-assets';
 import { createDebtInput, createFinancedAssetInput } from './__tests__/test-utils';
 import { estimatePayoffMonths } from '../utils/payoff-estimator-utils';
 import { buildAmortizationSchedule, computeLoanPayment, monthlyInflationRate, monthlyRealRate } from './amortization-schedule';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 /**
  * Hand-worked arithmetic for P1-P5 ("schedule reconciles to the engine's payoff within $1").
@@ -19,7 +20,7 @@ const monthlyInflation = (annualPercent: number) => Math.pow(1 + annualPercent /
 /** Runs the engine's `Debt` loop (same call order as `DebtsProcessor.process`). */
 function engineDebt(balance: number, apr: number, monthlyPayment: number, annualInflationPercent: number, months = 1200) {
   const inflation = monthlyInflation(annualInflationPercent);
-  const debt = new Debt(createDebtInput({ balance, apr, interestType: 'simple', monthlyPayment }));
+  const debt = new Debt(createDebtInput({ balance, apr, interestType: 'simple', monthlyPayment }), TEST_TIME_BINDING_CONTEXT);
 
   let count = 0;
   let interestTotal = 0;
@@ -38,7 +39,8 @@ function engineDebt(balance: number, apr: number, monthlyPayment: number, annual
 function engineAsset(loanBalance: number, apr: number, monthlyPayment: number, annualInflationPercent: number, months = 1200) {
   const inflation = monthlyInflation(annualInflationPercent);
   const asset = new PhysicalAsset(
-    createFinancedAssetInput({ paymentMethod: { type: 'loan', downPayment: 80000, loanBalance, apr, monthlyPayment } })
+    createFinancedAssetInput({ paymentMethod: { type: 'loan', downPayment: 80000, loanBalance, apr, monthlyPayment } }),
+    TEST_TIME_BINDING_CONTEXT
   );
 
   let count = 0;

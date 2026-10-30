@@ -6,6 +6,7 @@ import { PhysicalAsset } from '@/lib/calc/physical-assets';
 import type { DebtInputs } from '@/lib/schemas/inputs/debt-form-schema';
 import type { PhysicalAssetInputs } from '@/lib/schemas/inputs/physical-asset-form-schema';
 import { estimatePayoffMonths, formatPayoffEstimate } from './payoff-estimator-utils';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 describe('estimatePayoffMonths', () => {
   it('handles 0% APR correctly', () => {
@@ -138,7 +139,7 @@ describe('estimatePayoffMonths vs simulation engine', () => {
   /** Runs the engine's `Debt` month loop (same call order as `DebtsProcessor.process`). */
   function engineDebtPayoffMonths(debtInput: DebtInputs, annualInflationRate: number): number {
     const monthlyInflationRate = Math.pow(1 + annualInflationRate / 100, 1 / 12) - 1;
-    const debt = new Debt(debtInput);
+    const debt = new Debt(debtInput, TEST_TIME_BINDING_CONTEXT);
     let months = 0;
     while (!debt.isPaidOff() && months < 1200) {
       const { monthlyPaymentDue, interest } = debt.getMonthlyPaymentInfo(monthlyInflationRate);
@@ -152,7 +153,7 @@ describe('estimatePayoffMonths vs simulation engine', () => {
   /** Runs the engine's `PhysicalAsset` month loop (same call order as `PhysicalAssetsProcessor.process`). */
   function engineAssetPayoffMonths(assetInput: PhysicalAssetInputs, annualInflationRate: number): number {
     const monthlyInflationRate = Math.pow(1 + annualInflationRate / 100, 1 / 12) - 1;
-    const asset = new PhysicalAsset(assetInput);
+    const asset = new PhysicalAsset(assetInput, TEST_TIME_BINDING_CONTEXT);
     let months = 0;
     while (!asset.isPaidOff() && months < 1200) {
       const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(monthlyInflationRate);

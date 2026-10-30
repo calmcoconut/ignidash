@@ -4,6 +4,7 @@ import type { ExpenseInputs } from '@/lib/schemas/inputs/expense-form-schema';
 
 import { Expense, Expenses, ExpensesProcessor } from './expenses';
 import type { SimulationState } from './simulation-engine';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 /**
  * Expense Processing Tests
@@ -50,7 +51,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'now' }, end: undefined },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simState = createSimulationState();
@@ -61,7 +63,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'customAge', age: 65 }, end: undefined },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before age 65
@@ -81,7 +84,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'customDate', year: 2026, month: 3 }, end: undefined },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before March 2026
@@ -97,7 +101,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'atRetirement' }, end: undefined },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-retirement phase
@@ -119,7 +124,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'now' }, end: undefined },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simState = createSimulationState({ time: { age: 95, year: 2084, month: 1, date: new Date(2084, 0, 1) } });
@@ -130,7 +136,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'now' }, end: { type: 'customAge', age: 50 } },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before age 50
@@ -150,7 +157,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'now' }, end: { type: 'customDate', year: 2028, month: 6 } },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before June 2028
@@ -166,7 +174,8 @@ describe('Expense Timeframe Tests', () => {
       const expense = new Expense(
         createExpenseInput({
           timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-retirement phase
@@ -192,7 +201,8 @@ describe('Expense Timeframe Tests', () => {
             start: { type: 'customDate', year: 2024, month: 1 },
             end: { type: 'customDate', year: 2042, month: 6 }, // Kid turns 18
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before range
@@ -216,7 +226,8 @@ describe('Expense Timeframe Tests', () => {
             start: { type: 'now' },
             end: { type: 'atRetirement' },
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-retirement
@@ -240,7 +251,8 @@ describe('Expense Timeframe Tests', () => {
             start: { type: 'atRetirement' },
             end: undefined,
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-retirement
@@ -265,7 +277,8 @@ describe('Expense Growth Rate Tests', () => {
         amount: 5000, // $5k/month = $60k/year
         frequency: 'monthly',
         growth: { growthRate: 3, growthLimit: undefined }, // 3% annual growth (inflation)
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // First call of year 1 - growth is applied (since lastYear starts at 0)
@@ -287,7 +300,8 @@ describe('Expense Growth Rate Tests', () => {
         amount: 5000,
         frequency: 'monthly',
         growth: { growthRate: 3, growthLimit: undefined }, // 3% annual inflation
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Year 1 (growth applied on first call since lastYear starts at 0)
@@ -315,7 +329,8 @@ describe('Expense Growth Rate Tests', () => {
         amount: 5000,
         frequency: 'monthly',
         growth: { growthRate: 100, growthLimit: 72000 }, // 100% annual growth, max $72k/year
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Year 1: $60k annual
@@ -332,7 +347,8 @@ describe('Expense Growth Rate Tests', () => {
         amount: 5000,
         frequency: 'monthly',
         growth: { growthRate: -50, growthLimit: 36000 }, // -50% annual, min $36k/year
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Year 1: $60k annual
@@ -349,7 +365,8 @@ describe('Expense Growth Rate Tests', () => {
         amount: 4000,
         frequency: 'monthly',
         growth: { growthRate: 0, growthLimit: undefined },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     expense.processMonthlyAmount(2024);
@@ -364,7 +381,8 @@ describe('Expense Growth Rate Tests', () => {
         amount: 3000,
         frequency: 'monthly',
         growth: undefined,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     expense.processMonthlyAmount(2024);
@@ -380,7 +398,8 @@ describe('Expense Frequency Tests', () => {
       createExpenseInput({
         amount: 5000,
         frequency: 'monthly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -392,7 +411,8 @@ describe('Expense Frequency Tests', () => {
       createExpenseInput({
         amount: 12000, // Annual insurance premium
         frequency: 'yearly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -405,7 +425,8 @@ describe('Expense Frequency Tests', () => {
       createExpenseInput({
         amount: 3000, // Per quarter (property tax)
         frequency: 'quarterly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -418,7 +439,8 @@ describe('Expense Frequency Tests', () => {
       createExpenseInput({
         amount: 500, // Per biweekly period
         frequency: 'biweekly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -431,7 +453,8 @@ describe('Expense Frequency Tests', () => {
       createExpenseInput({
         amount: 200, // Per week (groceries)
         frequency: 'weekly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -444,7 +467,8 @@ describe('Expense Frequency Tests', () => {
       createExpenseInput({
         amount: 20000, // One-time car purchase
         frequency: 'oneTime',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // First month - full amount
@@ -463,23 +487,26 @@ describe('Expense Frequency Tests', () => {
 
 describe('Expenses Collection Tests', () => {
   it('filters active expenses by timeframe', () => {
-    const expenses = new Expenses([
-      createExpenseInput({
-        id: 'active',
-        name: 'Rent',
-        timeframe: { start: { type: 'now' }, end: undefined },
-      }),
-      createExpenseInput({
-        id: 'future',
-        name: 'Retirement Travel',
-        timeframe: { start: { type: 'atRetirement' }, end: undefined },
-      }),
-      createExpenseInput({
-        id: 'past',
-        name: 'Student Loans',
-        timeframe: { start: { type: 'now' }, end: { type: 'customAge', age: 30 } },
-      }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({
+          id: 'active',
+          name: 'Rent',
+          timeframe: { start: { type: 'now' }, end: undefined },
+        }),
+        createExpenseInput({
+          id: 'future',
+          name: 'Retirement Travel',
+          timeframe: { start: { type: 'atRetirement' }, end: undefined },
+        }),
+        createExpenseInput({
+          id: 'past',
+          name: 'Student Loans',
+          timeframe: { start: { type: 'now' }, end: { type: 'customAge', age: 30 } },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState({ time: { age: 35, year: 2024, month: 1, date: new Date(2024, 0, 1) } });
     const activeExpenses = expenses.getActiveExpensesByTimeFrame(simState);
@@ -489,10 +516,13 @@ describe('Expenses Collection Tests', () => {
   });
 
   it('excludes disabled expenses', () => {
-    const expenses = new Expenses([
-      createExpenseInput({ id: 'enabled', name: 'Enabled', disabled: false }),
-      createExpenseInput({ id: 'disabled', name: 'Disabled', disabled: true }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({ id: 'enabled', name: 'Enabled', disabled: false }),
+        createExpenseInput({ id: 'disabled', name: 'Disabled', disabled: true }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const activeExpenses = expenses.getActiveExpensesByTimeFrame(simState);
@@ -504,26 +534,29 @@ describe('Expenses Collection Tests', () => {
 
 describe('ExpensesProcessor Tests', () => {
   it('aggregates multiple expenses correctly', () => {
-    const expenses = new Expenses([
-      createExpenseInput({
-        id: 'rent',
-        name: 'Rent',
-        amount: 2000,
-        frequency: 'monthly',
-      }),
-      createExpenseInput({
-        id: 'food',
-        name: 'Food',
-        amount: 800,
-        frequency: 'monthly',
-      }),
-      createExpenseInput({
-        id: 'utilities',
-        name: 'Utilities',
-        amount: 300,
-        frequency: 'monthly',
-      }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({
+          id: 'rent',
+          name: 'Rent',
+          amount: 2000,
+          frequency: 'monthly',
+        }),
+        createExpenseInput({
+          id: 'food',
+          name: 'Food',
+          amount: 800,
+          frequency: 'monthly',
+        }),
+        createExpenseInput({
+          id: 'utilities',
+          name: 'Utilities',
+          amount: 300,
+          frequency: 'monthly',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new ExpensesProcessor(simState, expenses);
@@ -537,14 +570,17 @@ describe('ExpensesProcessor Tests', () => {
   });
 
   it('annual data sums monthly data correctly', () => {
-    const expenses = new Expenses([
-      createExpenseInput({
-        id: 'rent',
-        name: 'Rent',
-        amount: 2000,
-        frequency: 'monthly',
-      }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({
+          id: 'rent',
+          name: 'Rent',
+          amount: 2000,
+          frequency: 'monthly',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new ExpensesProcessor(simState, expenses);
@@ -559,14 +595,17 @@ describe('ExpensesProcessor Tests', () => {
   });
 
   it('handles discretionary expenses', () => {
-    const expenses = new Expenses([
-      createExpenseInput({
-        id: 'fixed',
-        name: 'Fixed Expenses',
-        amount: 5000,
-        frequency: 'monthly',
-      }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({
+          id: 'fixed',
+          name: 'Fixed Expenses',
+          amount: 5000,
+          frequency: 'monthly',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new ExpensesProcessor(simState, expenses);
@@ -582,14 +621,17 @@ describe('ExpensesProcessor Tests', () => {
   });
 
   it('accumulates discretionary expenses within same month', () => {
-    const expenses = new Expenses([
-      createExpenseInput({
-        id: 'fixed',
-        name: 'Fixed Expenses',
-        amount: 3000,
-        frequency: 'monthly',
-      }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({
+          id: 'fixed',
+          name: 'Fixed Expenses',
+          amount: 3000,
+          frequency: 'monthly',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new ExpensesProcessor(simState, expenses);
@@ -606,14 +648,17 @@ describe('ExpensesProcessor Tests', () => {
   });
 
   it('resets monthly data correctly', () => {
-    const expenses = new Expenses([
-      createExpenseInput({
-        id: 'expense',
-        name: 'Monthly Expense',
-        amount: 1000,
-        frequency: 'monthly',
-      }),
-    ]);
+    const expenses = new Expenses(
+      [
+        createExpenseInput({
+          id: 'expense',
+          name: 'Monthly Expense',
+          amount: 1000,
+          frequency: 'monthly',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new ExpensesProcessor(simState, expenses);
@@ -641,7 +686,8 @@ describe('Expense Edge Cases', () => {
       createExpenseInput({
         amount: 0.01, // $0.01/month
         frequency: 'monthly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -653,7 +699,8 @@ describe('Expense Edge Cases', () => {
       createExpenseInput({
         amount: 100000, // $100k/month luxury spending
         frequency: 'monthly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const result = expense.processMonthlyAmount(2024);
@@ -666,7 +713,8 @@ describe('Expense Edge Cases', () => {
         amount: 1000,
         frequency: 'monthly',
         growth: { growthRate: -99, growthLimit: 0 }, // Extreme negative growth
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     expense.processMonthlyAmount(2024);

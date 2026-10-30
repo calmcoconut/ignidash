@@ -4,6 +4,7 @@ import type { DebtInputs } from '@/lib/schemas/inputs/debt-form-schema';
 
 import { Debt, Debts, DebtsProcessor } from './debts';
 import type { SimulationState } from './simulation-engine';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 /**
  * Debts Tests
@@ -61,7 +62,8 @@ describe('Debt Class', () => {
           balance: 10000,
           apr: 18, // 18% APR
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Formula: balance * (apr / 12) = 10000 * (0.18 / 12) = 150
@@ -77,7 +79,8 @@ describe('Debt Class', () => {
           apr: 18, // 18% APR
           interestType: 'compound',
           compoundingFrequency: 'monthly',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // For monthly compounding, periodsPerYear = 12, periodsPerMonth = 1
@@ -96,7 +99,8 @@ describe('Debt Class', () => {
           apr: 18, // 18% APR
           interestType: 'compound',
           compoundingFrequency: 'daily',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // For daily compounding, periodsPerYear = 365, periodsPerMonth = 365/12
@@ -114,7 +118,8 @@ describe('Debt Class', () => {
           balance: 10000,
           apr: 0,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { interest } = debt.getMonthlyPaymentInfo(ZERO_INFLATION);
@@ -131,7 +136,8 @@ describe('Debt Class', () => {
           apr: 18,
           monthlyPayment: 500,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const initialBalance = debt.getBalance();
@@ -152,7 +158,8 @@ describe('Debt Class', () => {
           apr: 18,
           monthlyPayment: 150, // Exactly matches interest
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const initialBalance = debt.getBalance();
@@ -174,7 +181,8 @@ describe('Debt Class', () => {
           apr: 18,
           monthlyPayment: 100, // Less than interest
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const initialBalance = debt.getBalance();
@@ -206,7 +214,8 @@ describe('Debt Class', () => {
           monthlyPayment: 100, // Less than interest
           interestType: 'compound',
           compoundingFrequency: 'monthly',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Month 1
@@ -227,7 +236,8 @@ describe('Debt Class', () => {
           apr: 0, // Zero APR for simplicity
           monthlyPayment: 100,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pay off the loan in 10 payments
@@ -247,7 +257,8 @@ describe('Debt Class', () => {
           apr: 0,
           monthlyPayment: 200, // More than balance
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // First payment pays it off
@@ -268,7 +279,8 @@ describe('Debt Class', () => {
       const debt = new Debt(
         createDebtInput({
           startDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simState = createSimulationState();
@@ -279,7 +291,8 @@ describe('Debt Class', () => {
       const debt = new Debt(
         createDebtInput({
           startDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before age 40
@@ -299,7 +312,8 @@ describe('Debt Class', () => {
       const debt = new Debt(
         createDebtInput({
           startDate: { type: 'customDate', year: 2025, month: 6 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before June 2025
@@ -315,7 +329,8 @@ describe('Debt Class', () => {
       const debt = new Debt(
         createDebtInput({
           startDate: { type: 'atRetirement' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-retirement
@@ -331,7 +346,8 @@ describe('Debt Class', () => {
       const debt = new Debt(
         createDebtInput({
           startDate: { type: 'atLifeExpectancy' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Should never be active
@@ -346,7 +362,8 @@ describe('Debt Class', () => {
           apr: 0,
           monthlyPayment: 200,
           startDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simState = createSimulationState();
@@ -369,7 +386,8 @@ describe('Debt Class', () => {
         createDebtInput({
           balance: 10000,
           startDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-existing debts are already incurred
@@ -381,7 +399,8 @@ describe('Debt Class', () => {
         createDebtInput({
           balance: 25000,
           startDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // First call returns the balance
@@ -393,7 +412,8 @@ describe('Debt Class', () => {
         createDebtInput({
           balance: 25000,
           startDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(debt.incurUnsecuredDebt()).toBe(25000); // First call
@@ -405,7 +425,8 @@ describe('Debt Class', () => {
         createDebtInput({
           balance: 0,
           startDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(debt.incurUnsecuredDebt()).toBe(0);
@@ -423,7 +444,8 @@ describe('getBalance returns 0 before debt is incurred', () => {
       createDebtInput({
         balance: 15000,
         startDate: { type: 'customAge', age: 40 },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Before incurUnsecuredDebt() is called, balance should be 0
@@ -439,7 +461,8 @@ describe('getBalance returns 0 before debt is incurred', () => {
       createDebtInput({
         balance: 10000,
         startDate: { type: 'now' },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Pre-existing debts (startDate.type === 'now') are already incurred
@@ -448,34 +471,40 @@ describe('getBalance returns 0 before debt is incurred', () => {
   });
 
   it('Debts.getTotalBalance() excludes future debts that have not been incurred', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'existing',
-        name: 'Existing Debt',
-        balance: 10000,
-        startDate: { type: 'now' },
-      }),
-      createDebtInput({
-        id: 'future',
-        name: 'Future Debt',
-        balance: 25000,
-        startDate: { type: 'customAge', age: 50 },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'existing',
+          name: 'Existing Debt',
+          balance: 10000,
+          startDate: { type: 'now' },
+        }),
+        createDebtInput({
+          id: 'future',
+          name: 'Future Debt',
+          balance: 25000,
+          startDate: { type: 'customAge', age: 50 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Only the existing debt should be counted since future debt hasn't been incurred
     expect(debts.getTotalBalance()).toBe(10000);
   });
 
   it('Debt.getBalance() returns actual balance after future debt is incurred via getActiveDebts', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'future',
-        name: 'Future Debt',
-        balance: 20000,
-        startDate: { type: 'customAge', age: 40 },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'future',
+          name: 'Future Debt',
+          balance: 20000,
+          startDate: { type: 'customAge', age: 40 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Before the debt becomes active, total balance should be 0
     expect(debts.getTotalBalance()).toBe(0);
@@ -500,10 +529,13 @@ describe('getBalance returns 0 before debt is incurred', () => {
 
 describe('Debts Collection', () => {
   it('filters disabled debts', () => {
-    const debts = new Debts([
-      createDebtInput({ id: 'enabled', name: 'Enabled', disabled: false }),
-      createDebtInput({ id: 'disabled', name: 'Disabled', disabled: true }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({ id: 'enabled', name: 'Enabled', disabled: false }),
+        createDebtInput({ id: 'disabled', name: 'Disabled', disabled: true }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const activeDebts = debts.getActiveDebts(simState);
@@ -513,18 +545,21 @@ describe('Debts Collection', () => {
   });
 
   it('getActiveDebts filters by timepoint', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'current',
-        name: 'Current Debt',
-        startDate: { type: 'now' },
-      }),
-      createDebtInput({
-        id: 'future',
-        name: 'Future Debt',
-        startDate: { type: 'customAge', age: 50 },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'current',
+          name: 'Current Debt',
+          startDate: { type: 'now' },
+        }),
+        createDebtInput({
+          id: 'future',
+          name: 'Future Debt',
+          startDate: { type: 'customAge', age: 50 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState({ time: { age: 35, year: 2024, month: 1, date: new Date(2024, 0, 1) } });
     const activeDebts = debts.getActiveDebts(simState);
@@ -534,21 +569,27 @@ describe('Debts Collection', () => {
   });
 
   it('getTotalBalance aggregates all debt balances', () => {
-    const debts = new Debts([
-      createDebtInput({ id: 'debt1', balance: 10000 }),
-      createDebtInput({ id: 'debt2', balance: 5000 }),
-      createDebtInput({ id: 'debt3', balance: 15000 }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({ id: 'debt1', balance: 10000 }),
+        createDebtInput({ id: 'debt2', balance: 5000 }),
+        createDebtInput({ id: 'debt3', balance: 15000 }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     expect(debts.getTotalBalance()).toBe(30000);
   });
 
   it('getTotalBalance excludes disabled debts', () => {
-    const debts = new Debts([
-      createDebtInput({ id: 'enabled1', balance: 10000, disabled: false }),
-      createDebtInput({ id: 'disabled', balance: 50000, disabled: true }),
-      createDebtInput({ id: 'enabled2', balance: 5000, disabled: false }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({ id: 'enabled1', balance: 10000, disabled: false }),
+        createDebtInput({ id: 'disabled', balance: 50000, disabled: true }),
+        createDebtInput({ id: 'enabled2', balance: 5000, disabled: false }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     expect(debts.getTotalBalance()).toBe(15000);
   });
@@ -560,16 +601,19 @@ describe('Debts Collection', () => {
 
 describe('DebtsProcessor', () => {
   it('process() calculates payments and updates balances', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'card',
-        name: 'Credit Card',
-        balance: 10000,
-        apr: 18,
-        monthlyPayment: 500,
-        interestType: 'simple',
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'card',
+          name: 'Credit Card',
+          balance: 10000,
+          apr: 18,
+          monthlyPayment: 500,
+          interestType: 'simple',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -586,24 +630,27 @@ describe('DebtsProcessor', () => {
   });
 
   it('process() handles multiple debts', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'card1',
-        name: 'Card 1',
-        balance: 5000,
-        apr: 20,
-        monthlyPayment: 200,
-        interestType: 'simple',
-      }),
-      createDebtInput({
-        id: 'card2',
-        name: 'Card 2',
-        balance: 8000,
-        apr: 15,
-        monthlyPayment: 300,
-        interestType: 'simple',
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'card1',
+          name: 'Card 1',
+          balance: 5000,
+          apr: 20,
+          monthlyPayment: 200,
+          interestType: 'simple',
+        }),
+        createDebtInput({
+          id: 'card2',
+          name: 'Card 2',
+          balance: 8000,
+          apr: 15,
+          monthlyPayment: 300,
+          interestType: 'simple',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -621,16 +668,19 @@ describe('DebtsProcessor', () => {
   });
 
   it('getAnnualData() aggregates 12 months', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'loan',
-        name: 'Personal Loan',
-        balance: 10000,
-        apr: 0, // Zero APR for predictable payoff
-        monthlyPayment: 1000,
-        interestType: 'simple',
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'loan',
+          name: 'Personal Loan',
+          balance: 10000,
+          apr: 0, // Zero APR for predictable payoff
+          monthlyPayment: 1000,
+          interestType: 'simple',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -652,14 +702,17 @@ describe('DebtsProcessor', () => {
   });
 
   it('resetMonthlyData() clears accumulated data', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'debt',
-        balance: 10000,
-        apr: 12,
-        monthlyPayment: 500,
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'debt',
+          balance: 10000,
+          apr: 12,
+          monthlyPayment: 500,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -682,15 +735,18 @@ describe('DebtsProcessor', () => {
   });
 
   it('getAnnualData() uses last month totalDebtBalance, not summed across months', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'loan',
-        name: 'Personal Loan',
-        balance: 12000,
-        apr: 0,
-        monthlyPayment: 1000,
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'loan',
+          name: 'Personal Loan',
+          balance: 12000,
+          apr: 0,
+          monthlyPayment: 1000,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -707,15 +763,18 @@ describe('DebtsProcessor', () => {
   });
 
   it('getAnnualData() uses last month per-debt balance and isPaidOff, not summed', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'loan',
-        name: 'Personal Loan',
-        balance: 3000,
-        apr: 0,
-        monthlyPayment: 1000,
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'loan',
+          name: 'Personal Loan',
+          balance: 3000,
+          apr: 0,
+          monthlyPayment: 1000,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -739,24 +798,27 @@ describe('DebtsProcessor', () => {
     // - unpaidInterest = max(0, interest - payment) - capped, for display
     // - debtPaydown = payment - interest - raw, for net worth tracking
 
-    const debts = new Debts([
-      createDebtInput({
-        id: 'normal-debt',
-        name: 'Normal Debt',
-        balance: 5000,
-        apr: 20, // interest = 5000 * 0.20 / 12 = 83.33
-        monthlyPayment: 200, // payment > interest
-        interestType: 'simple',
-      }),
-      createDebtInput({
-        id: 'underwater-debt',
-        name: 'Underwater Debt',
-        balance: 10000,
-        apr: 200, // interest = 10000 * 2.00 / 12 = 1666.67
-        monthlyPayment: 50, // payment < interest
-        interestType: 'simple',
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'normal-debt',
+          name: 'Normal Debt',
+          balance: 5000,
+          apr: 20, // interest = 5000 * 0.20 / 12 = 83.33
+          monthlyPayment: 200, // payment > interest
+          interestType: 'simple',
+        }),
+        createDebtInput({
+          id: 'underwater-debt',
+          name: 'Underwater Debt',
+          balance: 10000,
+          apr: 200, // interest = 10000 * 2.00 / 12 = 1666.67
+          monthlyPayment: 50, // payment < interest
+          interestType: 'simple',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -803,24 +865,27 @@ describe('DebtsProcessor', () => {
     //
     // Total debtPaydown = 116.67 + (-1616.67) = -1500
 
-    const debts = new Debts([
-      createDebtInput({
-        id: 'normal-debt',
-        name: 'Normal Debt',
-        balance: 5000,
-        apr: 20, // interest = 5000 * 0.20 / 12 = 83.33
-        monthlyPayment: 200, // payment > interest
-        interestType: 'simple',
-      }),
-      createDebtInput({
-        id: 'underwater-debt',
-        name: 'Underwater Debt',
-        balance: 10000,
-        apr: 200, // interest = 10000 * 2.00 / 12 = 1666.67
-        monthlyPayment: 50, // payment < interest
-        interestType: 'simple',
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'normal-debt',
+          name: 'Normal Debt',
+          balance: 5000,
+          apr: 20, // interest = 5000 * 0.20 / 12 = 83.33
+          monthlyPayment: 200, // payment > interest
+          interestType: 'simple',
+        }),
+        createDebtInput({
+          id: 'underwater-debt',
+          name: 'Underwater Debt',
+          balance: 10000,
+          apr: 200, // interest = 10000 * 2.00 / 12 = 1666.67
+          monthlyPayment: 50, // payment < interest
+          interestType: 'simple',
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -847,14 +912,17 @@ describe('DebtsProcessor', () => {
   });
 
   it('process() handles debt that becomes paid off mid-simulation', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'small-debt',
-        balance: 1000,
-        apr: 0, // Zero interest for simplicity
-        monthlyPayment: 400,
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'small-debt',
+          balance: 1000,
+          apr: 0, // Zero interest for simplicity
+          monthlyPayment: 400,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -880,13 +948,16 @@ describe('DebtsProcessor', () => {
   });
 
   it('totalUnsecuredDebtIncurred is 0 for pre-existing debts', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'existing',
-        balance: 10000,
-        startDate: { type: 'now' },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'existing',
+          balance: 10000,
+          startDate: { type: 'now' },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new DebtsProcessor(simState, debts);
@@ -900,13 +971,16 @@ describe('DebtsProcessor', () => {
   });
 
   it('totalUnsecuredDebtIncurred captures debt when it becomes active', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'future-debt',
-        balance: 15000,
-        startDate: { type: 'customAge', age: 40 },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'future-debt',
+          balance: 15000,
+          startDate: { type: 'customAge', age: 40 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Before debt is active (age 35)
     let simState = createSimulationState({ time: { age: 35, year: 2024, month: 1, date: new Date(2024, 0, 1) } });
@@ -926,18 +1000,21 @@ describe('DebtsProcessor', () => {
   });
 
   it('totalUnsecuredDebtIncurred sums multiple debts incurred in same period', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'debt1',
-        balance: 5000,
-        startDate: { type: 'customAge', age: 40 },
-      }),
-      createDebtInput({
-        id: 'debt2',
-        balance: 8000,
-        startDate: { type: 'customAge', age: 40 },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'debt1',
+          balance: 5000,
+          startDate: { type: 'customAge', age: 40 },
+        }),
+        createDebtInput({
+          id: 'debt2',
+          balance: 8000,
+          startDate: { type: 'customAge', age: 40 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState({ time: { age: 40, year: 2029, month: 1, date: new Date(2029, 0, 1) } });
     const processor = new DebtsProcessor(simState, debts);
@@ -947,13 +1024,16 @@ describe('DebtsProcessor', () => {
   });
 
   it('totalUnsecuredDebtIncurred captures debt at retirement when startDate is atRetirement', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'retirement-debt',
-        balance: 20000,
-        startDate: { type: 'atRetirement' },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'retirement-debt',
+          balance: 20000,
+          startDate: { type: 'atRetirement' },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Accumulation phase - not active
     let simState = createSimulationState({ phase: { name: 'accumulation' } });
@@ -969,15 +1049,18 @@ describe('DebtsProcessor', () => {
   });
 
   it('getAnnualData() accumulates totalUnsecuredDebtIncurred across months', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'debt',
-        balance: 12000,
-        apr: 0,
-        monthlyPayment: 1000,
-        startDate: { type: 'customAge', age: 40 },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'debt',
+          balance: 12000,
+          apr: 0,
+          monthlyPayment: 1000,
+          startDate: { type: 'customAge', age: 40 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState({ time: { age: 40, year: 2029, month: 1, date: new Date(2029, 0, 1) } });
     const processor = new DebtsProcessor(simState, debts);
@@ -1006,7 +1089,8 @@ describe('Edge Cases', () => {
         apr: 400, // 400% APR (typical payday loan)
         monthlyPayment: 100,
         interestType: 'simple',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Interest = 500 * 4.00 / 12 = 166.67
@@ -1028,7 +1112,8 @@ describe('Edge Cases', () => {
         apr: 18,
         interestType: 'compound',
         compoundingFrequency: undefined, // Missing!
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     expect(() => debt.getMonthlyPaymentInfo(ZERO_INFLATION)).toThrow('Missing compoundingFrequency');
@@ -1041,7 +1126,8 @@ describe('Edge Cases', () => {
         apr: 18,
         monthlyPayment: 500,
         interestType: 'simple',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const { monthlyPaymentDue, interest } = debt.getMonthlyPaymentInfo(ZERO_INFLATION);
@@ -1054,20 +1140,23 @@ describe('Edge Cases', () => {
   });
 
   it('multiple debts with different start dates', () => {
-    const debts = new Debts([
-      createDebtInput({
-        id: 'now',
-        name: 'Current Debt',
-        balance: 5000,
-        startDate: { type: 'now' },
-      }),
-      createDebtInput({
-        id: 'retirement',
-        name: 'Retirement Debt',
-        balance: 10000,
-        startDate: { type: 'atRetirement' },
-      }),
-    ]);
+    const debts = new Debts(
+      [
+        createDebtInput({
+          id: 'now',
+          name: 'Current Debt',
+          balance: 5000,
+          startDate: { type: 'now' },
+        }),
+        createDebtInput({
+          id: 'retirement',
+          name: 'Retirement Debt',
+          balance: 10000,
+          startDate: { type: 'atRetirement' },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // In accumulation phase
     let simState = createSimulationState({ phase: { name: 'accumulation' } });
@@ -1088,7 +1177,8 @@ describe('Edge Cases', () => {
         apr: 18,
         interestType: 'compound',
         compoundingFrequency: 'daily',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const monthlyDebt = new Debt(
@@ -1097,7 +1187,8 @@ describe('Edge Cases', () => {
         apr: 18,
         interestType: 'compound',
         compoundingFrequency: 'monthly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const dailyInterest = dailyDebt.getMonthlyPaymentInfo(ZERO_INFLATION).interest;
@@ -1120,7 +1211,8 @@ describe('Extreme Inflation Edge Cases', () => {
         apr: 5,
         monthlyPayment: 100,
         interestType: 'simple',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const annualInflation = 0.5; // 50%
@@ -1137,7 +1229,8 @@ describe('Extreme Inflation Edge Cases', () => {
         balance: 10000,
         apr: 7,
         interestType: 'simple',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const { interest } = debt.getMonthlyPaymentInfo(0);
@@ -1153,7 +1246,8 @@ describe('Extreme Inflation Edge Cases', () => {
         monthlyPayment: 100,
         interestType: 'compound',
         compoundingFrequency: 'daily',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const annualInflation = 0.5; // 50%
@@ -1174,7 +1268,8 @@ describe('Extreme Inflation Edge Cases', () => {
           apr: 0,
           monthlyPayment: 1000,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const extremeAnnualInflation = 100; // 10,000%
@@ -1198,7 +1293,8 @@ describe('Extreme Inflation Edge Cases', () => {
           monthlyPayment: 1000,
           interestType: 'compound',
           compoundingFrequency: 'daily',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const extremeAnnualInflation = 100; // 10,000%
@@ -1219,7 +1315,8 @@ describe('Extreme Inflation Edge Cases', () => {
           apr: 0, // Worst case for negative interest
           monthlyPayment: 1000,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Even with 10,000% annual inflation
@@ -1243,7 +1340,8 @@ describe('Extreme Inflation Edge Cases', () => {
           apr: 5, // 5% APR
           monthlyPayment: 500,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const extremeAnnualInflation = 10; // 1,000% annual
@@ -1289,7 +1387,8 @@ describe('Extreme Inflation Edge Cases', () => {
             apr,
             monthlyPayment: 100,
             interestType: 'simple',
-          })
+          }),
+          TEST_TIME_BINDING_CONTEXT
         );
 
         const monthlyInflation = Math.pow(1 + inflation, 1 / 12) - 1;
@@ -1314,7 +1413,8 @@ describe('Extreme Inflation Edge Cases', () => {
             monthlyPayment: 100,
             interestType: 'compound',
             compoundingFrequency: compounding,
-          })
+          }),
+          TEST_TIME_BINDING_CONTEXT
         );
 
         const monthlyInflation = Math.pow(1 + inflation, 1 / 12) - 1;
@@ -1339,7 +1439,8 @@ describe('Compound Interest with Inflation', () => {
         interestType: 'compound',
         compoundingFrequency: 'monthly',
         monthlyPayment: 500,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const annualInflation = 0.03;
@@ -1364,7 +1465,8 @@ describe('Compound Interest with Inflation', () => {
         interestType: 'compound',
         compoundingFrequency: 'daily',
         monthlyPayment: 500,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const annualInflation = 0.03;
@@ -1388,7 +1490,8 @@ describe('Compound Interest with Inflation', () => {
         apr: 18,
         interestType: 'compound',
         compoundingFrequency: 'daily',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const monthlyDebt = new Debt(
@@ -1397,7 +1500,8 @@ describe('Compound Interest with Inflation', () => {
         apr: 18,
         interestType: 'compound',
         compoundingFrequency: 'monthly',
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const monthlyInflation = Math.pow(1.03, 1 / 12) - 1;
@@ -1416,7 +1520,8 @@ describe('Compound Interest with Inflation', () => {
         interestType: 'compound',
         compoundingFrequency: 'daily',
         monthlyPayment: 0, // No payments - pure erosion test
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // 10% annual inflation > 5% APR = negative real rate
@@ -1467,7 +1572,8 @@ describe('Inflation Adjustment', () => {
           apr: 7,
           monthlyPayment: nominalPayment,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       let realMonths = 0;
@@ -1490,7 +1596,8 @@ describe('Inflation Adjustment', () => {
           balance: 100000,
           apr: 0, // Zero APR so we can focus on payment deflation
           monthlyPayment: 1000,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const monthlyInflation = 0.0025; // ~3% annual
@@ -1516,7 +1623,8 @@ describe('Inflation Adjustment', () => {
           apr: 7, // 7% nominal APR
           monthlyPayment: 500,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // 3% annual inflation = ~0.247% monthly inflation
@@ -1540,7 +1648,8 @@ describe('Inflation Adjustment', () => {
           apr: 7, // 7% nominal APR
           monthlyPayment: 500,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // 10% annual inflation > 7% nominal APR = negative real rate
@@ -1562,16 +1671,19 @@ describe('Inflation Adjustment', () => {
     it('future-dated debt first payment is at full nominal value through processor', () => {
       const nominalPayment = 200;
       const startAge = 36;
-      const debts = new Debts([
-        createDebtInput({
-          id: 'loan',
-          balance: 10000,
-          apr: 6,
-          monthlyPayment: nominalPayment,
-          interestType: 'simple',
-          startDate: { type: 'customAge', age: startAge },
-        }),
-      ]);
+      const debts = new Debts(
+        [
+          createDebtInput({
+            id: 'loan',
+            balance: 10000,
+            apr: 6,
+            monthlyPayment: nominalPayment,
+            interestType: 'simple',
+            startDate: { type: 'customAge', age: startAge },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const monthlyInflation = Math.pow(1.08, 1 / 12) - 1; // 8% annual
       const simState = createSimulationState();
@@ -1595,15 +1707,18 @@ describe('Inflation Adjustment', () => {
     });
 
     it('should apply inflation through processor', () => {
-      const debts = new Debts([
-        createDebtInput({
-          id: 'loan',
-          balance: 10000,
-          apr: 6,
-          monthlyPayment: 200,
-          interestType: 'simple',
-        }),
-      ]);
+      const debts = new Debts(
+        [
+          createDebtInput({
+            id: 'loan',
+            balance: 10000,
+            apr: 6,
+            monthlyPayment: 200,
+            interestType: 'simple',
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const simState = createSimulationState();
       const processor = new DebtsProcessor(simState, debts);
@@ -1643,7 +1758,8 @@ describe('Inflation Adjustment', () => {
           apr,
           monthlyPayment,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 120 months (10 years)
@@ -1679,7 +1795,8 @@ describe('Inflation Adjustment', () => {
           apr,
           monthlyPayment: 0, // No payments
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 120 months
@@ -1714,7 +1831,8 @@ describe('Inflation Adjustment', () => {
           apr,
           monthlyPayment: 0, // No payments - pure erosion test
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 120 months
@@ -1753,7 +1871,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           apr: 3, // Low APR (3%)
           monthlyPayment: 250, // Large enough to exceed balance + interest
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // With 200% annual inflation and 3% APR:
@@ -1784,7 +1903,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           apr: 3, // Low APR
           monthlyPayment: 1000, // Much larger than balance
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Use very high inflation (500% annual) to create negative balance + interest
@@ -1811,7 +1931,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           apr: 5, // 5% APR
           monthlyPayment: 500,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // 10% inflation > 5% APR = negative real interest
@@ -1825,14 +1946,17 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
 
   describe('DebtsProcessor.process - Raw Values for Net Worth Tracking', () => {
     it('should pass through raw interest (can be negative)', () => {
-      const debts = new Debts([
-        createDebtInput({
-          balance: 10000,
-          apr: 5,
-          monthlyPayment: 500,
-          interestType: 'simple',
-        }),
-      ]);
+      const debts = new Debts(
+        [
+          createDebtInput({
+            balance: 10000,
+            apr: 5,
+            monthlyPayment: 500,
+            interestType: 'simple',
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new DebtsProcessor(state, debts);
 
@@ -1844,14 +1968,17 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
     });
 
     it('should pass through raw totalPayment (equals balance + interest when that is less than monthlyPayment)', () => {
-      const debts = new Debts([
-        createDebtInput({
-          balance: 100, // Small balance
-          apr: 3,
-          monthlyPayment: 500, // Larger than balance + interest
-          interestType: 'simple',
-        }),
-      ]);
+      const debts = new Debts(
+        [
+          createDebtInput({
+            balance: 100, // Small balance
+            apr: 3,
+            monthlyPayment: 500, // Larger than balance + interest
+            interestType: 'simple',
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new DebtsProcessor(state, debts);
 
@@ -1870,14 +1997,17 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
     });
 
     it('should still correctly erode balance with raw reporting', () => {
-      const debts = new Debts([
-        createDebtInput({
-          balance: 10000,
-          apr: 5,
-          monthlyPayment: 0, // No payment - pure erosion test
-          interestType: 'simple',
-        }),
-      ]);
+      const debts = new Debts(
+        [
+          createDebtInput({
+            balance: 10000,
+            apr: 5,
+            monthlyPayment: 0, // No payment - pure erosion test
+            interestType: 'simple',
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new DebtsProcessor(state, debts);
 
@@ -1892,14 +2022,17 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
     });
 
     it('should calculate principalPaid as payment minus raw interest', () => {
-      const debts = new Debts([
-        createDebtInput({
-          balance: 10000,
-          apr: 5,
-          monthlyPayment: 500,
-          interestType: 'simple',
-        }),
-      ]);
+      const debts = new Debts(
+        [
+          createDebtInput({
+            balance: 10000,
+            apr: 5,
+            monthlyPayment: 500,
+            interestType: 'simple',
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new DebtsProcessor(state, debts);
 
@@ -1921,7 +2054,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           monthlyPayment: 250,
           interestType: 'compound',
           compoundingFrequency: 'monthly',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const initialBalance = debt.getBalance();
@@ -1950,7 +2084,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           apr: 3,
           monthlyPayment: 250,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const initialBalance = debt.getBalance();
@@ -1999,7 +2134,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           monthlyPayment: payment,
           interestType: 'simple',
           startDate: pendingMonths > 0 ? { type: 'customAge', age: 35 + pendingMonths / 12 } : { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       let paymentMonths = 0;

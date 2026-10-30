@@ -171,7 +171,11 @@ export class Incomes {
    *   `joint` income keeps paying, because community income is the survivor's too. Empty for a
    *   single-member plan, and for a couple with no survivor window, so nothing moves there.
    */
-  constructor(data: IncomeInputs[], context?: TimeBindingContext, memberDeaths: Partial<Record<HouseholdMemberRole, number>> = {}) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: IncomeInputs[], context: TimeBindingContext, memberDeaths: Partial<Record<HouseholdMemberRole, number>> = {}) {
     this.incomes = data.filter((income) => !income.disabled).map((income) => new Income(income, context));
     this.memberDeaths = memberDeaths;
   }
@@ -228,7 +232,11 @@ export class Income {
   /** Recurrence year of the most recent active month; see `getIsActiveByTimeFrame`. */
   private currentOccurrenceIndex: number | null = null;
 
-  constructor(data: IncomeInputs, context?: TimeBindingContext) {
+  /**
+   * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
+   *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
+   */
+  constructor(data: IncomeInputs, context: TimeBindingContext) {
     this.hasOneTimeIncomeOccurred = false;
     this.id = data.id;
     this.name = data.name;

@@ -5,6 +5,7 @@ import type { PhysicalAssetInputs } from '@/lib/schemas/inputs/physical-asset-fo
 import { Debt } from './debts';
 import { PhysicalAsset, PhysicalAssets, PhysicalAssetsProcessor } from './physical-assets';
 import type { SimulationState } from './simulation-engine';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 /**
  * Physical Assets Tests
@@ -109,7 +110,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 400000,
           appreciationRate: 3, // 3% annual
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Formula: monthlyRate = (1 + annualRate)^(1/12) - 1
@@ -127,7 +129,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 400000,
           appreciationRate: 3,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Apply 12 months of appreciation
@@ -144,7 +147,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 300000,
           appreciationRate: 0,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { monthlyAppreciation } = asset.applyMonthlyAppreciation();
@@ -158,7 +162,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 50000, // Car
           appreciationRate: -15, // 15% depreciation
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const expectedMonthlyRate = Math.pow(1 - 0.15, 1 / 12) - 1;
@@ -176,7 +181,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 400000,
           appreciationRate: 3,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       asset.sell();
@@ -198,7 +204,8 @@ describe('PhysicalAsset Class', () => {
         createFinancedAssetInput({
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: configuredPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { monthlyPaymentDue } = asset.getMonthlyPaymentInfo(ZERO_INFLATION);
@@ -214,7 +221,8 @@ describe('PhysicalAsset Class', () => {
         createFinancedAssetInput({
           purchasePrice: 30000,
           paymentMethod: { type: 'loan', downPayment: 6000, loanBalance: 24000, apr: 0, monthlyPayment: expectedPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { monthlyPaymentDue } = asset.getMonthlyPaymentInfo(ZERO_INFLATION);
@@ -234,7 +242,8 @@ describe('PhysicalAsset Class', () => {
         createFinancedAssetInput({
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 80000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const initialBalance = asset.getLoanBalance();
@@ -257,7 +266,8 @@ describe('PhysicalAsset Class', () => {
             apr: 0,
             monthlyPayment: 1000, // 10000 / 10 payments
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Apply 10 payments to pay off the loan
@@ -275,7 +285,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 400000,
           paymentMethod: undefined, // Cash purchase
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getMonthlyPaymentInfo(ZERO_INFLATION)).toEqual({ monthlyPaymentDue: 0, interest: 0 });
@@ -296,7 +307,8 @@ describe('PhysicalAsset Class', () => {
         createFinancedAssetInput({
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 80000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Apply some appreciation
@@ -319,7 +331,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 300000,
           appreciationRate: 5,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Apply 60 months (5 years) of appreciation
@@ -353,7 +366,8 @@ describe('PhysicalAsset Class', () => {
             apr,
             monthlyPayment,
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Apply depreciation (no loan payments to keep it underwater)
@@ -376,7 +390,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchasePrice: 400000,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // First sale
@@ -392,7 +407,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getOwnershipStatus()).toBe('owned');
@@ -402,7 +418,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before age 40 - pending
@@ -423,7 +440,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'customDate', year: 2025, month: 6 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before June 2025 - pending
@@ -445,7 +463,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'atRetirement' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Pre-retirement - pending
@@ -467,7 +486,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       asset.sell();
@@ -481,7 +501,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           saleDate: undefined,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simState = createSimulationState({ time: { age: 90, year: 2079, month: 1, date: new Date(2079, 0, 1) } });
@@ -492,7 +513,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           saleDate: { type: 'customAge', age: 65 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before age 65
@@ -508,7 +530,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           saleDate: { type: 'customDate', year: 2030, month: 12 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Before December 2030
@@ -524,7 +547,8 @@ describe('PhysicalAsset Class', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           saleDate: { type: 'customAge', age: 65 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       asset.sell();
@@ -540,7 +564,8 @@ describe('PhysicalAsset Class', () => {
         createFinancedAssetInput({
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Initial equity should be market value - loan balance
@@ -552,7 +577,8 @@ describe('PhysicalAsset Class', () => {
         createPhysicalAssetInput({
           purchasePrice: 400000,
           paymentMethod: undefined,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getEquity()).toBe(400000);
@@ -571,7 +597,8 @@ describe('PhysicalAsset Class', () => {
           purchasePrice: 100000,
           appreciationRate: -50, // Extreme depreciation
           paymentMethod: { type: 'loan', downPayment: 5000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Apply heavy depreciation
@@ -595,7 +622,8 @@ describe('getMarketValue/getLoanBalance/getEquity return 0 before asset is owned
       createPhysicalAssetInput({
         purchaseDate: { type: 'customAge', age: 40 },
         purchasePrice: 400000,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Before purchase(), market value should be 0
@@ -614,7 +642,8 @@ describe('getMarketValue/getLoanBalance/getEquity return 0 before asset is owned
         purchaseDate: { type: 'customAge', age: 40 },
         purchasePrice: 400000,
         paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Before purchase(), loan balance should be 0
@@ -633,7 +662,8 @@ describe('getMarketValue/getLoanBalance/getEquity return 0 before asset is owned
         purchaseDate: { type: 'customAge', age: 40 },
         purchasePrice: 400000,
         paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Before purchase(), equity should be 0
@@ -647,78 +677,90 @@ describe('getMarketValue/getLoanBalance/getEquity return 0 before asset is owned
   });
 
   it('PhysicalAssets.getTotalMarketValue() excludes pending assets', () => {
-    const assets = new PhysicalAssets([
-      createPhysicalAssetInput({
-        id: 'owned',
-        name: 'Owned Home',
-        purchaseDate: { type: 'now' },
-        purchasePrice: 400000,
-      }),
-      createPhysicalAssetInput({
-        id: 'pending',
-        name: 'Future Home',
-        purchaseDate: { type: 'customAge', age: 50 },
-        purchasePrice: 600000,
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createPhysicalAssetInput({
+          id: 'owned',
+          name: 'Owned Home',
+          purchaseDate: { type: 'now' },
+          purchasePrice: 400000,
+        }),
+        createPhysicalAssetInput({
+          id: 'pending',
+          name: 'Future Home',
+          purchaseDate: { type: 'customAge', age: 50 },
+          purchasePrice: 600000,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Only the owned asset should be counted
     expect(assets.getTotalMarketValue()).toBe(400000);
   });
 
   it('PhysicalAssets.getTotalLoanBalance() excludes pending financed assets', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'owned',
-        name: 'Owned Home',
-        purchaseDate: { type: 'now' },
-        purchasePrice: 400000,
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      }),
-      createFinancedAssetInput({
-        id: 'pending',
-        name: 'Future Home',
-        purchaseDate: { type: 'customAge', age: 50 },
-        purchasePrice: 600000,
-        paymentMethod: { type: 'loan', downPayment: 120000, loanBalance: 480000, apr: 6, monthlyPayment: 2878.0 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'owned',
+          name: 'Owned Home',
+          purchaseDate: { type: 'now' },
+          purchasePrice: 400000,
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+        }),
+        createFinancedAssetInput({
+          id: 'pending',
+          name: 'Future Home',
+          purchaseDate: { type: 'customAge', age: 50 },
+          purchasePrice: 600000,
+          paymentMethod: { type: 'loan', downPayment: 120000, loanBalance: 480000, apr: 6, monthlyPayment: 2878.0 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Only the owned asset's loan should be counted
     expect(assets.getTotalLoanBalance()).toBe(320000);
   });
 
   it('PhysicalAssets.getTotalEquity() excludes pending assets', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'owned',
-        name: 'Owned Home',
-        purchaseDate: { type: 'now' },
-        purchasePrice: 400000,
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      }),
-      createPhysicalAssetInput({
-        id: 'pending-cash',
-        name: 'Future Cash Purchase',
-        purchaseDate: { type: 'customAge', age: 50 },
-        purchasePrice: 200000,
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'owned',
+          name: 'Owned Home',
+          purchaseDate: { type: 'now' },
+          purchasePrice: 400000,
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+        }),
+        createPhysicalAssetInput({
+          id: 'pending-cash',
+          name: 'Future Cash Purchase',
+          purchaseDate: { type: 'customAge', age: 50 },
+          purchasePrice: 200000,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Only the owned asset's equity should be counted (400000 - 320000 = 80000)
     expect(assets.getTotalEquity()).toBeCloseTo(80000, 0);
   });
 
   it('getMarketValue/getLoanBalance/getEquity return actual values after purchase via getAssetsToPurchaseThisPeriod', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'future',
-        name: 'Future Home',
-        purchaseDate: { type: 'customAge', age: 40 },
-        purchasePrice: 500000,
-        paymentMethod: { type: 'loan', downPayment: 100000, loanBalance: 400000, apr: 6, monthlyPayment: 2398.2 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'future',
+          name: 'Future Home',
+          purchaseDate: { type: 'customAge', age: 40 },
+          purchasePrice: 500000,
+          paymentMethod: { type: 'loan', downPayment: 100000, loanBalance: 400000, apr: 6, monthlyPayment: 2398.2 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     // Before purchase, all totals should be 0
     expect(assets.getTotalMarketValue()).toBe(0);
@@ -747,18 +789,21 @@ describe('getMarketValue/getLoanBalance/getEquity return 0 before asset is owned
 
 describe('PhysicalAssets Collection', () => {
   it('getOwnedAssets returns only currently owned assets', () => {
-    const assets = new PhysicalAssets([
-      createPhysicalAssetInput({
-        id: 'current',
-        name: 'Current Home',
-        purchaseDate: { type: 'now' },
-      }),
-      createPhysicalAssetInput({
-        id: 'future',
-        name: 'Future Home',
-        purchaseDate: { type: 'customAge', age: 50 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createPhysicalAssetInput({
+          id: 'current',
+          name: 'Current Home',
+          purchaseDate: { type: 'now' },
+        }),
+        createPhysicalAssetInput({
+          id: 'future',
+          name: 'Future Home',
+          purchaseDate: { type: 'customAge', age: 50 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const ownedAssets = assets.getOwnedAssets();
 
@@ -767,18 +812,21 @@ describe('PhysicalAssets Collection', () => {
   });
 
   it('getAssetsToSellThisPeriod returns only assets scheduled for sale', () => {
-    const assets = new PhysicalAssets([
-      createPhysicalAssetInput({
-        id: 'sell-now',
-        name: 'Sell Now',
-        saleDate: { type: 'customAge', age: 35 },
-      }),
-      createPhysicalAssetInput({
-        id: 'keep',
-        name: 'Keep Forever',
-        saleDate: undefined,
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createPhysicalAssetInput({
+          id: 'sell-now',
+          name: 'Sell Now',
+          saleDate: { type: 'customAge', age: 35 },
+        }),
+        createPhysicalAssetInput({
+          id: 'keep',
+          name: 'Keep Forever',
+          saleDate: undefined,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState({ time: { age: 35, year: 2024, month: 1, date: new Date(2024, 0, 1) } });
     const assetsToSell = assets.getAssetsToSellThisPeriod(simState);
@@ -788,17 +836,20 @@ describe('PhysicalAssets Collection', () => {
   });
 
   it('aggregates total value/loan/equity', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'house1',
-        purchasePrice: 400000,
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      }),
-      createPhysicalAssetInput({
-        id: 'car',
-        purchasePrice: 50000,
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'house1',
+          purchasePrice: 400000,
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+        }),
+        createPhysicalAssetInput({
+          id: 'car',
+          purchasePrice: 50000,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     expect(assets.getTotalMarketValue()).toBe(450000);
     expect(assets.getTotalLoanBalance()).toBe(320000);
@@ -812,14 +863,17 @@ describe('PhysicalAssets Collection', () => {
 
 describe('PhysicalAssetsProcessor', () => {
   it('process() applies appreciation and loan payments', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'house',
-        purchasePrice: 400000,
-        appreciationRate: 3,
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'house',
+          purchasePrice: 400000,
+          appreciationRate: 3,
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -832,15 +886,18 @@ describe('PhysicalAssetsProcessor', () => {
   });
 
   it('process() handles scheduled sales', () => {
-    const assets = new PhysicalAssets([
-      createPhysicalAssetInput({
-        id: 'selling',
-        name: 'Selling House',
-        purchasePrice: 500000,
-        appreciationRate: 0, // No appreciation for predictable test
-        saleDate: { type: 'customAge', age: 35 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createPhysicalAssetInput({
+          id: 'selling',
+          name: 'Selling House',
+          purchasePrice: 500000,
+          appreciationRate: 0, // No appreciation for predictable test
+          saleDate: { type: 'customAge', age: 35 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState({ time: { age: 35, year: 2024, month: 1, date: new Date(2024, 0, 1) } });
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -858,30 +915,33 @@ describe('PhysicalAssetsProcessor', () => {
     // - unpaidInterest = max(0, interest - payment) - capped, for display
     // - debtPaydown = payment - interest - raw, for net worth tracking
 
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'normal-loan',
-        purchasePrice: 200000,
-        paymentMethod: {
-          type: 'loan',
-          downPayment: 100000,
-          loanBalance: 100000,
-          apr: 6, // interest = 100000 * 0.06 / 12 = 500
-          monthlyPayment: 1000, // payment > interest
-        },
-      }),
-      createFinancedAssetInput({
-        id: 'underwater-loan',
-        purchasePrice: 200000,
-        paymentMethod: {
-          type: 'loan',
-          downPayment: 100000,
-          loanBalance: 100000,
-          apr: 100, // interest = 100000 * 1.00 / 12 = 8333.33
-          monthlyPayment: 100, // payment < interest
-        },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'normal-loan',
+          purchasePrice: 200000,
+          paymentMethod: {
+            type: 'loan',
+            downPayment: 100000,
+            loanBalance: 100000,
+            apr: 6, // interest = 100000 * 0.06 / 12 = 500
+            monthlyPayment: 1000, // payment > interest
+          },
+        }),
+        createFinancedAssetInput({
+          id: 'underwater-loan',
+          purchasePrice: 200000,
+          paymentMethod: {
+            type: 'loan',
+            downPayment: 100000,
+            loanBalance: 100000,
+            apr: 100, // interest = 100000 * 1.00 / 12 = 8333.33
+            monthlyPayment: 100, // payment < interest
+          },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -928,30 +988,33 @@ describe('PhysicalAssetsProcessor', () => {
     //
     // Total debtPaydown = 500 + (-8233.33) = -7733.33
 
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'normal-loan',
-        purchasePrice: 200000,
-        paymentMethod: {
-          type: 'loan',
-          downPayment: 100000,
-          loanBalance: 100000,
-          apr: 6, // interest = 100000 * 0.06 / 12 = 500
-          monthlyPayment: 1000, // payment > interest
-        },
-      }),
-      createFinancedAssetInput({
-        id: 'underwater-loan',
-        purchasePrice: 200000,
-        paymentMethod: {
-          type: 'loan',
-          downPayment: 100000,
-          loanBalance: 100000,
-          apr: 100, // interest = 100000 * 1.00 / 12 = 8333.33
-          monthlyPayment: 100, // payment < interest
-        },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'normal-loan',
+          purchasePrice: 200000,
+          paymentMethod: {
+            type: 'loan',
+            downPayment: 100000,
+            loanBalance: 100000,
+            apr: 6, // interest = 100000 * 0.06 / 12 = 500
+            monthlyPayment: 1000, // payment > interest
+          },
+        }),
+        createFinancedAssetInput({
+          id: 'underwater-loan',
+          purchasePrice: 200000,
+          paymentMethod: {
+            type: 'loan',
+            downPayment: 100000,
+            loanBalance: 100000,
+            apr: 100, // interest = 100000 * 1.00 / 12 = 8333.33
+            monthlyPayment: 100, // payment < interest
+          },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -978,14 +1041,17 @@ describe('PhysicalAssetsProcessor', () => {
   });
 
   it('getAnnualData aggregates monthly data', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'house',
-        purchasePrice: 400000,
-        appreciationRate: 3,
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'house',
+          purchasePrice: 400000,
+          appreciationRate: 3,
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1004,14 +1070,17 @@ describe('PhysicalAssetsProcessor', () => {
   });
 
   it('getAnnualData uses last month snapshot fields, not summed across months', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'house',
-        purchasePrice: 400000,
-        appreciationRate: 0, // Zero appreciation for predictable values
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 0, monthlyPayment: 1000 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'house',
+          purchasePrice: 400000,
+          appreciationRate: 0, // Zero appreciation for predictable values
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 0, monthlyPayment: 1000 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1030,14 +1099,17 @@ describe('PhysicalAssetsProcessor', () => {
   });
 
   it('getAnnualData uses last month per-asset snapshot fields, not summed', () => {
-    const assets = new PhysicalAssets([
-      createFinancedAssetInput({
-        id: 'house',
-        purchasePrice: 400000,
-        appreciationRate: 0,
-        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 0, monthlyPayment: 1000 },
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'house',
+          purchasePrice: 400000,
+          appreciationRate: 0,
+          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 0, monthlyPayment: 1000 },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1057,13 +1129,16 @@ describe('PhysicalAssetsProcessor', () => {
   });
 
   it('resetMonthlyData clears accumulated data', () => {
-    const assets = new PhysicalAssets([
-      createPhysicalAssetInput({
-        id: 'house',
-        purchasePrice: 400000,
-        appreciationRate: 3,
-      }),
-    ]);
+    const assets = new PhysicalAssets(
+      [
+        createPhysicalAssetInput({
+          id: 'house',
+          purchasePrice: 400000,
+          appreciationRate: 3,
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
 
     const simState = createSimulationState();
     const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1094,7 +1169,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getOwnershipStatus()).toBe('owned');
@@ -1104,7 +1180,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getOwnershipStatus()).toBe('pending');
@@ -1114,7 +1191,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'atRetirement' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getOwnershipStatus()).toBe('pending');
@@ -1124,7 +1202,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getOwnershipStatus()).toBe('owned');
@@ -1140,7 +1219,8 @@ describe('Purchase Expense Tracking', () => {
           purchaseDate: { type: 'customAge', age: 40 },
           purchasePrice: 400000,
           paymentMethod: undefined,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       expect(asset.getOwnershipStatus()).toBe('pending');
@@ -1156,7 +1236,8 @@ describe('Purchase Expense Tracking', () => {
           purchaseDate: { type: 'customAge', age: 40 },
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { purchaseOutlay } = asset.purchase();
@@ -1178,7 +1259,8 @@ describe('Purchase Expense Tracking', () => {
           purchaseDate: { type: 'customAge', age: 40 },
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 0, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { purchaseOutlay } = asset.purchase();
@@ -1192,7 +1274,8 @@ describe('Purchase Expense Tracking', () => {
         createPhysicalAssetInput({
           purchaseDate: { type: 'now' },
           purchasePrice: 400000,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Already owned from constructor
@@ -1205,7 +1288,8 @@ describe('Purchase Expense Tracking', () => {
         createPhysicalAssetInput({
           purchaseDate: { type: 'customAge', age: 40 },
           purchasePrice: 400000,
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { purchaseOutlay } = asset.purchase();
@@ -1219,7 +1303,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simStateBefore = createSimulationState({ time: { age: 39, year: 2028, month: 1, date: new Date(2028, 0, 1) } });
@@ -1237,7 +1322,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'now' },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const simState = createSimulationState();
@@ -1248,7 +1334,8 @@ describe('Purchase Expense Tracking', () => {
       const asset = new PhysicalAsset(
         createPhysicalAssetInput({
           purchaseDate: { type: 'customAge', age: 40 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Purchase then sell
@@ -1262,14 +1349,17 @@ describe('Purchase Expense Tracking', () => {
 
   describe('PhysicalAssetsProcessor purchase expense tracking', () => {
     it('assets already active at sim start have no purchase expense', () => {
-      const assets = new PhysicalAssets([
-        createPhysicalAssetInput({
-          id: 'existing-house',
-          name: 'Existing House',
-          purchaseDate: { type: 'now' }, // Already owned
-          purchasePrice: 400000,
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createPhysicalAssetInput({
+            id: 'existing-house',
+            name: 'Existing House',
+            purchaseDate: { type: 'now' }, // Already owned
+            purchasePrice: 400000,
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const simState = createSimulationState();
       const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1281,15 +1371,18 @@ describe('Purchase Expense Tracking', () => {
     });
 
     it('future cash purchase charges full purchase price when date arrives', () => {
-      const assets = new PhysicalAssets([
-        createPhysicalAssetInput({
-          id: 'future-house',
-          name: 'Future House',
-          purchaseDate: { type: 'customAge', age: 40 },
-          purchasePrice: 500000,
-          paymentMethod: undefined, // Cash purchase
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createPhysicalAssetInput({
+            id: 'future-house',
+            name: 'Future House',
+            purchaseDate: { type: 'customAge', age: 40 },
+            purchasePrice: 500000,
+            paymentMethod: undefined, // Cash purchase
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       // Before purchase age
       const simStateBefore = createSimulationState({ time: { age: 39, year: 2028, month: 1, date: new Date(2028, 0, 1) } });
@@ -1298,15 +1391,18 @@ describe('Purchase Expense Tracking', () => {
       expect(resultBefore.totalPurchaseOutlay).toBe(0);
 
       // At purchase age - need new processor since assets state changed
-      const assets2 = new PhysicalAssets([
-        createPhysicalAssetInput({
-          id: 'future-house',
-          name: 'Future House',
-          purchaseDate: { type: 'customAge', age: 40 },
-          purchasePrice: 500000,
-          paymentMethod: undefined,
-        }),
-      ]);
+      const assets2 = new PhysicalAssets(
+        [
+          createPhysicalAssetInput({
+            id: 'future-house',
+            name: 'Future House',
+            purchaseDate: { type: 'customAge', age: 40 },
+            purchasePrice: 500000,
+            paymentMethod: undefined,
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const simStateAt = createSimulationState({ time: { age: 40, year: 2029, month: 1, date: new Date(2029, 0, 1) } });
       const processorAt = new PhysicalAssetsProcessor(simStateAt, assets2);
       const resultAt = processorAt.process(ZERO_INFLATION);
@@ -1316,15 +1412,18 @@ describe('Purchase Expense Tracking', () => {
     });
 
     it('future financed purchase charges only down payment when date arrives', () => {
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          id: 'future-house',
-          name: 'Future House',
-          purchaseDate: { type: 'customAge', age: 40 },
-          purchasePrice: 400000,
-          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            id: 'future-house',
+            name: 'Future House',
+            purchaseDate: { type: 'customAge', age: 40 },
+            purchasePrice: 400000,
+            paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const simState = createSimulationState({ time: { age: 40, year: 2029, month: 1, date: new Date(2029, 0, 1) } });
       const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1335,14 +1434,17 @@ describe('Purchase Expense Tracking', () => {
     });
 
     it('purchase expense is charged only once, not every month', () => {
-      const assets = new PhysicalAssets([
-        createPhysicalAssetInput({
-          id: 'future-house',
-          name: 'Future House',
-          purchaseDate: { type: 'customAge', age: 40 },
-          purchasePrice: 500000,
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createPhysicalAssetInput({
+            id: 'future-house',
+            name: 'Future House',
+            purchaseDate: { type: 'customAge', age: 40 },
+            purchasePrice: 500000,
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const simState = createSimulationState({ time: { age: 40, year: 2029, month: 1, date: new Date(2029, 0, 1) } });
       const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1365,14 +1467,17 @@ describe('Purchase Expense Tracking', () => {
     });
 
     it('atRetirement purchase charges expense when retirement starts', () => {
-      const assets = new PhysicalAssets([
-        createPhysicalAssetInput({
-          id: 'retirement-home',
-          name: 'Retirement Home',
-          purchaseDate: { type: 'atRetirement' },
-          purchasePrice: 300000,
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createPhysicalAssetInput({
+            id: 'retirement-home',
+            name: 'Retirement Home',
+            purchaseDate: { type: 'atRetirement' },
+            purchasePrice: 300000,
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       // Pre-retirement
       const simStateAccum = createSimulationState({ phase: { name: 'accumulation' } });
@@ -1381,14 +1486,17 @@ describe('Purchase Expense Tracking', () => {
       expect(resultAccum.totalPurchaseOutlay).toBe(0);
 
       // At retirement - new assets instance
-      const assets2 = new PhysicalAssets([
-        createPhysicalAssetInput({
-          id: 'retirement-home',
-          name: 'Retirement Home',
-          purchaseDate: { type: 'atRetirement' },
-          purchasePrice: 300000,
-        }),
-      ]);
+      const assets2 = new PhysicalAssets(
+        [
+          createPhysicalAssetInput({
+            id: 'retirement-home',
+            name: 'Retirement Home',
+            purchaseDate: { type: 'atRetirement' },
+            purchasePrice: 300000,
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const simStateRetire = createSimulationState({ phase: { name: 'retirement' } });
       const processorRetire = new PhysicalAssetsProcessor(simStateRetire, assets2);
       const resultRetire = processorRetire.process(ZERO_INFLATION);
@@ -1421,7 +1529,8 @@ describe('Full Amortization Tests', () => {
       createFinancedAssetInput({
         purchasePrice: 400000,
         paymentMethod: { type: 'loan', downPayment: 80000, loanBalance, apr, monthlyPayment: expectedMonthlyPayment },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Apply all payments
@@ -1458,7 +1567,8 @@ describe('Full Amortization Tests', () => {
       createFinancedAssetInput({
         purchasePrice: 30000,
         paymentMethod: { type: 'loan', downPayment: 6000, loanBalance, apr: 0, monthlyPayment: expectedPayment },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Apply all payments
@@ -1490,7 +1600,8 @@ describe('Full Amortization Tests', () => {
       createFinancedAssetInput({
         purchasePrice: 125000,
         paymentMethod: { type: 'loan', downPayment: 25000, loanBalance, apr, monthlyPayment },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     let totalPrincipal = 0;
@@ -1534,7 +1645,8 @@ describe('Capital Loss Scenarios', () => {
       createPhysicalAssetInput({
         purchasePrice,
         appreciationRate: depreciationRate,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Apply 24 months of depreciation
@@ -1571,7 +1683,8 @@ describe('Capital Loss Scenarios', () => {
         purchasePrice,
         appreciationRate: -15, // 15% annual depreciation (like a car)
         paymentMethod: { type: 'loan', downPayment, loanBalance, apr, monthlyPayment },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Apply 12 months of depreciation and payments
@@ -1601,7 +1714,8 @@ describe('Capital Loss Scenarios', () => {
       createPhysicalAssetInput({
         purchasePrice: 300000,
         appreciationRate: 0, // No change in value
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const { realizedGains, saleProceeds } = asset.sell();
@@ -1617,7 +1731,8 @@ describe('Capital Loss Scenarios', () => {
         purchasePrice: 200000, // Original cost basis
         marketValue: 180000, // Current value (already lost value)
         appreciationRate: 0,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     const { realizedGains, saleProceeds } = asset.sell();
@@ -1633,7 +1748,8 @@ describe('Edge Cases', () => {
     const asset = new PhysicalAsset(
       createPhysicalAssetInput({
         purchaseDate: { type: 'customDate', year: 2030, month: 1 },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     expect(asset.getOwnershipStatus()).toBe('pending');
@@ -1646,7 +1762,8 @@ describe('Edge Cases', () => {
         purchasePrice: 300000, // Original cost basis
         marketValue: 450000, // Current value (appreciated)
         appreciationRate: 3,
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Market value should be the current value, not purchase price
@@ -1670,7 +1787,8 @@ describe('Edge Cases', () => {
         purchasePrice: 30000, // Car
         appreciationRate: -25, // 25% annual depreciation
         paymentMethod: { type: 'loan', downPayment: 3000, loanBalance, apr, monthlyPayment },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Apply 24 months of depreciation
@@ -1695,7 +1813,8 @@ describe('Edge Cases', () => {
     const asset = new PhysicalAsset(
       createPhysicalAssetInput({
         purchaseDate: { type: 'atLifeExpectancy' },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Should stay pending (atLifeExpectancy returns false for shouldPurchaseThisPeriod)
@@ -1715,7 +1834,8 @@ describe('Edge Cases', () => {
           apr: 0,
           monthlyPayment: 1000, // 10000 / 10 payments
         },
-      })
+      }),
+      TEST_TIME_BINDING_CONTEXT
     );
 
     // Pay off the loan
@@ -1762,7 +1882,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 400000,
           paymentMethod: { type: 'loan', downPayment: 80000, loanBalance, apr, monthlyPayment: nominalPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       let realMonths = 0;
@@ -1784,7 +1905,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 100000,
           paymentMethod: { type: 'loan', downPayment: 0, loanBalance: 100000, apr: 0, monthlyPayment: 1000 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const monthlyInflation = 0.0025; // ~3% annual
@@ -1808,7 +1930,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 100000,
           paymentMethod: { type: 'loan', downPayment: 0, loanBalance: 10000, apr: 7, monthlyPayment: 500 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // 3% annual inflation = ~0.247% monthly inflation
@@ -1835,7 +1958,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 100000,
           paymentMethod: { type: 'loan', downPayment: 0, loanBalance: 10000, apr: 7, monthlyPayment: 0 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // 10% annual inflation > 7% nominal APR = negative real rate
@@ -1862,14 +1986,17 @@ describe('Inflation Adjustment', () => {
     it('future-dated asset first payment is at full nominal value through processor', () => {
       const nominalPayment = 2000;
       const purchaseAge = 36;
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          id: 'house',
-          purchasePrice: 400000,
-          purchaseDate: { type: 'customAge', age: purchaseAge },
-          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: nominalPayment },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            id: 'house',
+            purchasePrice: 400000,
+            purchaseDate: { type: 'customAge', age: purchaseAge },
+            paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: nominalPayment },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const monthlyInflation = Math.pow(1.08, 1 / 12) - 1; // 8% annual
       const simState = createSimulationState();
@@ -1893,13 +2020,16 @@ describe('Inflation Adjustment', () => {
     });
 
     it('should apply inflation through processor', () => {
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          id: 'house',
-          purchasePrice: 400000,
-          paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 2000 },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            id: 'house',
+            purchasePrice: 400000,
+            paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 2000 },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
 
       const simState = createSimulationState();
       const processor = new PhysicalAssetsProcessor(simState, assets);
@@ -1930,7 +2060,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 125000,
           paymentMethod: { type: 'loan', downPayment: 25000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Create equivalent standalone debt
@@ -1940,7 +2071,8 @@ describe('Inflation Adjustment', () => {
           apr,
           monthlyPayment,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Process 12 months for both
@@ -1971,7 +2103,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 600_000,
           paymentMethod: { type: 'loan', downPayment: 100_000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Create equivalent standalone debt
@@ -1981,7 +2114,8 @@ describe('Inflation Adjustment', () => {
           apr,
           monthlyPayment,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 60 months for both
@@ -2020,7 +2154,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 1_250_000,
           paymentMethod: { type: 'loan', downPayment: 250_000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 120 months (10 years)
@@ -2054,7 +2189,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 1_250_000,
           paymentMethod: { type: 'loan', downPayment: 250_000, loanBalance, apr, monthlyPayment: 0 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 120 months
@@ -2082,7 +2218,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 1_250_000,
           paymentMethod: { type: 'loan', downPayment: 250_000, loanBalance, apr, monthlyPayment: 0 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // Run 120 months
@@ -2105,7 +2242,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 100000,
           paymentMethod: { type: 'loan', downPayment: 0, loanBalance: 10000, apr: 5, monthlyPayment: 100 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const annualInflation = 0.5; // 50%
@@ -2129,7 +2267,8 @@ describe('Inflation Adjustment', () => {
         createFinancedAssetInput({
           purchasePrice: 100000,
           paymentMethod: { type: 'loan', downPayment: 0, loanBalance, apr, monthlyPayment: 500 },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       // With zero inflation, real rate = nominal rate
@@ -2153,7 +2292,8 @@ describe('Inflation Adjustment', () => {
           createFinancedAssetInput({
             purchasePrice: 200_000,
             paymentMethod: { type: 'loan', downPayment: 100_000, loanBalance: 100_000, apr: 0, monthlyPayment: 1000 },
-          })
+          }),
+          TEST_TIME_BINDING_CONTEXT
         );
 
         const extremeAnnualInflation = 100; // 10,000%
@@ -2182,7 +2322,8 @@ describe('Inflation Adjustment', () => {
               apr: 0, // Worst case for negative interest
               monthlyPayment: 1000,
             },
-          })
+          }),
+          TEST_TIME_BINDING_CONTEXT
         );
 
         // Even with 10,000% annual inflation
@@ -2210,7 +2351,8 @@ describe('Inflation Adjustment', () => {
               apr: 5, // 5% APR
               monthlyPayment: 500,
             },
-          })
+          }),
+          TEST_TIME_BINDING_CONTEXT
         );
 
         const extremeAnnualInflation = 10; // 1,000% annual
@@ -2259,7 +2401,8 @@ describe('Inflation Adjustment', () => {
                 apr,
                 monthlyPayment: 100,
               },
-            })
+            }),
+            TEST_TIME_BINDING_CONTEXT
           );
 
           const monthlyInflation = Math.pow(1 + inflation, 1 / 12) - 1;
@@ -2291,7 +2434,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
             monthlyPayment: 500, // Larger than balance + interest
             downPayment: 0,
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(HIGH_INFLATION_MONTHLY);
@@ -2318,7 +2462,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
             monthlyPayment: 1918,
             downPayment: 80000,
           },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const { interest } = asset.getMonthlyPaymentInfo(HIGH_INFLATION_MONTHLY);
@@ -2330,17 +2475,20 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
 
   describe('PhysicalAssetsProcessor.process - Raw Values for Net Worth Tracking', () => {
     it('should pass through raw totalInterest (can be negative)', () => {
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          paymentMethod: {
-            type: 'loan',
-            loanBalance: 320000,
-            apr: 5,
-            monthlyPayment: 1918,
-            downPayment: 80000,
-          },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            paymentMethod: {
+              type: 'loan',
+              loanBalance: 320000,
+              apr: 5,
+              monthlyPayment: 1918,
+              downPayment: 80000,
+            },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new PhysicalAssetsProcessor(state, assets);
 
@@ -2352,17 +2500,20 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
     });
 
     it('should still erode loan balance with raw reporting', () => {
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          paymentMethod: {
-            type: 'loan',
-            loanBalance: 100000,
-            apr: 5,
-            monthlyPayment: 0, // No payment
-            downPayment: 0,
-          },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            paymentMethod: {
+              type: 'loan',
+              loanBalance: 100000,
+              apr: 5,
+              monthlyPayment: 0, // No payment
+              downPayment: 0,
+            },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new PhysicalAssetsProcessor(state, assets);
 
@@ -2376,17 +2527,20 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
     });
 
     it('should pass through raw totalLoanPayment (equals balance + interest when that is less than monthlyPayment)', () => {
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          paymentMethod: {
-            type: 'loan',
-            loanBalance: 100, // Small balance
-            apr: 3,
-            monthlyPayment: 500, // Larger than balance + interest
-            downPayment: 0,
-          },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            paymentMethod: {
+              type: 'loan',
+              loanBalance: 100, // Small balance
+              apr: 3,
+              monthlyPayment: 500, // Larger than balance + interest
+              downPayment: 0,
+            },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new PhysicalAssetsProcessor(state, assets);
 
@@ -2405,17 +2559,20 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
     });
 
     it('should calculate principalPaid as payment minus raw interest', () => {
-      const assets = new PhysicalAssets([
-        createFinancedAssetInput({
-          paymentMethod: {
-            type: 'loan',
-            loanBalance: 100000,
-            apr: 5,
-            monthlyPayment: 1000,
-            downPayment: 0,
-          },
-        }),
-      ]);
+      const assets = new PhysicalAssets(
+        [
+          createFinancedAssetInput({
+            paymentMethod: {
+              type: 'loan',
+              loanBalance: 100000,
+              apr: 5,
+              monthlyPayment: 1000,
+              downPayment: 0,
+            },
+          }),
+        ],
+        TEST_TIME_BINDING_CONTEXT
+      );
       const state = createSimulationState();
       const processor = new PhysicalAssetsProcessor(state, assets);
 
@@ -2442,7 +2599,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           appreciationRate: 0,
           purchaseDate: pendingMonths > 0 ? { type: 'customAge', age: 35 + pendingMonths / 12 } : { type: 'now' },
           paymentMethod: { type: 'loan', downPayment: 100000, loanBalance, apr, monthlyPayment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       let paymentMonths = 0;
@@ -2495,7 +2653,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           purchasePrice: 500000,
           appreciationRate: 0,
           paymentMethod: { type: 'loan', downPayment: 100000, loanBalance: balance, apr: aprPercent, monthlyPayment: payment },
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       const debt = new Debt(
@@ -2504,7 +2663,8 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
           apr: aprPercent,
           monthlyPayment: payment,
           interestType: 'simple',
-        })
+        }),
+        TEST_TIME_BINDING_CONTEXT
       );
 
       let assetMonths = MAX;
