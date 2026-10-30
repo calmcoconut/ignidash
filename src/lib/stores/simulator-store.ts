@@ -58,15 +58,9 @@ import { systemClock } from '@/lib/utils/system-clock';
 // STATE INTERFACE & DEFAULT STATE
 // ================================
 
-export const simulationModes = [
-  'fixedReturns',
-  'stochasticReturns',
-  'historicalReturns',
-  'monteCarloStochasticReturns',
-  'monteCarloHistoricalReturns',
-] as const;
-
-export type SimulationMode = (typeof simulationModes)[number];
+// The mode list is a schema-layer constant; the store re-exports it so existing imports keep
+// working without the schema depending on the store (see simulation-settings-form-schema.ts).
+export { simulationModes, type SimulationMode } from '@/lib/schemas/inputs/simulation-settings-form-schema';
 
 export type MonteCarloSortMode =
   | 'finalPortfolioValue'

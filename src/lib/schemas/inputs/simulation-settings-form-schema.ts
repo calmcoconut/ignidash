@@ -1,8 +1,25 @@
 import { z } from 'zod';
 
 import { isISODateString } from '@/lib/calc/clock';
-import { simulationModes } from '@/lib/stores/simulator-store';
 import { coerceNumber, optionalCoerceNumber } from '@/lib/utils/zod-utils';
+
+/**
+ * The simulation modes the app understands.
+ *
+ * This is a data constant owned by the schema layer, not by the client store: the settings schema,
+ * the store and the CLI all read it from here. Keeping the direction one-way (schemas → nothing,
+ * store → schemas) is what lets a server function import `simulatorSchema` without dragging
+ * `zustand`, `react` or `swr` into its bundle.
+ */
+export const simulationModes = [
+  'fixedReturns',
+  'stochasticReturns',
+  'historicalReturns',
+  'monteCarloStochasticReturns',
+  'monteCarloHistoricalReturns',
+] as const;
+
+export type SimulationMode = (typeof simulationModes)[number];
 
 export const simulationSettingsSchema = z
   .object({
