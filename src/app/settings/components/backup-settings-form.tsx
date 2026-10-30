@@ -47,6 +47,9 @@ export default function BackupSettingsForm({ showSuccessNotification }: BackupSe
   const [status, setStatus] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [pendingEnvelope, setPendingEnvelope] = useState<ExportEnvelope | null>(null);
+  // A file the engine can run but the app's forms would not have written: shown, then the
+  // operator decides. Same confirmation pattern as the finances guard below.
+  const [pendingUnusual, setPendingUnusual] = useState<{ envelope: ExportEnvelope; warnings: ImportIssue[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isLoading = plans === undefined || assets === undefined || liabilities === undefined;
@@ -141,6 +144,7 @@ export default function BackupSettingsForm({ showSuccessNotification }: BackupSe
   const handleFile = async (file: File | undefined) => {
     setIssues(null);
     setStatus(null);
+    setPendingUnusual(null);
     if (!file) return;
 
     const parsed = parseEnvelope(await file.text());
@@ -150,8 +154,23 @@ export default function BackupSettingsForm({ showSuccessNotification }: BackupSe
       return;
     }
 
+    if (parsed.warnings.length > 0) {
+      // Not a refusal: the engine runs this plan, the app's forms just would not have
+      // written it. Name every unusual field and let the operator continue.
+      setPendingUnusual({ envelope: parsed.envelope, warnings: parsed.warnings });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     startImport(parsed.envelope);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const confirmUnusualImport = () => {
+    if (!pendingUnusual) return;
+    const { envelope } = pendingUnusual;
+    setPendingUnusual(null);
+    startImport(envelope);
   };
 
   const financeCounts = finances ? `${finances.assets.length} asset(s) and ${finances.liabilities.length} liability(ies)` : 'no finances';
@@ -253,6 +272,42 @@ export default function BackupSettingsForm({ showSuccessNotification }: BackupSe
           </Button>
           <Button color="red" onClick={confirmFinancesImport} disabled={isBusy}>
             {isBusy ? 'Importing...' : 'Replace finances and import'}
+          </Button>
+        </AlertActions>
+      </Alert>
+
+      <Alert
+        open={pendingUnusual !== null}
+        onClose={() => {
+          setPendingUnusual(null);
+        }}
+      >
+        <AlertTitle>Import a file with values this version of the app would not have written?</AlertTitle>
+        <AlertDescription>
+          The plan runs as it is: everything below is a rule the forms enforce when you edit a plan, not a value the simulation cannot use.
+          Nothing is changed by importing — the file is stored as it is, so you can repair these in the app afterwards.
+        </AlertDescription>
+        <AlertBody>
+          <ul className="list-disc space-y-1 pl-5 text-sm">
+            {(pendingUnusual?.warnings ?? []).map((warning, index) => (
+              <li key={`${warning.path}-${index}`}>
+                {warning.path ? (
+                  <>
+                    <code className="font-mono text-xs break-all">{warning.path}</code>
+                    {': '}
+                  </>
+                ) : null}
+                {warning.message}
+              </li>
+            ))}
+          </ul>
+        </AlertBody>
+        <AlertActions>
+          <Button plain onClick={() => setPendingUnusual(null)} disabled={isBusy}>
+            Cancel
+          </Button>
+          <Button onClick={confirmUnusualImport} disabled={isBusy}>
+            {isBusy ? 'Importing...' : 'Import anyway'}
           </Button>
         </AlertActions>
       </Alert>

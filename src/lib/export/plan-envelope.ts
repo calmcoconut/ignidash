@@ -7,6 +7,7 @@ import { liabilityValidator } from '../../../convex/validators/liability_validat
 
 import { accountFormSchema } from '@/lib/schemas/inputs/account-form-schema';
 import { contributionFormSchema, baseContributionSchema } from '@/lib/schemas/inputs/contribution-form-schema';
+import { isISODateString } from '@/lib/calc/clock';
 import { debtFormSchema } from '@/lib/schemas/inputs/debt-form-schema';
 import { expenseFormSchema } from '@/lib/schemas/inputs/expense-form-schema';
 import { glidePathFormSchema } from '@/lib/schemas/inputs/glide-path-form-schema';
@@ -117,7 +118,12 @@ export interface ImportIssue {
   message: string;
 }
 
-export type EnvelopeParseResult = { ok: true; envelope: ExportEnvelope } | { ok: false; issues: ImportIssue[] };
+/**
+ * `ok` means the file can be imported. `warnings` lists what the app's forms would prefer
+ * otherwise — the caller must show them and let the operator proceed, because a plan the
+ * engine simulates is not refused for a form-level rule (see `appRuleFindings`).
+ */
+export type EnvelopeParseResult = { ok: true; envelope: ExportEnvelope; warnings: ImportIssue[] } | { ok: false; issues: ImportIssue[] };
 
 const ISO_8601_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -265,11 +271,15 @@ export function serializeEnvelope(envelope: ExportEnvelope): string {
 /**
  * Parses and validates an exported file.
  *
- * Never throws: a malformed file produces a list of `{ path, message }` issues
- * naming the exact fields that failed (e.g. `plan.incomes[0].name`), so the UI can
- * show all of them instead of a truncated string. Files without a `schemaVersion`,
- * or from a newer build, are rejected with an actionable message rather than being
- * coerced.
+ * Never throws: a malformed file produces a list of `{ path, message }` issues naming the
+ * exact fields that failed (e.g. `plan.incomes[0].name`), so the UI can show all of them
+ * instead of a truncated string. Files without a `schemaVersion`, or from a newer build, are
+ * rejected with an actionable message rather than being coerced.
+ *
+ * A file that parses also carries `warnings` — field paths where the app's FORM rules would
+ * have written something else but the engine runs the plan as it is. The caller must show
+ * them (Settings → Backup & restore does, and asks before continuing) and they never change
+ * the payload: a warning is not a silent drop and not a refusal.
  */
 export function parseEnvelope(text: string): EnvelopeParseResult {
   let value: unknown;
@@ -307,13 +317,14 @@ export function parseEnvelopeValue(value: unknown): EnvelopeParseResult {
   const parsed = schema.safeParse(value);
   if (!parsed.success) return { ok: false, issues: issuesFromZodError(parsed.error) };
 
-  // The structural parse only proves the payload matches what Convex stores. The app's own
-  // rules come next, still before the caller writes anything.
+  // The structural parse only proves the payload matches what Convex stores. After it: the
+  // engine contract blocks, and everything the app's forms merely prefer becomes a warning
+  // the operator sees and acknowledges before anything is written.
   const envelope = parsed.data as ExportEnvelope;
-  const appIssues = appRuleIssues(envelope);
-  if (appIssues.length > 0) return { ok: false, issues: appIssues };
+  const findings = appRuleFindings(envelope);
+  if (findings.blocking.length > 0) return { ok: false, issues: findings.blocking };
 
-  return { ok: true, envelope };
+  return { ok: true, envelope, warnings: findings.warnings };
 }
 
 function checkSchemaVersion(value: Record<string, unknown>): ImportIssue | null {
@@ -347,6 +358,12 @@ function checkSchemaVersion(value: Record<string, unknown>): ImportIssue | null 
 interface RawIssue {
   parts: PropertyKey[];
   message: string;
+  /**
+   * True when this leaf is a `z.literal`/`z.enum` mismatch (`invalid_value`): the member
+   * expected a different discriminator, so the leaf says "your `type` should be X" rather
+   * than naming a field the file is missing.
+   */
+  mismatchedLiteral: boolean;
 }
 
 type ZodIssue = z.ZodError['issues'][number];
@@ -360,11 +377,18 @@ type ZodIssue = z.ZodError['issues'][number];
  * `plan.timeline.retirementStrategy.retirementAge`, so the walk recurses into every member
  * to whatever depth the unions nest and emits the leaves.
  *
- * The `z.null()` member of a union is skipped: `timeline` is `v.union(timelineValidator,
- * v.null())`, so every failure of the object member would otherwise carry a useless
- * "expected null" companion. If nothing survives the walk (a union whose members only
- * objected to the value not being null), the union's own issue is reported instead, so a
- * failure is never dropped.
+ * Two members' worth of noise is removed while walking:
+ *
+ * - The `z.null()` member is skipped: `timeline` is `v.union(timelineValidator, v.null())`,
+ *   so every failure of the object member would otherwise carry a useless "expected null".
+ * - Members that objected to the DISCRIMINATOR are dropped when another member matched.
+ *   `{ type: 'fixedAge' }` with no `retirementAge` makes the `swrTarget` member report
+ *   `type :: expected "swrTarget"` plus a missing `safeWithdrawalRate`; the file's `type` is
+ *   correct, so telling the operator to change it is wrong. If no member matched (the
+ *   discriminator really is unknown), only the discriminator complaints are reported.
+ *
+ * If nothing survives, the union's own issue is reported instead, so a failure is never
+ * dropped.
  */
 function issuesFromZodError(error: z.ZodError, prefix: readonly PropertyKey[] = []): ImportIssue[] {
   const raw: RawIssue[] = [];
@@ -391,26 +415,45 @@ function collectZodIssues(
     if (skipNullMember && issue.code === 'invalid_type' && issue.expected === 'null') continue;
 
     if (issue.code === 'invalid_union') {
-      const branches: RawIssue[] = [];
-      const branchSeen = new Set<string>();
-      for (const branch of issue.errors) collectZodIssues(branch, parts, branches, branchSeen, true);
-      if (branches.length === 0) {
-        pushIssue(out, seen, parts, issue.message);
-        continue;
-      }
-      for (const leaf of branches) pushIssue(out, seen, leaf.parts, leaf.message);
+      const members = issue.errors.map((branch) => {
+        const leaves: RawIssue[] = [];
+        collectZodIssues(branch, parts, leaves, new Set<string>(), true);
+        return leaves;
+      });
+      for (const leaf of chooseUnionLeaves(members, parts, issue.message))
+        pushIssue(out, seen, leaf.parts, leaf.message, leaf.mismatchedLiteral);
       continue;
     }
 
-    pushIssue(out, seen, parts, issue.message);
+    pushIssue(out, seen, parts, issue.message, issue.code === 'invalid_value');
   }
 }
 
-function pushIssue(out: RawIssue[], seen: Set<string>, parts: PropertyKey[], message: string): void {
+/**
+ * Picks which union members' leaves to report.
+ *
+ * A member that reports a discriminator mismatch was simply not the right shape, so it is
+ * dropped as soon as another member matched. When every member mismatched, the
+ * discriminator is the real problem and only those complaints survive; when the union is not
+ * discriminated at all (no `invalid_value` leaves anywhere, e.g. `object | null` or
+ * `cash | loan` payment methods), every member is reported as before.
+ */
+function chooseUnionLeaves(members: RawIssue[][], parts: readonly PropertyKey[], unionMessage: string): RawIssue[] {
+  const matched = members.filter((leaves) => !leaves.some((leaf) => leaf.mismatchedLiteral));
+  if (matched.length > 0) return matched.flat();
+
+  const discriminatorOnly = members.flat().filter((leaf) => leaf.mismatchedLiteral);
+  if (discriminatorOnly.length > 0) return discriminatorOnly;
+
+  const all = members.flat();
+  return all.length > 0 ? all : [{ parts: [...parts], message: unionMessage, mismatchedLiteral: false }];
+}
+
+function pushIssue(out: RawIssue[], seen: Set<string>, parts: PropertyKey[], message: string, mismatchedLiteral = false): void {
   const key = `${formatPath(parts)}\u0000${message}`;
   if (seen.has(key)) return;
   seen.add(key);
-  out.push({ parts, message });
+  out.push({ parts, message, mismatchedLiteral });
 }
 
 function formatPath(parts: readonly PropertyKey[]): string {
@@ -434,40 +477,77 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 /**
- * The app's own per-domain rules, applied once the structural parse has passed.
+ * Two severities, because the file is the operator's own data.
  *
- * The derived schema above deliberately enforces Convex STRUCTURE only. The per-domain
- * schemas carry the rules the app itself relies on, and the gap is reachable: an
- * `asOfDate` of `"not-a-date"` is a valid `v.string()`, yet `useSimulationClock` passes it
- * to `fixedClock`, which throws — so one corrupt plan would put its simulator page on the
- * error boundary with no way to repair it from the UI. `birthMonth: 13`, `name: ""`,
- * `simulationSeed: 1e9` and `stockYield: 99` are the same class of accepted-but-wrong.
+ * Import/export is the only migration path a self-hosted instance has, and the app's FORM
+ * rules keep tightening (the `withholding` refine, the self-employment gate, return/yield
+ * ordering, the down-payment identity). If a form rule could refuse a file, every future
+ * refine would retroactively make today's exports unimportable — a plan the engine simulates
+ * perfectly well would be stuck outside the app. So the semantic layer is split by what the
+ * ENGINE needs, not by what the forms prefer.
  *
- * Each part is checked through the transformer the app already uses to read it
- * (`xFromConvex`) and the schema the app already validates it with, so a rule added to a
- * domain schema applies to imports with no change here.
+ * BLOCKING (`engineContractIssues`) — only what would crash, corrupt, or produce nothing:
+ *   - `simulationSettings.asOfDate`: `fixedClock` parses it and throws on anything that is
+ *     not a real calendar date, putting that plan's simulator page on the error boundary.
+ *   - `timeline.birthMonth`: `calculatePreciseAge` subtracts it as a month index, so 0 or 13
+ *     silently shifts every age (and every retirement date) by a year.
+ *   - `timeline.birthYear`: outside 1900..2100 the age arithmetic and the 1960 RMD boundary
+ *     cannot mean anything.
+ *   - `timeline.lifeExpectancy`: `yearsToSimulate` becomes zero or negative, so the run has
+ *     no months and every readout is empty.
+ *   - `accounts[i].percentBonds` on an investment account: `Account` computes
+ *     `percentBonds / 100`, so an absent value turns every balance in the plan into NaN.
+ *   - `debts[i].compoundingFrequency` on a compound debt: `Debt.calculateMonthlyInterest`
+ *     throws "Missing compoundingFrequency".
+ *   - `glidePath.endTimePoint` when enabled: `timePointProgress` reads its age/date directly,
+ *     so a missing value makes the bond allocation NaN.
+ *   - `marketAssumptions.inflationRate` at or below -100%: the real/nominal conversion
+ *     divides by `(1 + rate)^years`, which is zero there.
+ *
+ * WARNING (`planDomainChecks` below, i.e. the app's own per-domain schemas) — anything the
+ * engine runs fine without: a wage income with no withholding (the engine applies `?? 0`),
+ * a self-employment income (the engine path is alive; the form gate is policy — PLAN-parity
+ * R8), `stockYield > stockReturn`, a loan whose down payment plus balance is not the
+ * purchase price, short names, out-of-policy percentages/seeds/growth limits. Those are
+ * reported with their field paths and the operator decides whether to import anyway.
  *
  * Not covered, by design:
  *   - the plan document's own `name`/`isDefault`, which are not plan data and have no
  *     per-domain schema (`name` is a bare `v.string()` on the document);
  *   - the clock-dependent timeline rules in `createTimelineFormSchema(now)` (current age,
- *     life expectancy above current age, retirement age below life expectancy), because an
- *     import has no "today" to compare against — `timelineBaseSchema` is the clock-free
- *     part, and this module keeps taking its timestamps as parameters.
+ *     life expectancy above current age, retirement age below life expectancy): an import has
+ *     no "today", so `timelineBaseSchema` is the clock-free part and those comparisons only
+ *     surface as warnings when a static bound catches them.
  */
-function appRuleIssues(envelope: ExportEnvelope): ImportIssue[] {
+interface AppRuleFindings {
+  /** Would crash, corrupt or produce nothing: the import stops. */
+  blocking: ImportIssue[];
+  /** The app's forms prefer otherwise; the engine copes. Shown to the operator. */
+  warnings: ImportIssue[];
+}
+
+function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
   const single = envelope.kind === PLAN_EXPORT_KIND;
   const plans = single ? [envelope.plan] : envelope.plans;
-  const issues: ImportIssue[] = [];
+  const blocking: ImportIssue[] = [];
+  const warnings: ImportIssue[] = [];
 
   plans.forEach((plan, index) => {
-    const prefix = single ? ['plan'] : ['plans', index];
-    pushDomainIssues(issues, prefix, () => planDomainChecks(plan, prefix));
+    const prefix: PropertyKey[] = single ? ['plan'] : ['plans', index];
+    blocking.push(...engineContractIssues(plan, prefix));
+  });
+
+  // A path the engine needs is reported once, as a blocker: drop the form schema's echo.
+  const blockedPaths = new Set(blocking.map((issue) => issue.path));
+
+  plans.forEach((plan, index) => {
+    const prefix: PropertyKey[] = single ? ['plan'] : ['plans', index];
+    pushDomainIssues(warnings, prefix, () => planDomainChecks(plan, prefix));
   });
 
   if (envelope.finances) {
     const finances = envelope.finances;
-    pushDomainIssues(issues, ['finances'], () => [
+    pushDomainIssues(warnings, ['finances'], () => [
       ...finances.assets.map(
         (asset, index): DomainCheck => ({ parts: ['finances', 'assets', index], schema: assetFormSchema, value: assetFromConvex(asset) })
       ),
@@ -481,7 +561,100 @@ function appRuleIssues(envelope: ExportEnvelope): ImportIssue[] {
     ]);
   }
 
+  return { blocking, warnings: warnings.filter((issue) => !blockedPaths.has(issue.path)) };
+}
+
+/**
+ * The engine contract: values whose absence or impossibility crashes the run, corrupts it
+ * with NaN, or leaves it with nothing to simulate. Everything else is a form preference.
+ */
+function engineContractIssues(plan: PlanExport, prefix: PropertyKey[]): ImportIssue[] {
+  const issues: ImportIssue[] = [];
+  const block = (parts: PropertyKey[], message: string) => issues.push({ path: formatPath(parts), message });
+
+  const asOfDate = plan.simulationSettings.asOfDate;
+  if (asOfDate !== undefined && !isISODateString(asOfDate)) {
+    block([...prefix, 'simulationSettings', 'asOfDate'], 'As-of date must be a valid ISO date (YYYY-MM-DD)');
+  }
+
+  const timeline = plan.timeline;
+  if (timeline) {
+    const { birthMonth, birthYear, lifeExpectancy } = timeline;
+    if (!isIntegerWithin(birthMonth, 1, 12)) {
+      block(
+        [...prefix, 'timeline', 'birthMonth'],
+        'Birth month must be a whole month from 1 to 12; the age arithmetic reads it as a month index.'
+      );
+    }
+    if (!isIntegerWithin(birthYear, 1900, 2100)) {
+      block(
+        [...prefix, 'timeline', 'birthYear'],
+        'Birth year must be a whole year from 1900 to 2100; the ages and the RMD age are derived from it.'
+      );
+    }
+    if (!(lifeExpectancy > 0)) {
+      block(
+        [...prefix, 'timeline', 'lifeExpectancy'],
+        'Life expectancy must be a positive number of years; otherwise the run has no months to simulate.'
+      );
+    }
+  }
+
+  const inflationRate = plan.marketAssumptions.inflationRate;
+  if (!Number.isFinite(inflationRate) || inflationRate <= -100) {
+    block(
+      [...prefix, 'marketAssumptions', 'inflationRate'],
+      'Inflation rate must be above -100%; the real/nominal conversion divides by the cumulative index.'
+    );
+  }
+
+  for (const [index, account] of plan.accounts.entries()) {
+    // Savings hold cash only; every other type is allocated with its bond percentage.
+    if (account.type === 'savings') continue;
+    if (typeof account.percentBonds !== 'number' || !Number.isFinite(account.percentBonds)) {
+      block(
+        [...prefix, 'accounts', index, 'percentBonds'],
+        `A ${account.type} account needs a bond percentage; without it every balance becomes NaN.`
+      );
+    }
+  }
+
+  for (const [index, debt] of (plan.debts ?? []).entries()) {
+    if (debt.interestType === 'compound' && debt.compoundingFrequency === undefined) {
+      block(
+        [...prefix, 'debts', index, 'compoundingFrequency'],
+        'A compound-interest debt needs a compounding frequency; the debt processor throws without one.'
+      );
+    }
+  }
+
+  const glidePath = plan.glidePath;
+  if (glidePath?.enabled && !hasResolvableEndPoint(glidePath.endTimePoint)) {
+    block(
+      [...prefix, 'glidePath', 'endTimePoint'],
+      'An enabled glide path needs a real end point (an age, or a month and year); otherwise the bond allocation becomes NaN.'
+    );
+  }
+
   return issues;
+}
+
+function isIntegerWithin(value: number, min: number, max: number): boolean {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
+
+/** A glide-path end point can be resolved when the value the engine reads is there. */
+function hasResolvableEndPoint(endTimePoint: {
+  type: string;
+  age?: number | undefined;
+  month?: number | undefined;
+  year?: number | undefined;
+}): boolean {
+  if (endTimePoint.type === 'customAge') return typeof endTimePoint.age === 'number';
+  if (endTimePoint.type === 'customDate')
+    return isIntegerWithin(endTimePoint.month ?? Number.NaN, 1, 12) && typeof endTimePoint.year === 'number';
+
+  return false;
 }
 
 interface DomainCheck {

@@ -43,6 +43,19 @@ const GLIDE_PATH = {
 
 /** A plan document in the shape the database returns, with every optional field set. */
 function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
+  // P1-P1's time binding, one of each v2 field, so the version-1 fixture below has something
+  // to strip (see `stripVersion2Fields`):
+  //   incomes[0].amountBasis, incomes[0].timeframe.start.everyNYears / .recurrenceYears.
+  const [firstIncome, ...otherIncomes] = basicTemplate.incomes;
+  const incomes = [
+    {
+      ...firstIncome,
+      amountBasis: 'nominal' as const,
+      timeframe: { ...firstIncome.timeframe, start: { ...firstIncome.timeframe.start, everyNYears: 5, recurrenceYears: 20 } },
+    },
+    ...otherIncomes,
+  ];
+
   const doc = {
     ...basicTemplate,
     _id: 'plan-1',
@@ -50,6 +63,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
     userId: 'user-1',
     name: 'My Plan',
     isDefault: true,
+    incomes,
     glidePath: GLIDE_PATH,
     debts: [
       {
@@ -122,6 +136,19 @@ function issuesFor(mutate: (envelope: Record<string, unknown>) => void): ImportI
 }
 
 /**
+ * Parses a mutated export that is expected to IMPORT, and returns the warnings it carries.
+ * A file that is refused fails here, so a warning-class test cannot pass by being blocking.
+ */
+function warningsFor(mutate: (envelope: Record<string, unknown>) => void): ImportIssue[] {
+  const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
+  const mutated = structuredClone(envelope) as unknown as Record<string, unknown>;
+  mutate(mutated);
+  const parsed = parseEnvelope(JSON.stringify(mutated));
+  if (!parsed.ok) throw new Error(`expected the file to import, got: ${JSON.stringify(parsed.issues)}`);
+  return parsed.warnings;
+}
+
+/**
  * Fields P1-P1 added in schema version 2. A version 1 file predates all of them, so the v1
  * fixture is the current export with these keys removed wherever they appear.
  */
@@ -137,6 +164,17 @@ function stripVersion2Fields(value: unknown): void {
   const record = value as Record<string, unknown>;
   for (const field of VERSION_2_FIELDS) delete record[field];
   for (const entry of Object.values(record)) stripVersion2Fields(entry);
+}
+
+/** How many v2-only fields a payload carries, so the strip above can be shown to have work. */
+function countVersion2Fields(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce<number>((total, entry) => total + countVersion2Fields(entry), 0);
+  if (typeof value !== 'object' || value === null) return 0;
+
+  const record = value as Record<string, unknown>;
+  const own = VERSION_2_FIELDS.filter((field) => field in record).length;
+
+  return own + Object.values(record).reduce<number>((total, entry) => total + countVersion2Fields(entry), 0);
 }
 
 describe('the export guard is derived from the plans validator', () => {
@@ -314,8 +352,12 @@ describe('malformed files report the exact field paths', () => {
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
     const v1 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v1.schemaVersion = 1;
-    // A real v1 file predates P1-P1's time binding: no everyNYears/recurrenceYears/amountBasis.
+
+    // The strip is guarded in both directions: the fixture really carries one of each v2
+    // field, and none survives, so "a v1 file still imports" is not vacuously true.
+    expect(countVersion2Fields(v1)).toBe(3);
     stripVersion2Fields(v1);
+    expect(countVersion2Fields(v1)).toBe(0);
 
     const parsed = parseEnvelope(JSON.stringify(v1));
 
@@ -354,20 +396,19 @@ describe('malformed files report the exact field paths', () => {
   });
 });
 
-describe("the app's own rules are enforced after the structural parse", () => {
-  it('reports the failing field inside a union instead of degrading to the parent', () => {
+describe('the semantic layer blocks only what the engine cannot run', () => {
+  it('reports the failing field inside a union, from the branch that matches', () => {
     const issues = issuesFor((envelope) => {
       const plan = envelope.plan as Record<string, unknown>;
       const timeline = plan.timeline as Record<string, unknown>;
       timeline.retirementStrategy = { type: 'fixedAge' };
     });
 
-    // `timeline` is `v.union(timelineValidator, v.null())`, and the retirement strategy is a
-    // second union inside it. The union issue alone names only `plan.timeline`.
-    expect(issues.map((issue) => issue.path)).toContain('plan.timeline.retirementStrategy.retirementAge');
-    expect(issues.map((issue) => issue.path)).not.toContain('plan.timeline');
-    // The `v.null()` member contributes nothing: it only ever says "expected null".
-    expect(issues.some((issue) => /expected null/i.test(issue.message))).toBe(false);
+    // `timeline` is `v.union(timelineValidator, v.null())` and the strategy is a second union
+    // inside it, so the union issue alone would name only `plan.timeline`. The `swrTarget`
+    // member is not the file's shape: it must not tell the operator their `type` is wrong.
+    expect(issues.map((issue) => issue.path)).toEqual(['plan.timeline.retirementStrategy.retirementAge']);
+    expect(issues.map((issue) => issue.message)).toEqual(['Invalid input: expected number, received undefined']);
   });
 
   it('refuses an as-of date the clock would throw on', () => {
@@ -395,44 +436,153 @@ describe("the app's own rules are enforced after the structural parse", () => {
     expect(rolledOver.map((issue) => issue.path)).toContain('plan.simulationSettings.asOfDate');
   });
 
-  it('refuses an out-of-range birth month', () => {
-    const issues = issuesFor((envelope) => {
-      const timeline = (envelope.plan as Record<string, unknown>).timeline as Record<string, unknown>;
-      timeline.birthMonth = 13;
-    });
+  it('refuses a birth month the engine would read as a month index', () => {
+    for (const birthMonth of [13, 0, 1.5]) {
+      const issues = issuesFor((envelope) => {
+        const timeline = (envelope.plan as Record<string, unknown>).timeline as Record<string, unknown>;
+        timeline.birthMonth = birthMonth;
+      });
 
-    expect(issues.map((issue) => issue.path)).toContain('plan.timeline.birthMonth');
+      // `calculatePreciseAge` subtracts birthMonth as a month index, so 13 ages the person
+      // a year younger and every retirement date shifts with it. Corrupt, not cosmetic.
+      expect(
+        issues.map((issue) => issue.path),
+        `birthMonth ${birthMonth}`
+      ).toContain('plan.timeline.birthMonth');
+    }
   });
 
-  it('refuses an empty name', () => {
+  it('refuses a compound debt with no compounding frequency, which makes the engine throw', () => {
     const issues = issuesFor((envelope) => {
+      const debts = (envelope.plan as Record<string, unknown>).debts as Record<string, unknown>[];
+      delete debts[0].compoundingFrequency;
+    });
+
+    expect(issues.map((issue) => issue.path)).toContain('plan.debts[0].compoundingFrequency');
+  });
+
+  it('refuses an investment account with no bond percentage, which would turn balances into NaN', () => {
+    const issues = issuesFor((envelope) => {
+      const accounts = (envelope.plan as Record<string, unknown>).accounts as Record<string, unknown>[];
+      const firstInvestment = accounts.findIndex((account) => account.type !== 'savings');
+      delete accounts[firstInvestment].percentBonds;
+    });
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].path).toMatch(/^plan\.accounts\[\d+\]\.percentBonds$/);
+  });
+
+  it('refuses a life expectancy the run cannot simulate and an inflation rate that divides by zero', () => {
+    const lifeExpectancy = issuesFor((envelope) => {
+      const timeline = (envelope.plan as Record<string, unknown>).timeline as Record<string, unknown>;
+      timeline.lifeExpectancy = 0;
+    });
+    expect(lifeExpectancy.map((issue) => issue.path)).toContain('plan.timeline.lifeExpectancy');
+
+    const inflation = issuesFor((envelope) => {
+      const assumptions = (envelope.plan as Record<string, unknown>).marketAssumptions as Record<string, unknown>;
+      assumptions.inflationRate = -100;
+    });
+    expect(inflation.map((issue) => issue.path)).toContain('plan.marketAssumptions.inflationRate');
+  });
+
+  it('imports a plan an older build saved: no v2 fields, no withholding the form now requires', () => {
+    // The exact P1 repro, as old as such a file can be. `withholding` became a refine for
+    // wage income in d9915666, while Convex still stores it as optional and the engine runs
+    // `?? 0` — so refusing this file would strand the operator's own plan forever.
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
+    const older = structuredClone(envelope) as unknown as Record<string, unknown>;
+    older.schemaVersion = 1;
+    stripVersion2Fields(older);
+    const incomes = (older.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
+    delete (incomes[0].taxes as Record<string, unknown>).withholding;
+
+    const parsed = parseEnvelope(JSON.stringify(older));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.warnings).toContainEqual({ path: 'plan.incomes[0].taxes.withholding', message: 'Withholding required for wage income' });
+
+    // The warning is advisory: the file imports.
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+    expect(imported.plans).toHaveLength(1);
+    expect(imported.finances).toStrictEqual(toFinancesExport(makeFinancesDoc()));
+  });
+
+  it('imports a self-employment income with a warning instead of refusing it', () => {
+    // PLAN-parity R8 keeps the engine path alive and gates only the form, so this must not
+    // be a refusal either.
+    const warnings = warningsFor((envelope) => {
+      const incomes = (envelope.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
+      incomes[0] = { ...incomes[0], taxes: { incomeType: 'selfEmployment' } };
+    });
+
+    expect(warnings).toContainEqual({ path: 'plan.incomes[0].taxes.incomeType', message: 'This income type is not yet supported' });
+  });
+
+  it('warns, without refusing, about policy values the engine copes with', () => {
+    const emptyName = warningsFor((envelope) => {
       const incomes = (envelope.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
       incomes[0] = { ...incomes[0], name: '' };
     });
+    expect(emptyName).toContainEqual({ path: 'plan.incomes[0].name', message: 'Name must be at least 2 characters' });
 
-    expect(issues).toContainEqual({ path: 'plan.incomes[0].name', message: 'Name must be at least 2 characters' });
-  });
-
-  it('refuses seeds and percentages outside the app bounds', () => {
-    const seed = issuesFor((envelope) => {
+    const seed = warningsFor((envelope) => {
       (envelope.plan as Record<string, unknown>).simulationSettings = { simulationMode: 'fixedReturns', simulationSeed: 1e9 };
     });
     expect(seed.map((issue) => issue.path)).toContain('plan.simulationSettings.simulationSeed');
 
-    const yieldOffsets = issuesFor((envelope) => {
+    // A yield above the total return is arithmetically odd, not fatal.
+    const yieldOffset = warningsFor((envelope) => {
       const assumptions = (envelope.plan as Record<string, unknown>).marketAssumptions as Record<string, unknown>;
       assumptions.stockYield = 99;
     });
-    expect(yieldOffsets.map((issue) => issue.path)).toContain('plan.marketAssumptions.stockYield');
+    expect(yieldOffset.map((issue) => issue.path)).toContain('plan.marketAssumptions.stockYield');
+
+    // The asset identity the form enforces is advice, not a precondition: the engine buys
+    // the asset with the loan it is given.
+    const assetIdentity = warningsFor((envelope) => {
+      const assets = (envelope.plan as Record<string, unknown>).physicalAssets as Record<string, unknown>[];
+      assets[0] = { ...assets[0], purchaseDate: { type: 'customAge', age: 50 }, purchasePrice: 900000 };
+    });
+    expect(assetIdentity).toContainEqual({
+      path: 'plan.physicalAssets[0].paymentMethod.loanBalance',
+      message: 'Down payment + loan balance must equal purchase price',
+    });
   });
 
-  it('applies the same rules to the finances in the file', () => {
-    const issues = issuesFor((envelope) => {
+  it('warns about the finances in the file without refusing them', () => {
+    const warnings = warningsFor((envelope) => {
       const financeAssets = (envelope.finances as Record<string, unknown>).assets as Record<string, unknown>[];
       financeAssets[0] = { ...financeAssets[0], name: '' };
     });
 
-    expect(issues).toContainEqual({ path: 'finances.assets[0].name', message: 'Name must be at least 2 characters' });
+    expect(warnings).toContainEqual({ path: 'finances.assets[0].name', message: 'Name must be at least 2 characters' });
+  });
+
+  it('imports a file whose only oddities are warnings, and blocks none of it', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const mutated = structuredClone(envelope) as unknown as Record<string, unknown>;
+    const incomes = (mutated.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
+    delete (incomes[0].taxes as Record<string, unknown>).withholding;
+
+    const parsed = parseEnvelope(JSON.stringify(mutated));
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.warnings.length).toBeGreaterThan(0);
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: false, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
   });
 
   it('reports a bulk plan by its index', () => {
@@ -451,13 +601,14 @@ describe("the app's own rules are enforced after the structural parse", () => {
     expect(parsed.issues.map((issue) => issue.path)).toContain('plans[1].timeline.birthMonth');
   });
 
-  it('still accepts a valid export', () => {
+  it('still accepts a valid export, with nothing to warn about', () => {
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
     const restored = parseEnvelope(serializeEnvelope(envelope));
 
     expect(restored.ok, !restored.ok ? JSON.stringify(restored.issues) : '').toBe(true);
     if (!restored.ok) return;
     expect(restored.envelope).toStrictEqual(envelope);
+    expect(restored.warnings).toEqual([]);
   });
 
   it('still refuses a newer file as an upgrade problem, not as a field error', () => {
