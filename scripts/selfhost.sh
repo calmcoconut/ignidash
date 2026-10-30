@@ -198,6 +198,7 @@ sync_convex_env() {
         "SELF_HOSTED"
         "SITE_URL"
         "BETTER_AUTH_SECRET"
+        "ALLOW_SIGNUP"
         "GOOGLE_CLIENT_ID"
         "GOOGLE_CLIENT_SECRET"
         "OPENAI_API_KEY"
@@ -226,6 +227,16 @@ sync_convex_env() {
             skipped=$((skipped + 1))
         fi
     done
+
+    # Signup is locked unless ALLOW_SIGNUP is exactly "true", and the loop above only sets
+    # non-empty values. An empty value therefore has to *remove* a bootstrap value, otherwise
+    # the instance would stay open after the operator's account exists.
+    if [ -z "${ALLOW_SIGNUP:-}" ]; then
+        npx convex env remove ALLOW_SIGNUP \
+            --url "$CONVEX_SELF_HOSTED_URL" \
+            --admin-key "$CONVEX_SELF_HOSTED_ADMIN_KEY" \
+            > /dev/null 2>&1 || true
+    fi
 
     echo -e "${GREEN}Synced $synced environment variables ($skipped skipped - not set)${NC}"
     echo ""

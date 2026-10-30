@@ -114,13 +114,14 @@ without editing `docker-compose.yml`.
 
 ### Optional
 
-| Variable                                     | Description                                                                                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`   | Google sign-in. `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=true` must be set at **build** time — Next inlines it into the client bundle, so a runtime env var is not enough |
-| `OPENAI_API_KEY`                             | Enables AI chat and insights                                                                                                                                       |
-| `OPENAI_BASE_URL`                            | Any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio)                                                                                                |
-| `OPENAI_ENDPOINT`                            | Azure OpenAI endpoint, used only when `OPENAI_BASE_URL` is unset                                                                                                   |
-| `OPENAI_CHAT_MODEL`, `OPENAI_INSIGHTS_MODEL` | Model or deployment names                                                                                                                                          |
+| Variable                                     | Description                                                                                                                                                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`   | Google sign-in. `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=true` must be set at **build** time — Next inlines it into the client bundle, so a runtime env var is not enough                                      |
+| `OPENAI_API_KEY`                             | Enables AI chat and insights                                                                                                                                                                            |
+| `OPENAI_BASE_URL`                            | Any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio)                                                                                                                                     |
+| `OPENAI_ENDPOINT`                            | Azure OpenAI endpoint, used only when `OPENAI_BASE_URL` is unset                                                                                                                                        |
+| `OPENAI_CHAT_MODEL`, `OPENAI_INSIGHTS_MODEL` | Model or deployment names                                                                                                                                                                               |
+| `ALLOW_SIGNUP`                               | `true` unlocks account creation for bootstrap; anything else (including empty) locks it. Read by the auth server, so it must reach the Convex deployment — `npm run selfhost -- --sync-only` does that. |
 
 AI features stay hidden until `OPENAI_API_KEY` and one of the endpoints is set.
 
@@ -177,6 +178,70 @@ Nginx needs `proxy_set_header Upgrade $http_upgrade` and
 this automatically.
 
 ---
+
+## Account creation and password reset
+
+One operator account, reachable only on the LAN. Signup is **locked by default**:
+`emailAndPassword.disableSignUp` is `true` unless `ALLOW_SIGNUP` is exactly `true`. Better-Auth
+enforces that on the server — `/sign-up/email` is refused with "Email and password sign up is not
+enabled" even if someone posts to it directly — and a user-creation hook stops providers that
+bypass that check (a configured Google sign-in). The app also redirects `/signup` to `/signin` and
+hides the "Create an account" link, so a visitor is never led to a form that will fail.
+
+### Bootstrap (create-then-lock)
+
+1. In `.env.local`, set `ALLOW_SIGNUP=true` and restart the container
+   (`docker compose up -d`).
+2. Open `{SITE_URL}/signup` and create the operator account.
+3. Clear the line (`ALLOW_SIGNUP=`) and apply the lock:
+   `npm run selfhost -- --sync-only`.
+   That removes `ALLOW_SIGNUP` from the Convex deployment, so the lock is real even though the
+   container still runs. (Without the repo checkout: `npx convex env remove ALLOW_SIGNUP --url
+$CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY`.)
+
+Re-open signup the same way only if you genuinely need a second account.
+
+### Break-glass password reset (no mail transport)
+
+There is no email delivery, so the reset link goes to the container log instead:
+
+1. Open `{SITE_URL}/forgot-password` and submit the account's email address.
+2. On the Unraid console, read the link out of the log:
+
+   ```bash
+   docker logs ignidash 2>&1 | grep ignidash-auth
+   ```
+
+   It looks like
+   `[ignidash-auth] password reset for you@example.com: http://192.168.1.100:3030/reset-password?token=… (single use, expires in 15 minutes)`.
+
+3. Open the link within 15 minutes and choose a new password. `/reset-password` completes the
+   reset and signs out every other session.
+
+Properties of the token: random (Better-Auth generates it), stored as a verification record,
+**expires after 15 minutes**, and **single use** — the record is deleted on the first successful
+reset, so a second attempt fails with "Invalid token". Submitting the form for an address that
+does not exist returns the same generic message and writes nothing.
+
+**The reset URL is a credential.** Anyone who can read the container log can take over the
+account until it expires or is used:
+
+- treat the line like a password — do not paste it into chat, tickets or screenshots;
+- use it promptly; if it has been exposed, request a new one and use that (the old one stays valid
+  until it is used or expires, so prefer using the new one);
+- the container logs rotate (`max-size: 10m`, three files), so old lines do not live forever, but
+  rotation is not a security control — the 15-minute TTL and single use are.
+
+Both the route guard and the lock are covered by tests; see `convex/utils/auth_hardening.test.ts`
+and `src/app/(auth)/signup/page.test.ts`.
+
+### LAN only — the standing rule
+
+The instance is meant for the LAN, or for remote access through Tailscale (whose own login gates
+it). **Exposing it beyond that — a public reverse proxy, Tailscale Funnel, port forwarding —
+requires the Better-Auth `twoFactor()` plugin with backup codes first.** That is deliberately not
+built (decision F5/D7): with one account there is no admin role to gate anything, and TOTP adds
+little while the app is not reachable from the internet. Turn it on before you change that.
 
 ## Backups and restore
 
@@ -456,9 +521,9 @@ npm run selfhost -- --sync-only
 
 ## Known limitations
 
-- **No password recovery.** Email delivery is gone, so a forgotten password cannot be
-  reset from the UI. Recovery is operator-assisted: create a new account, or restore
-  a backup with `scripts/restore.sh`. A CLI reset helper is still to be added.
+- **No email delivery.** Password recovery works without one: `/forgot-password` writes the
+  reset link to the container log (see [Account creation and password reset](#account-creation-and-password-reset)).
+  If the container log is gone, restore a backup with `scripts/restore.sh`.
 - **No billing, analytics, or email.** Deliberate — see
   `PLAN-single-container-offline.md`.
 - **Single container means shared fate.** Restarting the container restarts both

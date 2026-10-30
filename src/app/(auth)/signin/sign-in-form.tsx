@@ -14,7 +14,12 @@ import EmailInput from '../components/email-input';
 import PasswordInput from '../components/password-input';
 import GoogleSignIn from '../components/google-sign-in';
 
-export default function SignInForm() {
+interface SignInFormProps {
+  /** Whether account creation is unlocked (runtime ALLOW_SIGNUP, read on the server). */
+  signupAllowed: boolean;
+}
+
+export default function SignInForm({ signupAllowed }: SignInFormProps) {
   const { notificationState, showSuccessNotification, dismiss } = useSuccessNotification();
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -74,6 +79,15 @@ export default function SignInForm() {
                 <EmailInput errorMessage={errorMessage} />
                 <PasswordInput passwordType="current" />
 
+                <p className="text-right text-sm/6">
+                  <Link
+                    href="/forgot-password"
+                    className="font-semibold text-rose-600 hover:text-rose-500 dark:text-rose-400 dark:hover:text-rose-300"
+                  >
+                    Forgot your password?
+                  </Link>
+                </p>
+
                 <div className="flex gap-3">
                   <div className="flex h-6 shrink-0 items-center">
                     <div className="group grid size-4 grid-cols-1">
@@ -124,15 +138,17 @@ export default function SignInForm() {
               {process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === 'true' && <GoogleSignIn safeRedirect={safeRedirect} />}
             </div>
 
-            <p className="mt-10 text-center text-sm/6 text-stone-500 dark:text-stone-400">
-              New to Ignidash?{' '}
-              <Link
-                href={buildRedirectUrl('/signup')}
-                className="font-semibold text-rose-600 hover:text-rose-500 dark:text-rose-400 dark:hover:text-rose-300"
-              >
-                Create an account
-              </Link>
-            </p>
+            {signupAllowed && (
+              <p className="mt-10 text-center text-sm/6 text-stone-500 dark:text-stone-400">
+                New to Ignidash?{' '}
+                <Link
+                  href={buildRedirectUrl('/signup')}
+                  className="font-semibold text-rose-600 hover:text-rose-500 dark:text-rose-400 dark:hover:text-rose-300"
+                >
+                  Create an account
+                </Link>
+              </p>
+            )}
           </div>
         </div>
       </div>

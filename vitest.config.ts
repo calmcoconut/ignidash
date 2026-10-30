@@ -3,10 +3,12 @@ import { resolve } from 'path';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@': resolve(__dirname, './src'),
-      '@/convex': resolve(__dirname, './convex'),
-    },
+    // Order matters: the first matching alias wins, so the more specific `@/convex` has to come
+    // before `@`, or `@/convex/...` is rewritten to `src/convex/...` and never resolves.
+    alias: [
+      { find: '@/convex', replacement: resolve(__dirname, './convex') },
+      { find: '@', replacement: resolve(__dirname, './src') },
+    ],
   },
   test: {
     exclude: ['e2e/**', 'node_modules/**'],

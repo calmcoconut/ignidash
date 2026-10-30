@@ -11,8 +11,11 @@ import { query } from './_generated/server';
 import authSchema from './betterAuth/schema';
 import authConfig from './auth.config';
 import { isAIConfigured } from './utils/ai_utils';
+import { createEmailAndPasswordOptions, createSignUpLockHook, isSignUpAllowed } from './utils/auth_hardening';
 
 const baseURL = process.env.SITE_URL ?? 'http://localhost:3000';
+/** Where `/reset-password` lives: the break-glass link the operator copies out of the logs. */
+const appUrl = process.env.SITE_URL ?? 'http://localhost:3000';
 
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
   local: {
@@ -21,6 +24,9 @@ export const authComponent = createClient<DataModel, typeof authSchema>(componen
 });
 
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
+  const allowSignUp = isSignUpAllowed(process.env);
+  const signUpLockHook = createSignUpLockHook(allowSignUp);
+
   return {
     session: {
       expiresIn: 60 * 60 * 24 * 7,
@@ -34,9 +40,15 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     },
     baseURL,
     database: authComponent.adapter(ctx),
-    emailAndPassword: {
-      enabled: true,
-    },
+    // Account creation is locked unless ALLOW_SIGNUP=true (P5.3). The hook is the backstop for
+    // providers that bypass `disableSignUp`, such as a configured Google sign-in.
+    databaseHooks: signUpLockHook ? { user: { create: { before: signUpLockHook } } } : undefined,
+    emailAndPassword: createEmailAndPasswordOptions({
+      allowSignUp,
+      appUrl,
+      // The container's stderr. On Unraid: `docker logs ignidash | grep ignidash-auth`.
+      write: (line) => console.error(line),
+    }),
     socialProviders: {
       ...(process.env.GOOGLE_CLIENT_ID &&
         process.env.GOOGLE_CLIENT_SECRET && {
