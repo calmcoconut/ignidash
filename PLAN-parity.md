@@ -1,9 +1,9 @@
 # Parity plan: Ignidash → ProjectionLab
 
-**Date:** 2026-10-30 (revision 3)
-**Operating context (decided in revision 3):** one person, a California resident, self-hosting on Unraid
-(the single container from `PLAN-single-container-offline.md`) and reaching it over the LAN. Every scope
-call below follows from that context.
+**Date:** 2026-10-30 (revision 4)
+**Operating context:** a California resident, single or married, self-hosting on Unraid (the single
+container from `PLAN-single-container-offline.md`) and reaching it over the LAN. There is one operator
+account; a married couple plans together inside it. Every scope call below follows from that context.
 **Input:** `PARITY-assessment.md` (four read-only codebase scouts).
 **Method:** five independent planners, one per section, each barred from proposing work in the other four
 and required to declare cross-section dependencies rather than assume them. This document merges their
@@ -40,9 +40,9 @@ table.
 
 | #   | Decision                                                                                                                                                                                                                                                                                                                                                       | Effect on the plan                                                                                                       |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| D1  | **No couples, and no MFS.** One person has no use for a partner or ownership fields, and MFS needs a spouse.                                                                                                                                                                                                                                                   | Drops §1-P2 and §1-P3 and the MFS half of §3-P1 (XL becomes L). The couples backfill is gone, leaving one irreversible step (the auth change). Ruling 2 and contract 3.3's MFS example no longer apply. |
+| D1  | _Superseded by E1._ **No couples, and no MFS.** One person has no use for a partner or ownership fields, and MFS needs a spouse.                                                                                                                                                                                                                                                   | Drops §1-P2 and §1-P3 and the MFS half of §3-P1 (XL becomes L). The couples backfill is gone, leaving one irreversible step (the auth change). Ruling 2 and contract 3.3's MFS example no longer apply. |
 | D2  | **State tax means California, and only California, moved up to Wave 3.** A flat-tax pilot proves nothing for you. California has the highest top rate in the country and taxes capital gains as ordinary income, so it is the largest accuracy gap left for this user. | §3-P8 becomes "California" and moves from Wave 5 to Wave 3. It brings in the California conformity differences (listed in §3-P8). |
-| D3  | **No optimizer, ever.** The analytics in §3-P6 (bracket fill, conversion headroom) answer the questions a single planner actually asks.                                                                                                                                                                                                                        | §2-P8 moves to "never".                                                                                                  |
+| D3  | _Superseded by E2._ **No optimizer, ever.** The analytics in §3-P6 (bracket fill, conversion headroom) answer the questions a single planner actually asks.                                                                                                                                                                                                                        | §2-P8 moves to "never".                                                                                                  |
 | D4  | **The scope is the Wave 0–2 tranche,** with a go/no-go at the end of each wave.                                                                                                                                                                                                                                                                                 | Unchanged from revision 2.                                                                                               |
 | D5  | **Compare goes first in Wave 3, and Sankey starts in Wave 1.** Sankey has no dependencies; compare needs the summary Monte Carlo path from Wave 2.                                                                                                                                                                                                                 | P4-P4 moves into Wave 1.                                                                                                 |
 | D6  | **Unraid operations.** Unraid has no systemd, so scheduling runs through the User Scripts plugin's cron. Encryption at rest comes from Unraid's LUKS-encrypted array or pool. The compose healthcheck already probes both processes, and `restart: unless-stopped` is already set.                                                                              | §5-P5.4 shrinks to what is missing. §5-P5.5 names the Unraid mechanism.                                                  |
@@ -50,12 +50,21 @@ table.
 | D8  | **Product surface trimmed for one person.** The operator is the only user, so personas and an onboarding wizard serve nobody. California has no estate tax, and a federal estate tax applies only to estates above the exemption (about $15M in 2026).                                                                                                          | Drops §4-P8 and the estate half of §3-P7b.                                                                               |
 | D9  | **California real estate:** property tax follows Prop 13's assessed value (purchase price, then growth capped at 2% a year), not market value.                                                                                                                                                                                                                 | Added to §1-P5.                                                                                                          |
 
+### Revision 4 — couples kept; optimization moves to the AI agent
+
+| #   | Decision | Effect on the plan |
+| --- | -------- | ------------------ |
+| E1  | **Married couples stay in scope, including MFS.** The couples work comes back and MFS ships with it, with real two-person semantics instead of the "single-person approximation" from revision 2. | §1-P2 and §1-P3 are restored in Wave 3. New §3-P1b adds the MFS tables and the §86 flag. There are two irreversible steps again: the couples backfill and the auth change. |
+| E2  | **California is a community-property state, and the couples model must say so.** `owner: 'joint'` means community property. On separate returns, community income splits 50/50 (Form 8958). Community property gets a full basis step-up at the first death. The survivor's filing status changes after a death, which creates the "widow's penalty". | Added to §1-P2, §1-P3, §3-P1b, §3-P8 and §1-P8 (spousal and survivor benefits). |
+| E3  | **No optimizer in the engine. Tax optimization is an AI skill**: a checked-in prompt plus tools the agent calls. The engine supplies verified numbers, and the agent searches and explains. | New §7. §2-P8 now points there. The skill's tools (pure `simulate()`, the compare delta extractor, tax analytics) become hard dependencies with the agent as their consumer. |
+| E4  | **The current chat cannot run the skill.** `convex/use_openai.ts` streams plain chat completions with no tools, and the engine lives in `src/lib/calc`, which nothing in `convex/` imports. The system prompt also forbids recommending actions (`sys_prompt_utils.ts:99`). | §7 adds tool calling, makes `simulate()` importable from a Convex Node action, and asks for an explicit decision on the prompt's stance. |
+
 ---
 
 ## 0. Scope reality check
 
-Be honest about what is being proposed. After the revision 3 cuts, the five sections hold about **10 L/XL
-items plus ~30 S/M items**. For one maintainer that is a multi-quarter program, before the yearly tax upkeep the
+Be honest about what is being proposed. After revisions 3 and 4, the sections hold about **13 L/XL
+items plus ~32 S/M items**. For one maintainer that is a multi-quarter program, before the yearly tax upkeep the
 assessment already flagged. That is not a criticism of the plans. It is what ProjectionLab took years and a
 team to build.
 
@@ -72,7 +81,8 @@ return the most value per unit of work:
 **Compare is not in the tranche.** It is size L and opens Wave 3. Because purity no longer waits on the tax
 harness (R3), it can start as soon as Wave 2 closes.
 
-**Couples is out of scope entirely** (D1).
+**Couples is in scope (E1) but not in the tranche.** It opens Wave 3, after the export format and backup
+gate are proven.
 
 Commit to Wave 3 and beyond one wave at a time, with the option to stop after each.
 
@@ -81,7 +91,7 @@ Commit to Wave 3 and beyond one wave at a time, with the option to stop after ea
 | #   | Conflict                                                                                                                  | Ruling                                                                                                                                                                                                                                                       |
 | --- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | **Golden baseline timing.** §2 wants a regression corpus early, but §3's year dimension changes every number.             | Freeze the corpus **once** (P2-P1b), after P2-P0, P3-P1, P2-P1a and P2-P2. California (§3-P8) moves the corpus again, deliberately, and must come with an explained diff (contract 3.5). Never baseline per branch. §1-P4 keeps `ordered` as the default strategy precisely so the numbers do not move again.                                                               |
-| 2   | **MFS before couples?** §3 ships MFS as a "labelled single-person approximation", while §1 owns household structure.      | **Moot (D1).** Neither MFS nor couples is built.                                                                                                                                                                                                              |
+| 2   | **MFS before couples?** §3 ships MFS as a "labelled single-person approximation", while §1 owns household structure.      | **Revised (E1): MFS ships with couples**, as §3-P1b alongside §1-P3. With a real partner in the model there is no reason to ship an approximation first.                                                                                                       |
 | 3   | **Who owns FICA?** §3 moves it into the tax engine; §1 adds the `selfEmployment` income path.                             | **§1-P0 enables `pension` only. §3-P4 enables `selfEmployment` together with SE tax.** No income type may ship before the tax that applies to it (R8).                                                                                                       |
 | 4   | **Does Sankey need an engine change?** The assessment implied it does; §4 shows v1 needs none.                            | **§4 is right.** Recharts 3 ships `Sankey`, and an annual ledger can be derived from `SimulationDataPoint`. Only per-month, per-account routing would need a `FlowLedger` from §2, and v1 does not need that.                                                      |
 | 5   | **`schemaVersion` ownership.** §5 owns the envelope; §1 and §3 both add plan fields.                                      | The envelope (**§5-P1**) is the first item in Wave 1 and lands before any field addition (R6). See contract 3.3 for the bump rule.                                                                                                                             |
@@ -133,10 +143,13 @@ Order: **P5-P1 first.** After it, the rest can run in parallel.
 
 ### Wave 3 — Compare, California, tax depth
 
-Order: **P2-P5 first**, as the first visible win after the tranche (D5). **P3-P3 before P3-P8**, because
-California's itemized deduction builds on the federal itemized inputs.
+Order: **P2-P5 first**, as the first visible win after the tranche (D5). **P1-P2 before P3-P8**, so the
+California ruleset is built against real per-spouse and community-property data. **P3-P3 before P3-P8**,
+because California's itemized deduction builds on the federal itemized inputs. The AI skill v1 (§7-A1/A2)
+can start once P2-P5 lands.
 
-P2-P5 compare mode · P3-P4 FICA/SE + CA SDI (also removes the `selfEmployment` gate) · P3-P3 itemized +
+P2-P5 compare mode · **P1-P2 couples schema** (L, first irreversible migration; needs P5.0 + P5-P1) →
+**P1-P3 household behaviour + P3-P1b MFS** · P3-P4 FICA/SE + CA SDI (also removes the `selfEmployment` gate) · P3-P3 itemized +
 SALT cap · **P3-P8 California** · P4-P3 event annotations · P4-P5 print/PDF · P5-P3 auth hardening (S).
 
 ### Wave 4 — Decumulation and retirement rules
@@ -145,7 +158,7 @@ Order: **P1-P4 before P3-P5.** P3-P5 needs injectable withdrawal order.
 
 P1-P4 withdrawal strategies · P3-P5 retirement-account rules (XL: pro-rata, conversions, SEPP, ladders,
 5-year, QCDs, HSA with California non-conformity) · P1-P5 real estate I (amortization, rental, Prop 13) ·
-P3-P6 tax analytics · P1-P8 Social Security.
+P3-P6 tax analytics · P1-P8 Social Security · **§7-A3 AI skill v2** (after P3-P5 and P3-P6).
 
 ### Wave 5 — Long tail
 
@@ -158,12 +171,10 @@ planner's actual net worth over time is more useful than internal consistency.
 
 ### Deliberately last or never
 
-- **Optimizer** (§2-P8): never (D3).
-- **Couples, household and MFS** (§1-P2, §1-P3, the MFS half of §3-P1): never for a one-person instance (D1).
-  If that changes, revision 2's couples plan is in git history.
+- **An optimizer inside the engine** (§2-P8): never. Optimization is the AI skill's job (§7).
 - **Onboarding wizard and personas** (§4-P8): the operator is the only user (D8).
-- **Estate reporting** (half of §3-P7b): California has no estate tax and the federal exemption is far above
-  a typical single-planner estate (D8).
+- **Estate tax reporting** (half of §3-P7b): California has no estate tax and the federal exemption is far
+  above a typical estate (D8). The community-property step-up at the first death is kept, in §1-P3 (E2).
 - **States other than California**: no multi-state support and no part-year residency.
 - **PWA / service worker**: not possible on the plain-HTTP LAN deployment. On Unraid, the cheapest way to
   get TLS is `tailscale serve` (Tailscale plugin) or an existing SWAG/Nginx Proxy Manager container, either
@@ -189,10 +200,11 @@ planner's actual net worth over time is more useful than internal consistency.
 1. **Green bar:** `npm run typecheck`, `npm run lint` and `npm run test:once` all pass before merge. That is
    roughly 1,240 tests today, including `convex/*.test.ts`; re-count at each wave boundary. New math ships
    with new tests, and **no failing test is ever deleted to make a phase pass**.
-2. **Irreversible steps** (now only the auth component change, after D1) require P5.0's export first. Each migration must be additive, idempotent and appended to
+2. **Irreversible steps** (the couples backfill and the auth component change, which are the only two)
+   require P5.0's export first. Each migration must be additive, idempotent and appended to
    `convex/migrations.ts`.
 3. **One phase per change set.** P2-P0, P5-P0 and P5.0 land alone so their effects can be attributed.
-4. **Schema changes are additive only**, and readers apply defaults (`stateResidency ?? 'CA'`,
+4. **Schema changes are additive only**, and readers apply defaults (`owner ?? 'primary'`, `stateResidency ?? 'CA'`,
    `taxYear ?? 2026`) so old exports keep importing.
 5. **No runtime network for engine inputs.** Tax tables and historical data are vendored and committed.
    Generation is a developer-side script whose output is reviewed as a data diff. (AI chat/insights stays
@@ -227,7 +239,8 @@ them twice.
 
 **Target state**
 
-- One person (D1). No ownership fields.
+- A household of one or two members. Every plan entity carries `owner` (`primary|partner|joint`), and in
+  California `joint` means community property (E2). The engine aggregates totals and reports them per member.
 - Every dated event resolves through one time-binding resolver that supports `everyNYears` and
   `amountBasis: real|nominal`. User milestones are AND/OR expressions over simulation metrics, can drive
   event dates, and are validated to be acyclic.
@@ -239,15 +252,17 @@ them twice.
 | --- | ---- | ----- | ------ | ------ |
 | 0   | **Bug floor.** Narrow the `.refine` at `income-form-schema.ts:46-54` so only `selfEmployment` is rejected. `selfEmployment` stays gated until §3-P4 (R8). Add a pension path in `incomes.ts` (ordinary income, no FICA). Make `payoff-estimator-utils.ts` use the real rate `(1+apr/12)/(1+infl)-1` and mirror the unpaid-interest allocation in `physical-assets.ts`. Pass inflation into `debt-dialog.tsx`, `physical-asset-dialog.tsx` and `net-worth-section.tsx`. | income schema, `incomes.ts`, dialogs, utils | S | enum tests; payoff months equal the engine's payoff in a loan fixture; suite green |
 | 1   | **Shared time binding, recurrence, real/nominal.** New `src/lib/calc/time-binding.ts` replaces the duplicated resolvers in `incomes.ts`, `expenses.ts`, `debts.ts`, `physical-assets.ts` and the glide-path copy. Add `everyNYears` + `recurrenceYears` and `amountBasis`. Owns `cumulativeInflationIndex()` (contract 3.1). Nominal amounts scale by that index. Bumps `schemaVersion` (contract 3.3). | 5 validators, `data-transformers.ts`, entity dialogs | M | table tests per TimePoint; N-year boundaries (0/N/2N); defaults keep the existing suite green |
-| 2   | ~~Couples schema foundation~~ — **dropped (D1).** | — | — | — |
-| 3   | ~~Household behaviour~~ — **dropped (D1).** | — | — | — |
+| 2   | **Couples schema foundation**. Optional `owner` on the account, income, expense, debt and physical-asset schemas, validators and Convex fields, defaulting to `primary`. `household` in `timeline-form-schema.ts` + `planDataFields`. Append an idempotent `backfillOwnerAndHousehold` migration. Update transformers, `clonePlan`, `plan_export_utils`, templates, six dialogs and test utils. `joint` carries a `propertyRegime: 'community' \| 'jointTenancy'` (default community for CA). Bumps `schemaVersion`. | schema + convex + UI | L | old JSON imports as `primary`; clone/export round-trip keeps household; per-owner totals; migration tested on a restored copy of the volume |
+| 3   | **Household behaviour.** Per-owner RMD age; horizon = longest life expectancy; retirement phase starts when the last earner retires; default filing status derived from household (MFJ exists, MFS from §3-P1b). **Survivor modelling (E2):** after the first death, the survivor's filing status moves to single (or qualifying surviving spouse while eligible), the income streams of the person who died stop, and community property gets a full basis step-up while the deceased's half of separate property steps up. | `simulation-engine.ts`, `phase.ts`, `portfolio.ts` | L | two-person staggered-retirement fixture |
 | 4   | **Withdrawal strategies.** `src/lib/calc/withdrawal-strategies/` exposing `{ getOrder(ctx), getAnnualCap?(ctx) }`: ordered (current), VPW, X%-rule, Guyton-Klinger. Injected via `PortfolioProcessor`. `withdrawalStrategy` in settings; `essential` flag on expenses; expose `unfundedSpending`. | new module + settings + dialog | M | per-strategy goldens; the cap never exceeds the portfolio; **default `ordered` output byte-identical to the frozen corpus** |
 | 5   | **Real estate I.** `paymentMethod.termMonths` with a computed payment; new `amortization-schedule.ts`; `rentalIncome` flows into cash flow and taxable income (§3). **Prop 13 property tax (D9):** an optional `propertyTax: { rate, assessedValue, assessedGrowthCap: 0.02 }` charged on the assessed value, not the market value. The default rate is about 1.1% (1% base plus typical local add-ons, editable). | schema, validator, `physical-assets.ts`, dialog | M | schedule reconciles to the engine's payoff within $1; rental cash flow; assessed value grows at min(appreciation, 2%) and resets on purchase |
 | 6   | **Real estate II.** `offsetAccountId` on loans reduces the interest base, validated one-to-one against savings/taxable accounts. Rent-vs-own as `housing-comparison.ts`: two deterministic runs, with and without the residence plus a rent expense, reporting the break-even. | schema + new module | L | offset interest math; comparison does not depend on input order |
 | 7   | **Milestones.** `milestones` in `SimulatorInputs`; an expression tree `{ op: 'and' \| 'or', children \| { metric, operator, value } }` over age, year, portfolio, account, income, expense and net worth. `timePointSchema` gains `milestone`. `dependency-graph.ts` rejects cycles via a plan-level `superRefine`. The latch is evaluated at month start, and the extractor emits dates for §4's markers. | schema + evaluator + UI | L | truth tables; cycle rejection; fires once; no wall-clock reads |
-| 8   | **Social Security.** Vendored `social-security-bend-points.ts` and `fra-table.ts`. `social-security.ts` computes PIA from AIME and applies the FRA reduction/credit and COLA-as-real-growth. The income schema gains `socialSecurity: { mode: 'manual' \| 'estimated', aime?, pia?, claimAge, colaRate? }`. | data + module + schema | M | hand calculations at 62/67/70 and at the bend points; COLA parity when COLA equals inflation |
+| 8   | **Social Security.** Vendored `social-security-bend-points.ts` and `fra-table.ts`. `social-security.ts` computes PIA from AIME and applies the FRA reduction/credit and COLA-as-real-growth, plus **spousal (up to 50% of the other spouse's PIA) and survivor benefits** (E2). The income schema gains `socialSecurity: { mode: 'manual' \| 'estimated', aime?, pia?, claimAge, colaRate? }`. | data + module + schema | M | hand calculations at 62/67/70 and at the bend points; COLA parity when COLA equals inflation |
 
-**Risks.** Old writers (`simulatorToConvex`, `clonePlan`, `plan_export_utils`, templates) rebuild plan
+**Risks.** The couples backfill is one of the program's two irreversible steps: export first, migrate
+additively, and read with `owner ?? 'primary'`. Milestone `atRetirement` is ambiguous for couples: define it
+as the last earner's retirement and document that. Old writers (`simulatorToConvex`, `clonePlan`, `plan_export_utils`, templates) rebuild plan
 docs and silently drop new fields; P5-P0's `glidePath` bug is a live example. Every field addition ships
 with all writers updated in the same release. Strategies can move
 headline results, so keep `ordered` as the default and lock the goldens. 
@@ -273,7 +288,7 @@ reuse the same pure core. The optimizer is deferred.
 | P5  | **Compare mode.** Both plans run through `simulate` and the MC summary path with identical seeds. A delta extractor covers key metrics, yearly portfolio and tax totals. Replace the placeholder route with a plan picker, a side-by-side view and a delta table/overlay. Includes the nav entry (contract 3.4). | L | identical plans give all-zero deltas; sign tests; identical across clock overrides |
 | P6  | **Benchmark harness.** `npm run bench` measures serial vs pool throughput, trials/sec, merge overhead and retained heap, and writes a JSON report. | S | reproducible within ±5%; the speedup is measured, not inferred |
 | P7  | **Sensitivity.** One-at-a-time sweeps (returns ±, inflation, retirement age, spending) over deterministic runs; tornado data. | M | sweeps are deterministic; monotonicity cases; runtime budget |
-| P8  | **Optimizer: deferred entirely.** No search, no Roth solver. Prerequisites are P1a, P6 and §1-P4's injectable withdrawal order. | — | — |
+| P8  | **No optimizer in the engine (E3).** The AI skill in §7 does the search and calls `simulate()` as a tool. The engine's job is to stay pure, fast (P6) and deterministic, so that every agent-proposed variant can be checked. | — | — |
 
 **Dependencies.** §1 for stable input shapes and injectable withdrawal order (P8 only). §3-P1 before P1b.
 §4 to render the histogram, tornado, compare view and wrap disclosure. §5 for route wiring, plan-JSON
@@ -286,7 +301,7 @@ the release notes must say so. Summary-only MC removes per-trial drill-down exce
 `looping`.
 
 **Not doing.** Multi-dimensional/global sensitivity; block bootstrap; monthly output retention; a timestep
-change; nominal/real leaks and HSA/RMD bugs (handed to §1/§3); state tax; couples; GPU workers; persisted
+change; nominal/real leaks and HSA/RMD bugs (handed to §1/§3); state tax; couples (§1); GPU workers; persisted
 result caching; any optimizer implementation.
 
 ---
@@ -299,8 +314,9 @@ result caching; any optimizer implementation.
    (`tax-data/years/<year>.ts`), resolved by falling back to the nearest prior year. Each table carries
    `indexing: 'indexed' | 'fixed'` plus a source citation, so indexed and statutory tables can never be
    confused again.
-2. `FilingStatus` stays `single | marriedFilingJointly | headOfHousehold` (`tax-settings-form-schema.ts:3`);
-   MFS is dropped (D1). The `taxablePercentage` field in the dataset, which is never read today, replaces
+2. `FilingStatus` gains `marriedFilingSeparately` (today: `single | marriedFilingJointly | headOfHousehold`,
+   `tax-settings-form-schema.ts:3`). It ships with couples (E1), and §86's 85%-from-dollar-one rule becomes a
+   ruleset flag. The `taxablePercentage` field in the dataset, which is never read today, replaces
    the hardcoded 0.5/0.85.
 3. One `TaxProcessor` emits one reconciled liability object (federal, FICA, state, credits, penalties,
    IRMAA) and one marginal-rate API used by analytics and charts. `incomes.ts` no longer owns FICA math.
@@ -308,15 +324,16 @@ result caching; any optimizer implementation.
 
 | #   | Work | Effort | Unblocks |
 | --- | ---- | ------ | -------- |
-| 1   | **Ruleset harness.** `tax-data/types.ts` (`TaxRuleset`, `TableMeta`), `tax-data/index.ts` (`getRules(year)`), and `years/2026.ts` consolidating the six existing tables. Pass `simulationState.time.date.getUTCFullYear()` into `TaxProcessor`. Wire up `taxablePercentage`. Keep the legacy named exports as thin 2026 aliases. Design `TaxRuleset` so a `jurisdiction: 'federal' \| 'CA'` ruleset fits without rework. MFS is not built (D1). | **L** | Every later phase; accurate indexing |
+| 1   | **Ruleset harness.** `tax-data/types.ts` (`TaxRuleset`, `TableMeta`), `tax-data/index.ts` (`getRules(year)`), and `years/2026.ts` consolidating the six existing tables. Pass `simulationState.time.date.getUTCFullYear()` into `TaxProcessor`. Wire up `taxablePercentage`. Keep the legacy named exports as thin 2026 aliases. Design `TaxRuleset` so a `jurisdiction: 'federal' \| 'CA'` ruleset fits without rework. MFS lands in phase 1b. | **L** | Every later phase; accurate indexing |
+| 1b  | **MFS (E1).** Add MFS to Zod, the Convex validator, transformers, the sys-prompt and the drawer. Add the federal and CA MFS tables and the §86 flag. In a community-property state, community income and withholding split 50/50 between the two returns (Form 8958), and separate income stays with its owner. Lands with §1-P3. Bumps `schemaVersion`. | M | MFS-vs-MFJ comparison (a natural AI-skill lever, §7); student-loan and liability-separation scenarios |
 | 2   | **Annual-update pipeline.** `scripts/vendor-tax-rules.ts` reads a pinned PolicyEngine parameter commit (hash in the header) and emits `years/<year>.ts` plus `states/CA/<year>.ts` (PolicyEngine-US models California). `tax-data/SOURCE.md` records provenance. CI regenerates the files and fails on drift. Add `docs/tax-year-update.md` and a "January drill" test. Developer-side only; the generated TS is committed and reviewed as a data diff. | M | Cheap annual maintenance; legislative toggles |
 | 3   | **Itemized deductions + SALT cap.** Itemized inputs (mortgage interest, charitable, state/local, medical); a per-year SALT cap with the indexed flag. Current law sets the cap at $40k for 2025, rising 1% a year through 2029, phased down above $500k MAGI, and back to $10k in 2030; verify against the vendored source. The senior deduction; standard-vs-itemized selection. For a California resident the SALT cap is the deciding input, since state income tax plus property tax usually exceeds $10k. | L | California's SALT input; AMT addback |
 | 4   | **FICA/SE tax in the engine.** Move FICA out of `incomes.ts:217`. Indexed SS wage base, Additional Medicare 0.9%, SE tax (92.35% base, half deduction). **California SDI** as a payroll line: an employee rate with no wage cap since 2024 (1.3% in 2026; verify against EDD), not charged on SE income. **Remove the `selfEmployment` gate here** (R8). Add `TaxesData.fica` and `totalTaxLiability`. Switch `simulation-data-extractor.ts:315-328` to read `TaxesData.fica` _instead of_ `incomes.totalFicaTax`, never both (R10). | M | Honest total liability; SE income |
 | 5   | **Retirement-account rules.** Pro-rata §408(d)(2) basis (Form 8606); conversion events/schedule; SEPP/72(t); Roth ladder; 5-year clocks; QCDs. Qualified HSA: `taxes.ts:282-286` taxes every HSA withdrawal as ordinary income. Add a `qualifiedMedical` flag on expenses and treat HSA withdrawals up to that amount as tax-free (R13). **California does not recognise HSAs.** Contributions are not deductible on the CA return, and earnings are taxable to California every year, so the HSA needs a CA basis and a yearly CA tax line on its returns. The CA early-distribution penalty is 2.5% on top of the federal 10%. New `retirement-rules.ts`. Needs §1-P4 merged first. | **XL** | Optimizer; conversion analytics; correct HSA |
-| 6   | **Tax analytics.** Marginal rate by income type, next-dollar decomposition, bracket fill, conversion headroom, IRMAA/ACA cliffs. | M | §4 views; conversion UI |
+| 6   | **Tax analytics.** Marginal rate by income type, next-dollar decomposition, bracket fill, conversion headroom, IRMAA/ACA cliffs, federal and CA combined. Exposed as a pure function, because it is also an AI-skill tool (§7). | M | §4 views; conversion UI; AI skill |
 | 7a  | **AMT + IRMAA.** Exemption/phase-out, 26/28% rates, itemized addback, simplified credit. IRMAA as a liability line using the two-year MAGI lookback. | L | High-income realism |
 | 7b  | **ACA PTC.** Federal PTC only (FPL %, applicable percentage, SLCSP input), opt-in. Covered California's state subsidies are out of scope; the UI says so. Estate dropped (D8). | S | Pre-65 planning for an early retiree |
-| 8   | **California (D2).** `tax-data/states/CA/<year>.ts` with the same `TaxRuleset` shape. The CA rules that differ from federal and must be encoded as ruleset flags, not `if`s: progressive brackets 1%–12.3% indexed every year, plus the 1% Mental Health Services Tax above $1M; **capital gains and qualified dividends taxed as ordinary income**; **Social Security fully excluded**; the CA standard deduction and personal exemption credit (small, separate from federal); CA itemized deductions (no deduction for state income tax; property tax deductible without a cap; a CA high-income phase-out); HSA non-conformity and the 2.5% early-distribution penalty (both consumed by phase 5). CA tax feeds the federal SALT line. A CA residency flag in `taxSettings`, defaulting on for this instance; no other state, no part-year residency. | L | Credible total tax burden; correct SALT; honest Roth-conversion and capital-gains comparisons |
+| 8   | **California (D2).** `tax-data/states/CA/<year>.ts` with the same `TaxRuleset` shape. The CA rules that differ from federal and must be encoded as ruleset flags, not `if`s: progressive brackets 1%–12.3% indexed every year, plus the 1% Mental Health Services Tax above $1M; **capital gains and qualified dividends taxed as ordinary income**; **Social Security fully excluded**; the CA standard deduction and personal exemption credit (small, separate from federal); CA itemized deductions (no deduction for state income tax; property tax deductible without a cap; a CA high-income phase-out); HSA non-conformity and the 2.5% early-distribution penalty (both consumed by phase 5). CA tax feeds the federal SALT line. Every filing status (CA generally requires the same status as the federal return). Community-property income allocation is shared with phase 1b. A CA residency flag in `taxSettings`, defaulting on for this instance; no other state, no part-year residency. | L | Credible total tax burden; correct SALT; honest Roth-conversion and capital-gains comparisons |
 
 **Dependencies.** Phase 1 gates everything. Phase 3 before phase 8. §1-P4 injectable order and §2 purity
 before phase 5.
@@ -428,11 +445,45 @@ the revision 3 table at the top.
 
 | Question                         | Decision                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Couples in scope?                | **No.** MFS goes too (D1).                                                                        |
+| Couples in scope?                | **Yes, with MFS and community property**, in Wave 3 (E1, E2).                                     |
 | State tax?                       | **California only**, in Wave 3 (D2).                                                              |
-| Optimizer?                       | **Never** (D3).                                                                                   |
+| Optimizer?                       | **Not in the engine. An AI skill with engine tools** (E3, §7).                                    |
 | Full parity or the tranche?      | **Waves 0–2**, with a go/no-go after each wave (D4).                                              |
 | Compare and Sankey timing?       | **Sankey in Wave 1; compare opens Wave 3** (D5).                                                  |
 
-**If the context changes:** a second person makes couples worth revisiting (the revision 2 plan is in
-git), and exposing the app outside the LAN brings TOTP back into P5.3.
+**If the context changes:** exposing the app outside the LAN brings TOTP back into P5.3.
+
+**Still open:** the AI prompt's stance (§7, decision S1).
+
+---
+
+## 7. AI tax-optimization skill (E3)
+
+**Target state.** The agent gets a checked-in skill: a prompt that defines the method, plus a small set of
+tools backed by the pure engine. It proposes variants of the plan (Roth conversion amounts, contribution
+mix, withdrawal order, MFJ vs MFS, retirement or claiming age) and runs each one through the engine. It
+reports only numbers a tool returned, as deltas against the baseline. The engine stays the single source of
+truth; the agent only searches and explains.
+
+| #   | Work | Effort | Depends | Verify |
+| --- | ---- | ------ | ------- | ------ |
+| A1  | **Engine reachable from the agent.** Make `simulate()` (P2-P1a) importable from a Convex Node action (relative import from `convex/`, no browser or worker APIs; confirm the Convex bundler accepts it). Add tool calling to `convex/use_openai.ts`: today it streams plain `chat.completions` with no `tools`. Add a tool loop with a per-turn call budget, streaming the final answer as now. | M | P2-P1a | a tool call round-trips in a Convex test; the call budget is enforced; a fixed seed gives the same tool result as the browser |
+| A2  | **Skill v1: prompt + core tools.** `convex/prompts/tax-optimization.md`, versioned, loaded by `sys_prompt_utils.ts` when the user starts a tax-optimization chat. Tools: `simulateVariant(planPatch)` → key metrics, lifetime federal + CA tax and per-year tax lines; `compareToBaseline(variantId)` → the P2-P5 delta extractor's output; `getPlanSummary()`. `planPatch` is validated against `simulatorSchema` and never written to the plan; the user applies a variant explicitly, through the normal mutations. The prompt's rules: every figure must come from a tool result, deterministic mode and a fixed seed for comparisons, at most N variants per turn, always state assumptions and what the engine does not model. | M | A1, P2-P5 | eval set of hand-checked plans: the agent never cites a number absent from its tool results; patches that fail validation are refused, not guessed; nothing is written without an explicit apply |
+| A3  | **Skill v2: retirement-account levers.** Tools: `getTaxAnalytics(year)` (P3-P6: marginal rates, bracket headroom, IRMAA/ACA cliffs) and conversion schedules as patches (P3-P5). The prompt gains a method for conversion ladders (fill to a bracket, check IRMAA two years ahead, check the CA rate), withdrawal-order variants (P1-P4) and MFJ-vs-MFS (P3-P1b). | M | A2, P3-P5, P3-P6, P1-P4 | conversion-ladder evals whose best variant matches a hand-worked case; the agent flags IRMAA and ACA cliffs that the analytics report |
+
+**Decision S1 (yours): the prompt's stance.** The current system prompt says the assistant "describes how
+things work and what effects changes would have—you don't recommend actions" (`sys_prompt_utils.ts:99`).
+An optimization skill naturally ranks options. Two consistent choices: **(a) keep the stance** — the skill
+presents engine-computed variants ranked by a metric the user picks, and the user chooses; or **(b) relax
+it for this private instance** — the skill may say which variant it would pick and why. I recommend (a). It
+reads the same to you, keeps the prompt's existing guarantees, and makes the skill's output an engine result
+rather than an opinion.
+
+**Risks.** The agent proposing changes the engine cannot model (state moves, trusts): the prompt lists the
+model's boundaries, and an unknown lever is reported, not approximated. Tool loops can run long: budget the
+calls per turn and Monte Carlo trials per call (summary retention, P2-P3). Plan data plus many simulation
+results go to the AI provider, as chat already does; point `OPENAI_BASE_URL` at a local model
+(`PLAN-single-container-offline.md` B8) to keep them on the Unraid box.
+
+**Not doing.** Autonomous plan edits; a solver inside the engine; skill evals that call the live provider in
+CI (evals run on demand, with recorded fixtures in CI).
