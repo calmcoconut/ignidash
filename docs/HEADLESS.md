@@ -110,7 +110,7 @@ collections are objects keyed by entity id:
 }
 ```
 
-This is **not** the export envelope (`{ "schemaVersion": 2, "kind": …, "exportedAt": …,
+This is **not** the export envelope (`{ "schemaVersion": 4, "kind": …, "exportedAt": …,
 "plan": …, "finances": … }`). The envelope's `plan` is the stored document shape (entities as
 arrays), while the engine reads the id-keyed form shape; pointing this command at an envelope is
 rejected with a message that says so. Restoring an envelope is a Settings job
@@ -118,7 +118,7 @@ rejected with a message that says so. Restoring an envelope is a Settings job
 
 ## The published JSON Schema
 
-`schema/ignidash-plan.v2.schema.json` is committed and generated, never hand-edited:
+`schema/ignidash-plan.v4.schema.json` is committed and generated, never hand-edited:
 
 ```bash
 npm run schema:plan
@@ -133,7 +133,7 @@ JSON Schema **draft 2020-12**, fully inlined (no `$ref`/`$defs`), with no remote
 validator never fetches anything: the whole contract is in the one file.
 
 The version in the filename follows the export envelope's `EXPORT_SCHEMA_VERSION` (currently
-**2**). There is one published "plan format version" in this repo, and contract 3.3 of the
+**4**; it is never typed by hand — `planJsonSchemaFileName()` defaults to the constant). There is one published "plan format version" in this repo, and contract 3.3 of the
 parity plan requires the PR that changes the plan shape to bump it _and_ regenerate this schema
 in the same release — so a single number keeps them from drifting apart. `plan-json-schema.test.ts`
 fails if the committed file differs from what the generator produces, or if an older

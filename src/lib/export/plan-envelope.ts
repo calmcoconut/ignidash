@@ -41,12 +41,12 @@ import {
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 3 (P5-P1, bumped by P1-P1 and P1-P2).
+ * Export/import envelope, version 4 (P5-P1, bumped by P1-P1, P1-P2 and P2-P4).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 3, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 3, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 4, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 4, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -61,6 +61,10 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       `amountBasis` on incomes, expenses, debts and physical assets.
  *   3 — P1-P2 couples foundation: `owner`/`propertyRegime` on accounts, incomes, expenses,
  *       debts and physical assets, and `household` inside `timeline`.
+ *   4 — P2-P4 historical backtest mode: `historicalBacktest` inside `simulationSettings`.
+ *       A version 3 file may already carry it (the build that shipped P2-P4 wrote v3 files
+ *       with the field, before the bump landed), so a v3 import keeps it intact rather than
+ *       stripping it; only v4 guarantees the field is understood.
  *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
@@ -73,7 +77,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 3;
+export const EXPORT_SCHEMA_VERSION = 4;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

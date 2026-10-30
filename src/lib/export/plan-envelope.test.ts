@@ -48,6 +48,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
   // strip (see `stripFields`):
   //   v2 — incomes[0].amountBasis, incomes[0].timeframe.start.everyNYears / .recurrenceYears.
   //   v3 — incomes[0].owner, debts[0].owner / .propertyRegime, timeline.household.
+  //   v4 — simulationSettings.historicalBacktest.
   const [firstIncome, ...otherIncomes] = basicTemplate.incomes;
   const incomes = [
     {
@@ -67,6 +68,7 @@ function makePlanDoc(overrides: Record<string, unknown> = {}): Doc<'plans'> {
     name: 'My Plan',
     isDefault: true,
     incomes,
+    simulationSettings: { ...basicTemplate.simulationSettings, historicalBacktest: { mode: 'truncate' as const } },
     glidePath: GLIDE_PATH,
     debts: [
       {
@@ -162,6 +164,9 @@ const VERSION_2_FIELDS = ['everyNYears', 'recurrenceYears', 'amountBasis'];
 
 /** What the v3 bump (P1-P2) added. */
 const VERSION_3_FIELDS = ['owner', 'propertyRegime', 'household'];
+
+/** What the v4 bump (P2-P4) added. */
+const VERSION_4_FIELDS = ['historicalBacktest'];
 
 /** Removes every key in `fields` wherever it appears, so a payload can be turned into an older file. */
 function stripFields(value: unknown, fields: readonly string[]): void {
@@ -342,8 +347,13 @@ describe('malformed files report the exact field paths', () => {
 
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
-    // Oldest first: a bumped build keeps reading the files the old one wrote.
-    for (let version = MIN_EXPORT_SCHEMA_VERSION; version <= EXPORT_SCHEMA_VERSION; version += 1) {
+    // The whole written history, named rather than implied: a bump that forgets to keep reading
+    // an older file fails here, not in a support thread. Adding version 5 means adding it here.
+    const writtenVersions = [1, 2, 3, 4];
+    expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
+    expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
+
+    for (const version of writtenVersions) {
       const parsed = at(version);
       expect(parsed.ok, `schemaVersion ${version} should import: ${!parsed.ok ? JSON.stringify(parsed.issues) : ''}`).toBe(true);
       if (parsed.ok) expect(parsed.envelope.schemaVersion).toBe(version);
@@ -360,13 +370,16 @@ describe('malformed files report the exact field paths', () => {
     }
   });
 
-  it('still imports a version 1 export after the bumps to version 2 and version 3', () => {
+  it('still imports a version 1 export after the bumps to versions 2, 3 and 4', () => {
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
     const v1 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v1.schemaVersion = 1;
 
     // The strip is guarded in both directions: the fixture really carries the fields each bump
     // added, and none survives, so "a v1 file still imports" is not vacuously true.
+    expect(countFields(v1, VERSION_4_FIELDS)).toBe(1);
+    stripFields(v1, VERSION_4_FIELDS);
+    expect(countFields(v1, VERSION_4_FIELDS)).toBe(0);
     expect(countFields(v1, VERSION_3_FIELDS)).toBe(4);
     stripFields(v1, VERSION_3_FIELDS);
     expect(countFields(v1, VERSION_3_FIELDS)).toBe(0);
@@ -398,13 +411,16 @@ describe('malformed files report the exact field paths', () => {
     expect(imported.snapshot.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
   });
 
-  it('still imports a version 2 export after the bump to version 3', () => {
+  it('still imports a version 2 export after the bumps to versions 3 and 4', () => {
     // The file a build from before P1-P2 writes: it has the v2 time-binding fields and none of
-    // the v3 ownership ones. It must import with the owners absent, not defaulted into the file.
+    // the v3 ownership or v4 backtest-mode ones. It must import with them absent, not defaulted.
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
     const v2 = structuredClone(envelope) as unknown as Record<string, unknown>;
     v2.schemaVersion = 2;
 
+    expect(countFields(v2, VERSION_4_FIELDS)).toBe(1);
+    stripFields(v2, VERSION_4_FIELDS);
+    expect(countFields(v2, VERSION_4_FIELDS)).toBe(0);
     expect(countFields(v2, VERSION_3_FIELDS)).toBe(4);
     stripFields(v2, VERSION_3_FIELDS);
     expect(countFields(v2, VERSION_3_FIELDS)).toBe(0);
@@ -433,6 +449,64 @@ describe('malformed files report the exact field paths', () => {
     expect((plan.incomes as Record<string, unknown>[])[0]).not.toHaveProperty('owner');
     expect(plan).not.toHaveProperty('household');
     expect(((plan.timeline as Record<string, unknown>) ?? {}).household).toBeUndefined();
+  });
+
+  it('imports a version 3 file with the v4 field intact, because v3 builds wrote it that way', () => {
+    // P2-P4 added `historicalBacktest` to the validator before the version bump landed, so this
+    // build wrote v3 files that carry the field. Those files must not be stripped or refused: a v3
+    // reader keeps whatever it finds, and this build understands the field.
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const v3WithField = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v3WithField.schemaVersion = 3;
+
+    expect(countFields(v3WithField, VERSION_4_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v3WithField));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(3);
+    // Nothing was stripped on the way in.
+    expect(parsed.envelope).toStrictEqual(v3WithField);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+    const plan = imported.plans[0] as unknown as Record<string, unknown>;
+    expect((plan.simulationSettings as Record<string, unknown>).historicalBacktest).toEqual({ mode: 'truncate' });
+
+    // The other v3 file, from a build before P2-P4, has no such field and still imports.
+    const v3WithoutField = structuredClone(v3WithField);
+    stripFields(v3WithoutField, VERSION_4_FIELDS);
+    expect(countFields(v3WithoutField, VERSION_4_FIELDS)).toBe(0);
+    expect(parseEnvelope(JSON.stringify(v3WithoutField)).ok).toBe(true);
+  });
+
+  it('writes version 4 with the new field, and a v4 payload stripped to the v3 shape still imports', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
+    expect(envelope.schemaVersion).toBe(4);
+    expect(countFields(envelope, VERSION_4_FIELDS)).toBe(1);
+    expect(parseEnvelope(JSON.stringify(envelope)).ok).toBe(true);
+
+    // A v4 file whose payload predates the field (the v3 shape) is still accepted: every bump so
+    // far is additive, so the readers default rather than refuse.
+    const v3Shaped = structuredClone(envelope) as unknown as Record<string, unknown>;
+    stripFields(v3Shaped, VERSION_4_FIELDS);
+    expect(countFields(v3Shaped, VERSION_4_FIELDS)).toBe(0);
+    expect(countFields(v3Shaped, VERSION_3_FIELDS)).toBe(4); // still a v4-era payload otherwise
+
+    const parsed = parseEnvelope(JSON.stringify(v3Shaped));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.envelope.schemaVersion).toBe(4);
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {
