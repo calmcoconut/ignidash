@@ -10,7 +10,6 @@ import { MinusIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { CalendarIcon, CreditCardIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
-import posthog from 'posthog-js';
 
 import { useTimelineData } from '@/hooks/use-convex-data';
 import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
@@ -109,7 +108,6 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
     const debtId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      posthog.capture('save_debt', { plan_id: planId, save_mode: selectedDebt ? 'edit' : 'create' });
       await m({ debt: debtToConvex({ ...data, id: debtId }), planId });
       onClose();
     } catch (error) {

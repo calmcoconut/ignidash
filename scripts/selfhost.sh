@@ -114,13 +114,11 @@ setup_env_file() {
 
     # Generate secrets
     BETTER_AUTH_SECRET=$(openssl rand -base64 32)
-    CONVEX_API_SECRET=$(openssl rand -base64 32)
 
     # Update .env.local with generated secrets
     # Use | as delimiter since base64 can contain /
     # Wrap in quotes since base64 can contain =, /, +
     portable_sed "s|^BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=\"$BETTER_AUTH_SECRET\"|" .env.local
-    portable_sed "s|^CONVEX_API_SECRET=.*|CONVEX_API_SECRET=\"$CONVEX_API_SECRET\"|" .env.local
 
     ensure_env_symlink
 
@@ -137,11 +135,11 @@ build_and_start_containers() {
     local max_attempts=30
     local attempt=0
 
-    until docker compose exec -T convex-backend curl -s -f http://localhost:3210/version > /dev/null 2>&1; do
+    until docker compose exec -T ignidash curl -fsS http://127.0.0.1:3210/version > /dev/null 2>&1; do
         attempt=$((attempt + 1))
         if [ $attempt -ge $max_attempts ]; then
             echo -e "${RED}Error: Convex backend failed to start${NC}"
-            echo "Check logs with: docker compose logs convex-backend"
+            echo "Check logs with: docker compose logs ignidash"
             exit 1
         fi
         sleep 2
@@ -154,7 +152,7 @@ build_and_start_containers() {
 # Generate and save Convex admin key
 setup_convex_admin_key() {
     echo "Generating Convex admin key..."
-    ADMIN_KEY=$(docker compose exec -T convex-backend ./generate_admin_key.sh 2>/dev/null | grep -v "^$" | tail -1)
+    ADMIN_KEY=$(docker compose exec -T -w /convex ignidash ./generate_admin_key.sh 2>/dev/null | grep -v "^$" | tail -1)
 
     if [ -z "$ADMIN_KEY" ]; then
         echo -e "${RED}Error: Failed to generate admin key${NC}"
@@ -188,17 +186,14 @@ sync_convex_env() {
         "SELF_HOSTED"
         "SITE_URL"
         "BETTER_AUTH_SECRET"
-        "CONVEX_API_SECRET"
         "GOOGLE_CLIENT_ID"
         "GOOGLE_CLIENT_SECRET"
         "OPENAI_API_KEY"
         "OPENAI_ENDPOINT"
-        "RESEND_API_KEY"
-        "STRIPE_SECRET_KEY"
-        "STRIPE_WEBHOOK_SECRET"
-        "STRIPE_PRICE_ID"
-        "NEXT_PUBLIC_POSTHOG_KEY"
-        "NEXT_PUBLIC_POSTHOG_HOST"
+        "OPENAI_BASE_URL"
+        "OPENAI_CHAT_MODEL"
+        "OPENAI_INSIGHTS_MODEL"
+        "CONVEX_SITE_URL"
     )
 
     local synced=0
@@ -266,34 +261,23 @@ print_next_steps() {
     source .env.local
     set +a
 
-    local APP_URL="${SITE_URL:-http://localhost:3000}"
+    local APP_URL="${SITE_URL:-http://localhost:3030}"
     local CONVEX_URL="${NEXT_PUBLIC_CONVEX_URL:-http://localhost:3210}"
     local HOST
     HOST=$(echo "$APP_URL" | sed -E 's|(https?://[^:/]+).*|\1|')
 
-    # Determine dashboard URL based on whether we're using a reverse proxy (no port in CONVEX_URL)
-    local DASHBOARD_URL
-    if echo "$CONVEX_URL" | grep -qE ':[0-9]+$'; then
-        # Port-based access (localhost or LAN IP)
-        DASHBOARD_URL="$HOST:6791"
-    else
-        # Reverse proxy — derive dashboard subdomain from app domain
-        local DOMAIN
-        DOMAIN=$(echo "$APP_URL" | sed -E 's|https?://||')
-        DASHBOARD_URL="https://dashboard.$DOMAIN"
-    fi
 
     echo -e "${GREEN}Setup complete!${NC}"
     echo ""
     echo "Access the application at: $APP_URL/signup"
-    echo "Convex Dashboard at: $DASHBOARD_URL"
+    echo "Convex API (must be browser-reachable): $CONVEX_URL"
     echo ""
-    echo "Convex Dashboard credentials:"
+    echo "Convex deployment (for the CLI):"
     echo "  Deployment URL: $CONVEX_SELF_HOSTED_URL"
     echo "  Admin Key: $CONVEX_SELF_HOSTED_ADMIN_KEY"
     echo ""
     echo "Next steps:"
-    echo "1. Edit .env.local to add your API keys (Google OAuth, Stripe, OpenAI, etc.)"
+    echo "1. Edit .env.local to add optional keys (Google OAuth, OpenAI, etc.)"
     echo "2. Re-run sync to push new keys to Convex:"
     echo "   npm run selfhost -- --sync-only"
     echo ""

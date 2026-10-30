@@ -1,5 +1,5 @@
 /** Navigation menu items, path matching, and current page title. */
-import { LayoutDashboardIcon, ChartNoAxesCombinedIcon, Layers2Icon, ZapIcon, CircleQuestionMarkIcon, GemIcon } from 'lucide-react';
+import { LayoutDashboardIcon, ChartNoAxesCombinedIcon, Layers2Icon, ZapIcon, CircleQuestionMarkIcon } from 'lucide-react';
 import { api } from '@/convex/_generated/api';
 import { useQuery, useMutation, useConvexAuth } from 'convex/react';
 import { useEffect, useMemo } from 'react';
@@ -53,12 +53,7 @@ export const useNavigationItems = () => {
 };
 
 export const useSecondaryNavigationItems = () => {
-  const hasActiveSubscription = useQuery(api.auth.getHasActiveSubscription) ?? false;
-
-  return [
-    { name: 'Help', href: '/help', icon: CircleQuestionMarkIcon, current: false },
-    { name: 'Upgrade to Pro', href: '/pricing', icon: GemIcon, current: false, hidden: hasActiveSubscription },
-  ];
+  return [{ name: 'Help', href: '/help', icon: CircleQuestionMarkIcon, current: false }];
 };
 
 export const useCurrentPageTitle = (): string => {

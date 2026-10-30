@@ -1,50 +1,49 @@
 'use node';
 
 import { ConvexError } from 'convex/values';
-import { AzureOpenAI } from 'openai';
+import { AzureOpenAI, OpenAI } from 'openai';
 import { internalAction } from './_generated/server';
 import type { Id, Doc } from './_generated/dataModel';
 import { internal } from './_generated/api';
 
-import type { SubscriptionType } from './utils/ai_utils';
-
-let openaiChat: AzureOpenAI | null = null;
-let openaiInsights: AzureOpenAI | null = null;
+import { isAIConfigured } from './utils/ai_utils';
 
 const apiKey = process.env.OPENAI_API_KEY;
-const endpoint = process.env.OPENAI_ENDPOINT;
-if (apiKey && endpoint) {
-  openaiChat = new AzureOpenAI({
-    endpoint,
-    apiKey,
-    deployment: 'gpt-5.2-chat',
-    apiVersion: '2024-04-01-preview',
-  });
+const baseUrl = process.env.OPENAI_BASE_URL;
+const azureEndpoint = process.env.OPENAI_ENDPOINT;
 
-  openaiInsights = new AzureOpenAI({
-    endpoint,
-    apiKey,
-    deployment: 'gpt-5.2',
-    apiVersion: '2024-12-01-preview',
-  });
+const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL ?? 'gpt-5.2-chat';
+const INSIGHTS_MODEL = process.env.OPENAI_INSIGHTS_MODEL ?? 'gpt-5.2';
+
+const NOT_CONFIGURED_MESSAGE =
+  'AI is not configured for this deployment. Set OPENAI_API_KEY together with OPENAI_BASE_URL (any OpenAI-compatible server) or OPENAI_ENDPOINT (Azure OpenAI).';
+
+/**
+ * `OPENAI_BASE_URL` targets any OpenAI-compatible server; otherwise the Azure OpenAI client is used
+ * exactly as before, with the model name doubling as the deployment name.
+ */
+function createClient(model: string, apiVersion: string): OpenAI | null {
+  if (!isAIConfigured()) return null;
+
+  if (baseUrl) return new OpenAI({ apiKey, baseURL: baseUrl });
+
+  return new AzureOpenAI({ endpoint: azureEndpoint, apiKey, apiVersion, deployment: model });
 }
+
+const openaiChat = createClient(CHAT_MODEL, '2024-04-01-preview');
+const openaiInsights = createClient(INSIGHTS_MODEL, '2024-12-01-preview');
 
 type StreamChatParams = {
   userId: string;
   messages: Doc<'messages'>[];
   assistantMessageId: Id<'messages'>;
   systemPrompt: string;
-  subscriptionStartTime: number;
-  subscriptionType: SubscriptionType;
 };
 
 export const streamChat = internalAction({
-  handler: async (
-    ctx,
-    { userId, messages, assistantMessageId, systemPrompt, subscriptionStartTime, subscriptionType }: StreamChatParams
-  ) => {
+  handler: async (ctx, { userId, messages, assistantMessageId, systemPrompt }: StreamChatParams) => {
     if (!openaiChat) {
-      const errorMessage = 'The required Azure OpenAI environment variables (OPENAI_API_KEY, OPENAI_ENDPOINT) are not set.';
+      const errorMessage = NOT_CONFIGURED_MESSAGE;
       console.error(errorMessage);
 
       await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body: errorMessage, isLoading: false });
@@ -55,7 +54,7 @@ export const streamChat = internalAction({
 
     try {
       const stream = await openaiChat.chat.completions.create({
-        model: 'gpt-5.2-chat',
+        model: CHAT_MODEL,
         messages: [
           { role: 'system', content: systemPrompt },
           ...messages.filter(hasBody).map((msg) => ({ role: msg.author, content: msg.body })),
@@ -89,20 +88,17 @@ export const streamChat = internalAction({
         if (part.usage) {
           await ctx.runMutation(internal.messages.setUsage, {
             messageId: assistantMessageId,
-            userId,
             inputTokens: part.usage.prompt_tokens,
             cachedInputTokens: part.usage.prompt_tokens_details?.cached_tokens ?? 0,
             outputTokens: part.usage.completion_tokens,
             totalTokens: part.usage.total_tokens,
-            subscriptionStartTime,
-            subscriptionType,
           });
         }
       }
 
       await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body, isLoading: false });
     } catch (error) {
-      if (error instanceof AzureOpenAI.APIError) {
+      if (error instanceof OpenAI.APIError) {
         console.error(error);
 
         const body = `An unexpected error occurred: ${error.message}.`;
@@ -121,14 +117,12 @@ type StreamInsightsParams = {
   userId: string;
   insightId: Id<'insights'>;
   systemPrompt: string;
-  subscriptionStartTime: number;
-  subscriptionType: SubscriptionType;
 };
 
 export const streamInsights = internalAction({
-  handler: async (ctx, { userId, insightId, systemPrompt, subscriptionStartTime, subscriptionType }: StreamInsightsParams) => {
+  handler: async (ctx, { userId, insightId, systemPrompt }: StreamInsightsParams) => {
     if (!openaiInsights) {
-      const errorMessage = 'The required Azure OpenAI environment variables (OPENAI_API_KEY, OPENAI_ENDPOINT) are not set.';
+      const errorMessage = NOT_CONFIGURED_MESSAGE;
       console.error(errorMessage);
 
       await ctx.runMutation(internal.insights.setContent, { insightId, content: errorMessage, isLoading: false });
@@ -137,7 +131,7 @@ export const streamInsights = internalAction({
 
     try {
       const stream = await openaiInsights.chat.completions.create({
-        model: 'gpt-5.2',
+        model: INSIGHTS_MODEL,
         messages: [{ role: 'system', content: systemPrompt }],
         stream: true,
         stream_options: { include_usage: true },
@@ -168,20 +162,17 @@ export const streamInsights = internalAction({
         if (part.usage) {
           await ctx.runMutation(internal.insights.setUsage, {
             insightId,
-            userId,
             inputTokens: part.usage.prompt_tokens,
             cachedInputTokens: part.usage.prompt_tokens_details?.cached_tokens ?? 0,
             outputTokens: part.usage.completion_tokens,
             totalTokens: part.usage.total_tokens,
-            subscriptionStartTime,
-            subscriptionType,
           });
         }
       }
 
       await ctx.runMutation(internal.insights.setContent, { insightId, content, isLoading: false });
     } catch (error) {
-      if (error instanceof AzureOpenAI.APIError) {
+      if (error instanceof OpenAI.APIError) {
         console.error(error);
 
         const content = `An unexpected error occurred: ${error.message}.`;

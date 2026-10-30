@@ -11,8 +11,6 @@ import {
   MessageCircleMoreIcon,
 } from 'lucide-react';
 import { useState, lazy, Suspense } from 'react';
-import { track } from '@vercel/analytics';
-import posthog from 'posthog-js';
 
 import { cn } from '@/lib/utils';
 import IconButton from '@/components/ui/icon-button';
@@ -110,8 +108,6 @@ export default function SectionSelector({ activeSection, setActiveSection }: Sec
   const updateHasOpenedTaxSettings = useUpdateHasOpenedTaxSettings();
 
   const handleSectionSelect = (section: ActiveSection) => {
-    track('Select section', { section });
-    posthog.capture('select_section', { plan_id: planId, section });
     setActiveSection(section);
   };
 
@@ -172,7 +168,6 @@ export default function SectionSelector({ activeSection, setActiveSection }: Sec
                 label="Ask AI"
                 onClick={() => {
                   if (showAIChatPulse) updateShowAIChatPulse(false);
-                  posthog.capture('open_ai_chat');
                   setAiChatOpen(true);
                 }}
                 surfaceColor="emphasized"

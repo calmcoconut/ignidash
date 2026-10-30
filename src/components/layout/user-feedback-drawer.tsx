@@ -6,7 +6,6 @@ import { api } from '@/convex/_generated/api';
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import posthog from 'posthog-js';
 import { usePathname } from 'next/navigation';
 
 import SectionHeader from '@/components/ui/section-header';
@@ -45,7 +44,6 @@ export default function UserFeedbackDrawer({ setOpen }: UserFeedbackDrawerProps)
   const onSubmit = async (data: UserFeedbackInputs) => {
     try {
       setSaveError(null);
-      posthog.capture('submit_user_feedback', { plan_id: planId, feedback_length: data.feedback.length });
       await m({ feedback: { planId, pathname, feedback: data.feedback } });
       setOpen(false);
     } catch (error) {

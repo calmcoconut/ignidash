@@ -10,7 +10,6 @@ import { MinusIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { CalendarIcon, BanknoteArrowDownIcon, TrendingUpIcon, InfoIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
-import posthog from 'posthog-js';
 
 import { useTimelineData } from '@/hooks/use-convex-data';
 import { expenseToConvex } from '@/lib/utils/data-transformers';
@@ -76,7 +75,6 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
     const expenseId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      posthog.capture('save_expense', { plan_id: planId, save_mode: selectedExpense ? 'edit' : 'create' });
       await m({ expense: expenseToConvex({ ...data, id: expenseId }), planId });
       onClose();
     } catch (error) {

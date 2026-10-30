@@ -2,7 +2,6 @@
 import { RefreshCwIcon } from 'lucide-react';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import posthog from 'posthog-js';
 
 import { useSimulationStatus } from '@/lib/stores/simulator-store';
 
@@ -21,7 +20,6 @@ export function useRegenSimulation() {
   const m = useMutation(api.simulation_settings.update);
   const handleClick = async () => {
     if (!isDisabled) {
-      posthog.capture('regenerate_simulation', { plan_id: planId, simulation_mode: simulationMode });
       await m({ simulationSettings: { ...simulationSettings, simulationSeed: Math.floor(Math.random() * 1000) }, planId });
     }
   };

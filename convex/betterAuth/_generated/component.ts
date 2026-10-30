@@ -37,7 +37,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   image?: null | string;
                   name: string;
                   role?: null | string;
-                  stripeCustomerId?: null | string;
                   updatedAt: number;
                   userId?: null | string;
                 };
@@ -91,22 +90,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 };
                 model: "jwks";
               }
-            | {
-                data: {
-                  cancelAtPeriodEnd?: null | boolean;
-                  periodEnd?: null | number;
-                  periodStart?: null | number;
-                  plan: string;
-                  referenceId: string;
-                  seats?: null | number;
-                  status?: null | string;
-                  stripeCustomerId?: null | string;
-                  stripeSubscriptionId?: null | string;
-                  trialEnd?: null | number;
-                  trialStart?: null | number;
-                };
-                model: "subscription";
-              };
           onCreateHandle?: string;
           select?: Array<string>;
         },
@@ -130,7 +113,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
-                    | "stripeCustomerId"
                     | "role"
                     | "_id";
                   operator?:
@@ -290,44 +272,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | null;
                 }>;
               }
-            | {
-                model: "subscription";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field:
-                    | "plan"
-                    | "referenceId"
-                    | "stripeCustomerId"
-                    | "stripeSubscriptionId"
-                    | "status"
-                    | "periodStart"
-                    | "periodEnd"
-                    | "trialStart"
-                    | "trialEnd"
-                    | "cancelAtPeriodEnd"
-                    | "seats"
-                    | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              };
           onDeleteHandle?: string;
           paginationOpts: {
             cursor: string | null;
@@ -358,7 +302,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
-                    | "stripeCustomerId"
                     | "role"
                     | "_id";
                   operator?:
@@ -518,44 +461,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | null;
                 }>;
               }
-            | {
-                model: "subscription";
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field:
-                    | "plan"
-                    | "referenceId"
-                    | "stripeCustomerId"
-                    | "stripeSubscriptionId"
-                    | "status"
-                    | "periodStart"
-                    | "periodEnd"
-                    | "trialStart"
-                    | "trialEnd"
-                    | "cancelAtPeriodEnd"
-                    | "seats"
-                    | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              };
           onDeleteHandle?: string;
         },
         any,
@@ -572,8 +477,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "session"
             | "account"
             | "verification"
-            | "jwks"
-            | "subscription";
+            | "jwks";
           offset?: number;
           paginationOpts: {
             cursor: string | null;
@@ -621,8 +525,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | "session"
             | "account"
             | "verification"
-            | "jwks"
-            | "subscription";
+            | "jwks";
           select?: Array<string>;
           where?: Array<{
             connector?: "AND" | "OR";
@@ -665,7 +568,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   image?: null | string;
                   name?: string;
                   role?: null | string;
-                  stripeCustomerId?: null | string;
                   updatedAt?: number;
                   userId?: null | string;
                 };
@@ -679,7 +581,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
-                    | "stripeCustomerId"
                     | "role"
                     | "_id";
                   operator?:
@@ -875,57 +776,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | null;
                 }>;
               }
-            | {
-                model: "subscription";
-                update: {
-                  cancelAtPeriodEnd?: null | boolean;
-                  periodEnd?: null | number;
-                  periodStart?: null | number;
-                  plan?: string;
-                  referenceId?: string;
-                  seats?: null | number;
-                  status?: null | string;
-                  stripeCustomerId?: null | string;
-                  stripeSubscriptionId?: null | string;
-                  trialEnd?: null | number;
-                  trialStart?: null | number;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field:
-                    | "plan"
-                    | "referenceId"
-                    | "stripeCustomerId"
-                    | "stripeSubscriptionId"
-                    | "status"
-                    | "periodStart"
-                    | "periodEnd"
-                    | "trialStart"
-                    | "trialEnd"
-                    | "cancelAtPeriodEnd"
-                    | "seats"
-                    | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              };
           onUpdateHandle?: string;
           paginationOpts: {
             cursor: string | null;
@@ -953,7 +803,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   image?: null | string;
                   name?: string;
                   role?: null | string;
-                  stripeCustomerId?: null | string;
                   updatedAt?: number;
                   userId?: null | string;
                 };
@@ -967,7 +816,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
-                    | "stripeCustomerId"
                     | "role"
                     | "_id";
                   operator?:
@@ -1163,57 +1011,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | null;
                 }>;
               }
-            | {
-                model: "subscription";
-                update: {
-                  cancelAtPeriodEnd?: null | boolean;
-                  periodEnd?: null | number;
-                  periodStart?: null | number;
-                  plan?: string;
-                  referenceId?: string;
-                  seats?: null | number;
-                  status?: null | string;
-                  stripeCustomerId?: null | string;
-                  stripeSubscriptionId?: null | string;
-                  trialEnd?: null | number;
-                  trialStart?: null | number;
-                };
-                where?: Array<{
-                  connector?: "AND" | "OR";
-                  field:
-                    | "plan"
-                    | "referenceId"
-                    | "stripeCustomerId"
-                    | "stripeSubscriptionId"
-                    | "status"
-                    | "periodStart"
-                    | "periodEnd"
-                    | "trialStart"
-                    | "trialEnd"
-                    | "cancelAtPeriodEnd"
-                    | "seats"
-                    | "_id";
-                  operator?:
-                    | "lt"
-                    | "lte"
-                    | "gt"
-                    | "gte"
-                    | "eq"
-                    | "in"
-                    | "not_in"
-                    | "ne"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with";
-                  value:
-                    | string
-                    | number
-                    | boolean
-                    | Array<string>
-                    | Array<number>
-                    | null;
-                }>;
-              };
           onUpdateHandle?: string;
         },
         any,
@@ -1221,17 +1018,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     auth_data: {
-      getCanUseAIFeatures: FunctionReference<
-        "query",
-        "internal",
-        {},
-        {
-          canUseAIFeatures: boolean;
-          isActiveSubscription: boolean;
-          isAdmin: boolean;
-        },
-        Name
-      >;
       getCurrentUserSafe: FunctionReference<
         "query",
         "internal",
@@ -1245,31 +1031,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           image?: null | string;
           name: string;
           role?: null | string;
-          stripeCustomerId?: null | string;
           updatedAt: number;
           userId?: null | string;
         },
-        Name
-      >;
-      listSubscriptions: FunctionReference<
-        "query",
-        "internal",
-        {},
-        null | Array<{
-          _creationTime: number;
-          _id: string;
-          cancelAtPeriodEnd?: null | boolean;
-          periodEnd?: null | number;
-          periodStart?: null | number;
-          plan: string;
-          referenceId: string;
-          seats?: null | number;
-          status?: null | string;
-          stripeCustomerId?: null | string;
-          stripeSubscriptionId?: null | string;
-          trialEnd?: null | number;
-          trialStart?: null | number;
-        }>,
         Name
       >;
     };

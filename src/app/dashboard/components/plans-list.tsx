@@ -8,7 +8,6 @@ import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { EllipsisVerticalIcon } from '@heroicons/react/20/solid';
 import { PlusIcon } from '@heroicons/react/16/solid';
-import posthog from 'posthog-js';
 
 import { Dialog } from '@/components/catalyst/dialog';
 import { Button } from '@/components/catalyst/button';
@@ -169,7 +168,6 @@ export default function PlanList({ preloadedPlans, preloadedAssets, preloadedLia
       if (insightsSelectedPlan?.id === planId) updateInsightsSelectedPlan(undefined);
       clearSelectedConversationId(planId as Id<'plans'>);
 
-      posthog.capture('delete_plan', { planId });
       await deleteMutation({ planId: planId as Id<'plans'> });
     },
     [deleteMutation, insightsSelectedPlan, updateInsightsSelectedPlan, clearSelectedConversationId]
@@ -178,7 +176,6 @@ export default function PlanList({ preloadedPlans, preloadedAssets, preloadedLia
   const setAsDefaultMutation = useMutation(api.plans.setPlanAsDefault);
   const handleSetAsDefault = useCallback(
     async (planId: Id<'plans'>) => {
-      posthog.capture('set_plan_as_default', { planId });
       await setAsDefaultMutation({ planId });
     },
     [setAsDefaultMutation]

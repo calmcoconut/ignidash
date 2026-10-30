@@ -2,8 +2,6 @@ import { test as base, expect } from '@playwright/test';
 
 /** Patterns for console errors that are safe to ignore. */
 const IGNORED_CONSOLE_PATTERNS = [
-  /posthog/i,
-  /vercel.*analytics/i,
   /react.*devtools/i,
   /favicon\.ico/i,
   /hydration/i,

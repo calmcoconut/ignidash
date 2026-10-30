@@ -3,14 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useConvexAuth } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import posthog from 'posthog-js';
 
 import { DesktopSidebar } from '@/components/layout/sidebar/desktop-sidebar';
 import MobileHeader from '@/components/layout/sidebar/mobile-header';
 import MobileSidebar from '@/components/layout/sidebar/mobile-sidebar';
 import { useSidebarCollapsed, useSidebarAnimating, useUpdateSidebarAnimating } from '@/lib/stores/simulator-store';
 import UnauthenticatedWrapper from '@/components/layout/unauthenticated-wrapper';
-import { usePostHogIdentify } from '@/hooks/use-posthog-identify';
 import { Dialog } from '@/components/catalyst/dialog';
 
 import OnboardingDialog from './components/dialogs/onboarding-dialog';
@@ -30,8 +28,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     [sidebarAnimating, updateSidebarAnimating]
   );
 
-  usePostHogIdentify();
-
   const { isAuthenticated } = useConvexAuth();
   const onboardingDialogCompleted = useQuery(api.onboarding.get, isAuthenticated ? {} : 'skip');
 
@@ -47,7 +43,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     } catch (error) {
       console.error('Error updating onboarding dialog: ', error);
     } finally {
-      posthog.capture('onboarding_dialog_completed');
       setOnboardingDialogOpen(false);
     }
   };

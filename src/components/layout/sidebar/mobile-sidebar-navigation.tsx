@@ -1,5 +1,4 @@
 import { useNavigationItems, useSecondaryNavigationItems } from '@/hooks/use-sidebar-navigation';
-import { cn } from '@/lib/utils';
 
 import SidebarLink from './sidebar-link';
 
@@ -31,11 +30,11 @@ export function MobileSidebarSecondaryNavigation() {
 
   return (
     <>
-      {secondaryNavigation.map(({ name, href, icon: Icon, current, hidden }) => (
+      {secondaryNavigation.map(({ name, href, icon: Icon, current }) => (
         <li key={name}>
-          <SidebarLink href={href} current={current} hidden={hidden}>
+          <SidebarLink href={href} current={current}>
             <div className="p-2">
-              <Icon aria-hidden="true" className={cn('size-6 shrink-0', { 'text-primary': href === '/pricing' })} />
+              <Icon aria-hidden="true" className="size-6 shrink-0" />
             </div>
             <span className="ml-1 inline group-data-[state=collapsed]/sidebar:hidden">{name}</span>
           </SidebarLink>

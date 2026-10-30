@@ -25,6 +25,9 @@ e2e/.auth/
 
 # misc
 .DS_Store
+#
+# agent tooling state (pi / grill-me)
+.pi/
 *.pem
 
 # debug

@@ -2,8 +2,6 @@
 
 import { ListFilterIcon, CheckIcon, ArrowUpDownIcon } from 'lucide-react';
 import { ChevronRightIcon } from '@heroicons/react/20/solid';
-import { track } from '@vercel/analytics';
-import posthog from 'posthog-js';
 
 import { cn } from '@/lib/utils';
 import { SingleSimulationCategory, MultiSimulationCategory } from '@/lib/types/simulation-category';
@@ -27,7 +25,6 @@ import {
 } from '@/lib/stores/simulator-store';
 import { formatChartString } from '@/lib/utils';
 import { useScrollPreservation } from '@/hooks/use-scroll-preserving-state';
-import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 
 interface DrillDownBreadcrumbProps {
   removeActiveSeed: () => void;
@@ -83,7 +80,6 @@ export default function SimulationCategorySelector({
   activeSeed,
   activeSeedType,
 }: SimulationCategorySelectorProps) {
-  const planId = useSelectedPlanId();
   const quickSelectPercentile = useQuickSelectPercentile();
   const percentiles = ['p10', 'p25', 'p50', 'p75', 'p90'] as const;
 
@@ -114,8 +110,6 @@ export default function SimulationCategorySelector({
 
   const withScrollPreservation = useScrollPreservation();
   const handleCategorySelect = (category: SingleSimulationCategory | MultiSimulationCategory) => {
-    track('Select simulation category', { category });
-    posthog.capture('select_simulation_category', { plan_id: planId, category });
     updateResultsCategory(category);
   };
 

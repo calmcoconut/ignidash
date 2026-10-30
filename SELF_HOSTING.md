@@ -1,197 +1,238 @@
 # Self-Hosting Ignidash
 
-Run Ignidash on your own infrastructure using Docker, including a self-hosted Convex backend.
+Ignidash self-hosts as **one container**. The Convex backend and the Next.js app run
+as two supervised processes inside a single image (see `Dockerfile` and
+`docker-entrypoint.sh`), with the backend pinned by digest.
 
-## Setup Guide
+Nothing in the stack calls a third-party service at runtime: no analytics, no
+payments, no transactional email, and no OAuth provider unless you configure one.
 
-Follow the steps below to get your app running.
+---
 
-### Step 1: Install Prerequisites
+## What runs where
 
-#### Node.js
+| Port (container) | Host default | Purpose                                                |
+| ---------------- | ------------ | ------------------------------------------------------ |
+| 3000             | 3030         | Next.js app                                            |
+| 3210             | 3210         | Convex API + WebSocket — **must be browser-reachable** |
+| 3211             | 3211         | Convex HTTP actions                                    |
 
-1. Install Node.js 20+ from the [official website](https://nodejs.org/)
-2. Verify Node.js is installed:
+`/convex/data` is the only stateful path: the SQLite database, file storage, and the
+instance credentials (`instance_name`, `instance_secret`). Everything else in the
+container is disposable.
+
+The browser talks to Convex directly over WebSocket, which is why 3210 is published
+separately from the app. Server-side traffic never leaves the container — it uses
+loopback.
+
+---
+
+## Requirements
+
+- Docker with Compose v2
+- Node.js 20+ **on the host** — functions are deployed with the Convex CLI from the
+  host, not from inside the container
+- Roughly 2 GB of RAM headroom: the backend spawns its own Node executor for
+  `"use node"` actions and does not recycle it
+
+---
+
+## Setup
 
 ```bash
-node --version
-```
-
-#### Docker
-
-1. Install Docker Engine by following [the official guide](https://docs.docker.com/get-docker/)
-2. Start the Docker service on your machine
-3. Verify Docker is installed and running:
-
-```bash
-docker run hello-world
-```
-
-If Docker is set up correctly, this command will print a success message.
-
-### Step 2: Clone the Repository
-
-```bash
-git clone https://github.com/schelskedevco/ignidash.git
+git clone https://github.com/calmcoconut/ignidash.git
 cd ignidash
-```
-
-### Step 3: Run the Setup Script
-
-```bash
 npm run selfhost -- --init
 ```
 
-### Step 4: Create Your Account
+The script creates `.env.local` from the template, builds the image, starts the
+container, waits for the backend, generates an admin key, syncs environment variables
+into the Convex deployment, deploys functions, and runs migrations.
 
-Once complete, the script will display URLs for your app and Convex Dashboard.
+Then open `http://<host>:3030/signup` and create your account.
 
-Open the app URL (default: http://localhost:3000/signup), create an account, and you're in.
+### Host port overrides
 
-### Step 5: Enjoy!
+`APP_PORT`, `CONVEX_PORT`, and `CONVEX_SITE_PORT` change the published host ports
+without editing `docker-compose.yml`.
 
-Your self-hosted Ignidash is now running. If you find bugs or have feature requests, join our [Discord](https://discord.gg/AVNg9JCNUr) or open a [GitHub Issue](https://github.com/schelskedevco/ignidash/issues).
-
-## Docker Images
-
-| Tag      | Description                                        |
-| -------- | -------------------------------------------------- |
-| `stable` | Latest tagged release (recommended for production) |
-| `latest` | Latest commit to main branch                       |
-| `vX.Y.Z` | Specific version                                   |
-
-The default `docker-compose.yml` uses `stable`.
+---
 
 ## Commands
 
-| Command                           | Description                                                       |
-| --------------------------------- | ----------------------------------------------------------------- |
-| `npm run selfhost -- --init`      | First-time setup (creates `.env.local` from template)             |
-| `npm run selfhost`                | Rebuild, restart, regenerate admin key, sync env vars, and deploy |
-| `npm run selfhost -- --sync-only` | Sync env vars to Convex without rebuilding containers             |
-| `npm run selfhost:convex-dev`     | Hot reload for Convex functions in development                    |
-| `npm run selfhost:convex-deploy`  | Deploy Convex functions to self-hosted backend                    |
-| `npm run docker:build`            | Build images (requires build context in docker-compose.yml)       |
-| `npm run docker:up`               | Start services in background                                      |
-| `npm run docker:down`             | Stop services                                                     |
-| `npm run docker:logs`             | Stream service logs                                               |
+| Command                             | Description                                                    |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `npm run selfhost -- --init`        | First-time setup (creates `.env.local` from template)          |
+| `npm run selfhost`                  | Rebuild, restart, regenerate the admin key, sync env, redeploy |
+| `npm run selfhost -- --sync-only`   | Sync env vars to Convex without rebuilding                     |
+| `npm run selfhost:convex-deploy`    | Deploy Convex functions only                                   |
+| `npm run docker:up` / `docker:down` | Start / stop the container                                     |
+| `npm run docker:logs`               | Stream container logs                                          |
 
-> **Note:** `npm run selfhost` generates a new Convex admin key each run. Your Convex Dashboard credentials will change. The new key is saved to `.env.local`.
+> **Note:** `npm run selfhost` generates a new Convex admin key on each run and saves
+> it to `.env.local`. The previous key stops working.
 
-## Upgrading
+---
 
-```bash
-git pull                 # Update app code and Convex functions
-docker compose pull      # Pull latest images (app, Convex backend, and dashboard)
-npm run selfhost         # Rebuild, sync env vars, and deploy
-```
-
-It's recommended to back up with `npx convex export` before upgrading. See [Convex Upgrading Guide](https://github.com/get-convex/convex-backend/blob/main/self-hosted/advanced/upgrading.md) for more.
-
-## Change Access Method
-
-To change your access method after setup, edit these three variables in `.env.local` and re-run `npm run selfhost` to rebuild the containers with the new URLs:
-
-- `SITE_URL` — where the app is reachable (e.g., `http://192.168.1.100:3000` or `https://mydomain.com`)
-- `NEXT_PUBLIC_CONVEX_URL` — Convex API (e.g., `http://192.168.1.100:3210` or `https://api.mydomain.com`)
-- `NEXT_PUBLIC_CONVEX_SITE_URL` — Convex HTTP Actions (e.g., `http://192.168.1.100:3211` or `https://actions.mydomain.com`)
-
-Always keep `CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210` — the Convex CLI runs on the host machine.
-
-### LAN / IP Access
-
-> **Firewall:** Ports 3000, 3210, 3211, and 6791 must be reachable from client machines. If you're running on a homelab (e.g., Proxmox, TrueNAS), check that your host firewall and any network-level rules allow traffic on these ports.
-
-### Reverse Proxy / Custom Domain
-
-The setup script uses `api.` and `actions.` subdomains by default. If you use different subdomains, edit the URLs above in `.env.local` after setup.
-
-Configure your reverse proxy to forward requests to the local ports:
-
-| Public URL                       | Target           | Notes                                |
-| -------------------------------- | ---------------- | ------------------------------------ |
-| `https://mydomain.com`           | `localhost:3000` | Ignidash app                         |
-| `https://api.mydomain.com`       | `localhost:3210` | Convex API (needs WebSocket support) |
-| `https://actions.mydomain.com`   | `localhost:3211` | Convex HTTP Actions                  |
-| `https://dashboard.mydomain.com` | `localhost:6791` | Convex Dashboard                     |
-
-> **Important:** The Convex API proxy (`api.mydomain.com` -> `localhost:3210`) **must** support WebSocket connections. Ensure your reverse proxy is configured for WebSocket upgrades (Nginx: `proxy_set_header Upgrade $http_upgrade` + `proxy_set_header Connection "upgrade"`, Caddy: automatic, Traefik: automatic).
-
-## Environment Variables
+## Environment variables
 
 ### Required
 
-| Variable                       | Description                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `SELF_HOSTED`                  | Enables Next.js standalone output for Docker builds                            |
-| `CONVEX_SELF_HOSTED_URL`       | Convex backend URL for CLI commands (default: `http://127.0.0.1:3210`)         |
-| `CONVEX_SELF_HOSTED_ADMIN_KEY` | Admin key for Convex CLI and Dashboard (auto-generated by setup script)        |
-| `NEXT_PUBLIC_CONVEX_URL`       | Convex API URL used by the browser (default: `http://localhost:3210`)          |
-| `NEXT_PUBLIC_CONVEX_SITE_URL`  | Convex HTTP Actions URL used by the browser (default: `http://localhost:3211`) |
-| `SITE_URL`                     | Public URL of the application (default: `http://localhost:3000`)               |
-| `BETTER_AUTH_SECRET`           | Secret for encrypting auth sessions and JWKs                                   |
-| `CONVEX_API_SECRET`            | Secret for internal API authentication between services                        |
+| Variable                       | Description                                                      |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`           | Encrypts auth sessions and JWKs                                  |
+| `SITE_URL`                     | Public URL of the app, e.g. `http://10.0.0.5:3030`               |
+| `NEXT_PUBLIC_CONVEX_URL`       | Convex API as seen by the browser, e.g. `http://10.0.0.5:3210`   |
+| `NEXT_PUBLIC_CONVEX_SITE_URL`  | HTTP actions as seen by the browser, e.g. `http://10.0.0.5:3211` |
+| `CONVEX_SELF_HOSTED_URL`       | Loopback URL for the CLI, always `http://127.0.0.1:3210`         |
+| `CONVEX_SELF_HOSTED_ADMIN_KEY` | Generated by the setup script                                    |
+
+### Set by `docker-compose.yml` — do not set these yourself
+
+| Variable                      | Value                                            |
+| ----------------------------- | ------------------------------------------------ |
+| `SELF_HOSTED_CONVEX_URL`      | `http://127.0.0.1:3210`                          |
+| `SELF_HOSTED_CONVEX_SITE_URL` | `http://127.0.0.1:3211`                          |
+| `CONVEX_CLOUD_ORIGIN`         | same as `NEXT_PUBLIC_CONVEX_URL`                 |
+| `CONVEX_SITE_ORIGIN`          | same as `NEXT_PUBLIC_CONVEX_SITE_URL`            |
+| `DISABLE_BEACON`              | `true` — disables the backend's hourly telemetry |
 
 ### Optional
 
-See [Optional Environment Variables](./README.md#optional-environment-variables) for Google OAuth, Stripe, AI features, and more.
+| Variable                                     | Description                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`   | Google sign-in. `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=true` must be set at **build** time — Next inlines it into the client bundle, so a runtime env var is not enough |
+| `OPENAI_API_KEY`                             | Enables AI chat and insights                                                                                                                                       |
+| `OPENAI_BASE_URL`                            | Any OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio)                                                                                                |
+| `OPENAI_ENDPOINT`                            | Azure OpenAI endpoint, used only when `OPENAI_BASE_URL` is unset                                                                                                   |
+| `OPENAI_CHAT_MODEL`, `OPENAI_INSIGHTS_MODEL` | Model or deployment names                                                                                                                                          |
+
+AI features stay hidden until `OPENAI_API_KEY` and one of the endpoints is set.
+
+### Removed — these no longer do anything
+
+`STRIPE_*`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `RESEND_API_KEY`,
+`NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`. Billing, transactional email,
+and analytics have been removed from this fork.
+
+---
+
+## Choosing the URLs
+
+All three public values must be reachable **from the machine running the browser**,
+not just from the host:
+
+```dotenv
+SITE_URL=http://10.0.0.5:3030
+NEXT_PUBLIC_CONVEX_URL=http://10.0.0.5:3210
+NEXT_PUBLIC_CONVEX_SITE_URL=http://10.0.0.5:3211
+CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210
+```
+
+`CONVEX_CLOUD_ORIGIN` / `CONVEX_SITE_ORIGIN` are what the backend **advertises** to
+clients; internal routing always uses loopback. If they point somewhere the browser
+cannot reach, uploads and auth callbacks fail.
+
+### Reverse proxy
+
+| Public URL                    | Target  | Notes                                    |
+| ----------------------------- | ------- | ---------------------------------------- |
+| `https://app.example.com`     | `:3030` | Ignidash app                             |
+| `https://api.example.com`     | `:3210` | Convex API — **needs WebSocket support** |
+| `https://actions.example.com` | `:3211` | Convex HTTP actions                      |
+
+Nginx needs `proxy_set_header Upgrade $http_upgrade` and
+`proxy_set_header Connection "upgrade"` on the 3210 host. Caddy and Traefik handle
+this automatically.
+
+---
+
+## Updating
+
+```bash
+npx convex export --path backup.zip   # data backup — backend migrations are one-way
+# bump CONVEX_IMAGE in the Dockerfile to a newer digest
+docker compose build
+docker compose up -d
+npm run selfhost -- --sync-only
+npm run selfhost:convex-deploy
+```
+
+The backend applies in-place migrations on start, so **rolling it back is unsafe**.
+That is why the image is pinned by digest rather than tracking `:latest`. Export
+before every upgrade.
+
+---
+
+## No dashboard
+
+The Convex dashboard is not shipped. Everything it did has a CLI equivalent:
+
+```bash
+npx convex data <table> --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
+npx convex logs        --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
+npx convex env list    --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
+npx convex run <fn>    --url $CONVEX_SELF_HOSTED_URL --admin-key $CONVEX_SELF_HOSTED_ADMIN_KEY
+```
+
+### "Failed to decrypt private key"
+
+This means `BETTER_AUTH_SECRET` changed while encrypted JWKs remained in the
+database. Without a dashboard the supported fixes are:
+
+1. **Fresh deployment** — stop the container, delete `/convex/data`, start again.
+2. **Restore from a known-good export** — `npx convex import backup.zip --replace`.
+
+There is no self-service table editor. Treat `BETTER_AUTH_SECRET` as immutable.
+
+---
 
 ## Troubleshooting
 
-### "Failed to decrypt private key" error
-
-This happens when `BETTER_AUTH_SECRET` changes, but the database still has keys encrypted with the old secret. Common cause: running `npm run selfhost -- --init` a second time after already logging in.
-
-To fix:
-
-1. Open Convex Dashboard at http://localhost:6791
-2. Find the `betterAuth_jwks` table
-3. Delete all rows
-4. Try logging in again
-
-### Services won't start
-
-Check which services are running and their health status:
+### Container is unhealthy
 
 ```bash
 docker compose ps
+docker compose logs --tail=100 ignidash
 ```
 
-Then check the logs for the failing service:
+The healthcheck requires **both** processes: `127.0.0.1:3210/version` (backend) and
+`127.0.0.1:3000/api/health` (app). A dead backend shows as an unhealthy container.
 
-```bash
-docker compose logs
-```
+Startup order is handled inside the entrypoint — it waits for `/version` before
+starting Next.js, so an early `502` usually means the backend never came up.
 
-A common cause is port conflicts. These are the ports each service requires:
+### Port conflicts
 
 | Port | Service             |
 | ---- | ------------------- |
-| 3000 | Ignidash app        |
+| 3030 | Ignidash app        |
 | 3210 | Convex backend API  |
-| 3211 | Convex HTTP Actions |
-| 6791 | Convex Dashboard    |
+| 3211 | Convex HTTP actions |
 
-Other causes include insufficient memory or Docker not running.
+Node.js 22 is also required on the host for the CLI; the container ships its own.
 
 ### Missing environment variables in Convex
 
-List current Convex env vars (find the admin key in `.env.local` under `CONVEX_SELF_HOSTED_ADMIN_KEY`):
-
 ```bash
-npx convex env list --url http://127.0.0.1:3210 --admin-key <your-admin-key>
-```
-
-Re-sync with:
-
-```bash
+npx convex env list --url http://127.0.0.1:3210 --admin-key <key>
 npm run selfhost -- --sync-only
 ```
 
-## Convex Self-Hosting Documentation
+---
+
+## Known limitations
+
+- **No password recovery.** Email delivery is gone, so a forgotten password cannot be
+  reset from the UI. Recovery is operator-assisted: create a new account, or restore
+  a backup. A CLI reset helper is still to be added.
+- **No billing, analytics, or email.** Deliberate — see
+  `PLAN-single-container-offline.md`.
+- **Single container means shared fate.** Restarting the container restarts both
+  processes; there is no way to restart only the backend.
+
+## Convex self-hosting documentation
 
 - [Self-Hosting Overview](https://docs.convex.dev/self-hosting)
-- [Develop & Deploy Guide](https://stack.convex.dev/self-hosted-develop-and-deploy)
-- [GitHub: Self-Hosted README](https://github.com/get-convex/convex-backend/blob/main/self-hosted/README.md)
-- [GitHub: Upgrading](https://github.com/get-convex/convex-backend/blob/main/self-hosted/advanced/upgrading.md)
-- [GitHub: Hosting on Own Infrastructure](https://github.com/get-convex/convex-backend/blob/main/self-hosted/advanced/hosting_on_own_infra.md)
+- [Hosting on Own Infrastructure](https://github.com/get-convex/convex-backend/blob/main/self-hosted/advanced/hosting_on_own_infra.md)
+- [Upgrading](https://github.com/get-convex/convex-backend/blob/main/self-hosted/advanced/upgrading.md)

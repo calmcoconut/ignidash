@@ -20,20 +20,7 @@ describe('getSafeRedirect', () => {
   });
 
   it('should accept all explicitly allowed routes', () => {
-    const allowed = [
-      '/',
-      '/settings',
-      '/dashboard',
-      '/dashboard/simulator',
-      '/dashboard/compare',
-      '/dashboard/insights',
-      '/pricing',
-      '/success',
-      '/help',
-      '/terms',
-      '/privacy',
-      '/about',
-    ];
+    const allowed = ['/', '/settings', '/dashboard', '/dashboard/simulator', '/dashboard/compare', '/dashboard/insights', '/help'];
     for (const route of allowed) {
       expect(getSafeRedirect(route)).toBe(route);
     }

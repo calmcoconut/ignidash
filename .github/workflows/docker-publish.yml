@@ -163,7 +163,15 @@ jobs:
             TAG="${GITHUB_REF_NAME//\//-}"
           fi
           echo "Using tag: $TAG"
-          docker run --rm --platform linux/amd64 --entrypoint node ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG --version
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG"
+          # The merged image must carry all three payloads: the app's Node
+          # runtime, the Convex backend binary, and the supervisor entrypoint.
+          docker run --rm --platform linux/amd64 --entrypoint node "$IMAGE" --version
+          docker run --rm --platform linux/amd64 \
+            --entrypoint /bin/bash "$IMAGE" -c \
+            'set -e; test -x /convex/convex-local-backend; test -x /convex/run_backend.sh; \
+             test -x /usr/local/bin/docker-entrypoint.sh; test -x /usr/bin/tini; \
+             test -f /app/server.js; echo "layout ok"'
           echo "Image test passed"
 
   summary:

@@ -5,10 +5,10 @@ import { api } from '@/convex/_generated/api';
 import { ConvexError } from 'convex/values';
 import { useState } from 'react';
 import { Trash2Icon } from 'lucide-react';
-import posthog from 'posthog-js';
 
 import Card from '@/components/ui/card';
-import { Fieldset, FieldGroup, Field, Legend, Description, ErrorMessage } from '@/components/catalyst/fieldset';
+import { Fieldset, FieldGroup, Field, Label, Legend, Description, ErrorMessage } from '@/components/catalyst/fieldset';
+import { Input } from '@/components/catalyst/input';
 import { Alert, AlertActions, AlertDescription, AlertTitle, AlertBody } from '@/components/catalyst/alert';
 import ErrorMessageCard from '@/components/ui/error-message-card';
 import { Button } from '@/components/catalyst/button';
@@ -27,19 +27,18 @@ export default function DataSettingsForm({ showSuccessNotification }: DataSettin
   const [appDataDeleteError, setAppDataDeleteError] = useState<string | null>(null);
 
   const [accountDeletionAlertOpen, setAccountDeletionAlertOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   const deleteAppDataMutation = useMutation(api.app_data.deleteAppData);
   const handleDeleteApplicationData = async () => {
-    posthog.capture('delete_app_data');
     await deleteAppDataMutation({ shouldCreateBlankPlan: true });
   };
 
   const { fieldState: deleteAccountState, createCallbacks: deleteAccountCallbacks } = useBetterAuthField();
   const handleDeleteAccount = async () => {
-    posthog.capture('delete_account');
     await authClient.deleteUser(
       { callbackURL: '/signin?deleted=success' },
-      deleteAccountCallbacks(() => showSuccessNotification('Account deletion initiated. Check your email for further instructions.'))
+      deleteAccountCallbacks(() => showSuccessNotification('Your account and all of its data have been deleted.'))
     );
   };
 
@@ -77,15 +76,18 @@ export default function DataSettingsForm({ showSuccessNotification }: DataSettin
                   type="button"
                   className="w-full"
                   data-slot="control"
-                  onClick={() => setAccountDeletionAlertOpen(true)}
+                  onClick={() => {
+                    setDeleteConfirmation('');
+                    setAccountDeletionAlertOpen(true);
+                  }}
                   disabled={deleteAccountState.isLoading}
                 >
-                  {deleteAccountState.isLoading ? 'Sending deletion email...' : 'Delete my account'}
+                  {deleteAccountState.isLoading ? 'Deleting...' : 'Delete my account'}
                 </Button>
                 {deleteAccountState.errorMessage && <ErrorMessage>{deleteAccountState.errorMessage}</ErrorMessage>}
                 <Description>
-                  <strong className="text-red-500 dark:text-red-400">Warning:</strong> This action will initiate the deletion of your
-                  account. You will receive an email with instructions to confirm the deletion.
+                  <strong className="text-red-500 dark:text-red-400">Warning:</strong> This permanently deletes your account and all of its
+                  data. This cannot be undone.
                 </Description>
               </Field>
             </FieldGroup>
@@ -134,19 +136,31 @@ export default function DataSettingsForm({ showSuccessNotification }: DataSettin
         }}
       >
         <AlertTitle>Are you sure you want to delete your account?</AlertTitle>
-        <AlertDescription>This action will send a deletion email to your registered email address for confirmation.</AlertDescription>
+        <AlertDescription>This permanently deletes your account and all of its data. This cannot be undone.</AlertDescription>
+        <AlertBody>
+          <Field>
+            <Label>Type DELETE to confirm</Label>
+            <Input
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value.toUpperCase())}
+              inputMode="text"
+              autoComplete="off"
+            />
+          </Field>
+        </AlertBody>
         <AlertActions>
           <Button plain onClick={() => setAccountDeletionAlertOpen(false)}>
             Cancel
           </Button>
           <Button
             color="red"
+            disabled={deleteConfirmation !== 'DELETE' || deleteAccountState.isLoading}
             onClick={async () => {
               setAccountDeletionAlertOpen(false);
               await handleDeleteAccount();
             }}
           >
-            Send deletion email
+            Delete account permanently
           </Button>
         </AlertActions>
       </Alert>

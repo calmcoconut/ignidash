@@ -1,73 +1,90 @@
-# Stage 1: Dependencies
-FROM node:22-alpine AS deps
+# syntax=docker/dockerfile:1
+
+# ---------------------------------------------------------------------------
+# Ignidash — single-container self-hosted image.
+#
+# One container runs two supervised processes under tini:
+#   * the Convex self-hosted backend  (/convex/run_backend.sh)
+#   * the Next.js standalone server   (node server.js)
+#
+# The runner stage is based on the Convex backend image on purpose: that binary
+# is dynamically linked against glibc 2.39 (ubuntu:noble) and cannot run on
+# alpine/musl or on bookworm (glibc 2.36). Node is copied in from a Debian
+# image, and the build stages use the same libc so native modules such as sharp
+# are built for the runtime they will actually execute on.
+#
+# See PLAN-single-container-offline.md for the reasoning behind each choice.
+# ---------------------------------------------------------------------------
+
+# Digest-pinned on purpose: the backend applies in-place migrations at startup,
+# so rolling it back is unsafe. Bump deliberately, then `npx convex export`.
+ARG CONVEX_IMAGE=ghcr.io/convex/convex-backend@sha256:207cf95def42f01614b6e3af0af5c20d0dcaa5ff2adf258ee7bc9555576644fa
+ARG NODE_IMAGE=node:22-bookworm-slim
+
+# Node toolchain: shared by the two build stages and copied into the runner.
+FROM ${NODE_IMAGE} AS nodejs
+
+# Stage 1: dependencies
+FROM nodejs AS deps
 WORKDIR /app
-
-# Install dependencies needed for native modules
-RUN apk add --no-cache libc6-compat
-
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
-# Stage 2: Builder
-FROM node:22-alpine AS builder
+# Stage 2: builder
+FROM nodejs AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build arguments for environment variables needed at build time
-# SELF_HOSTED enables Next.js standalone output for smaller Docker images
+# NEXT_PUBLIC_* values are inlined by Next at build time. The entrypoint patches
+# the bundles at start so one image works on any host; these are only defaults.
 ARG SELF_HOSTED=true
-ARG NEXT_PUBLIC_CONVEX_URL
-ARG NEXT_PUBLIC_CONVEX_SITE_URL
-ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-ARG NEXT_PUBLIC_POSTHOG_KEY
-ARG NEXT_PUBLIC_POSTHOG_HOST
+ARG NEXT_PUBLIC_CONVEX_URL=http://localhost:3210
+ARG NEXT_PUBLIC_CONVEX_SITE_URL=http://localhost:3211
+ARG NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=false
 
-ENV SELF_HOSTED=$SELF_HOSTED
-ENV NEXT_PUBLIC_CONVEX_URL=$NEXT_PUBLIC_CONVEX_URL
-ENV NEXT_PUBLIC_CONVEX_SITE_URL=$NEXT_PUBLIC_CONVEX_SITE_URL
-ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
-ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
+ENV SELF_HOSTED=${SELF_HOSTED} \
+    NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL} \
+    NEXT_PUBLIC_CONVEX_SITE_URL=${NEXT_PUBLIC_CONVEX_SITE_URL} \
+    NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=${NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED} \
+    NEXT_TELEMETRY_DISABLED=1
 
-# Disable Next.js telemetry during build
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# Build the application
 RUN npm run build
 
-# Stage 3: Runner
-FROM node:22-alpine AS runner
+# Stage 3: runner — Convex backend + Next.js under tini
+FROM ${CONVEX_IMAGE} AS runner
+
+# tini is PID 1 so both children are reaped and signals are forwarded. The
+# backend image already ships curl and ca-certificates for the readiness probe.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node 22 for the app. The backend image carries its own Node for "use node"
+# actions; this one is for `node server.js`.
+COPY --from=nodejs /usr/local /usr/local
+
 WORKDIR /app
 
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+RUN groupadd --system --gid 1001 nodejs \
+    && useradd --system --uid 1001 --gid nodejs --home-dir /app --shell /usr/sbin/nologin nextjs \
+    && mkdir -p /app/.next \
+    && chown nextjs:nodejs /app/.next
 
-# Don't run as root
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy public assets
 COPY --from=builder /app/public ./public
-
-# Set correct permissions for prerender cache
-RUN mkdir .next
-RUN chown nextjs:nodejs .next
-
-# Copy standalone build output
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy entrypoint script that patches URLs at startup
-COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-USER nextjs
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
-EXPOSE 3000
+# 3000 app · 3210 Convex API/WebSocket (the browser dials this directly) · 3211 HTTP actions
+EXPOSE 3000 3210 3211
 
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-ENTRYPOINT ["./docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]

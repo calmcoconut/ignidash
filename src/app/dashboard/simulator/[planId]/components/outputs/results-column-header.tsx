@@ -2,7 +2,6 @@
 
 import { useState, lazy, Suspense } from 'react';
 import { MessageCircleMoreIcon, PresentationIcon, SettingsIcon, Undo2Icon, WandSparklesIcon } from 'lucide-react';
-import posthog from 'posthog-js';
 
 import { cn } from '@/lib/utils';
 import IconButton from '@/components/ui/icon-button';
@@ -100,7 +99,6 @@ export default function ResultsColumnHeader() {
               label="Ask AI"
               onClick={() => {
                 if (showAIChatPulse) updateShowAIChatPulse(false);
-                posthog.capture('open_ai_chat');
                 setAiChatOpen(true);
               }}
               surfaceColor="emphasized"

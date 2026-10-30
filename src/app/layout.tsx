@@ -1,9 +1,7 @@
 import type { Metadata, Viewport } from 'next';
-import { Analytics } from '@vercel/analytics/next';
 import { Figtree, Geist_Mono, Geist } from 'next/font/google';
 
 import { ThemeProvider } from '@/components/providers/theme-provider';
-import CookieBanner from '@/components/cookie-banner';
 import { getToken } from '@/lib/auth-server';
 
 import { ConvexClientProvider } from './convex-client-provider';
@@ -152,11 +150,7 @@ export default async function RootLayout({
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <ConvexClientProvider initialToken={initialToken}>
-            {children}
-            <CookieBanner />
-            {process.env.VERCEL && <Analytics />}
-          </ConvexClientProvider>
+          <ConvexClientProvider initialToken={initialToken}>{children}</ConvexClientProvider>
         </ThemeProvider>
       </body>
     </html>

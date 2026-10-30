@@ -2,8 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { track } from '@vercel/analytics';
-import posthog from 'posthog-js';
 
 import AppLogo from '@/components/app-logo';
 import { authClient } from '@/lib/auth-client';
@@ -25,15 +23,11 @@ export default function SignUpForm() {
   const handleEmailSignUp = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    track('Sign up');
-
     const formData = new FormData(event.currentTarget);
 
     const email = formData.get('email') as string;
     const fullName = formData.get('full-name') as string;
     const password = formData.get('password') as string;
-
-    posthog.capture('sign_up', { email, full_name: fullName });
 
     await authClient.signUp.email(
       { email, password, name: fullName, callbackURL: safeRedirect },
@@ -94,7 +88,7 @@ export default function SignUpForm() {
                 </button>
               </div>
             </form>
-            <GoogleSignIn safeRedirect={safeRedirect} />
+            {process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === 'true' && <GoogleSignIn safeRedirect={safeRedirect} />}
           </div>
 
           <p className="mt-10 text-center text-sm/6 text-stone-500 dark:text-stone-400">
@@ -108,17 +102,6 @@ export default function SignUpForm() {
           </p>
         </div>
       </div>
-      <p className="pb-6 text-center text-xs/6 text-stone-500 dark:text-stone-400">
-        By creating an account, you agree to the{' '}
-        <Link href="/terms" className="underline hover:text-stone-700 dark:hover:text-stone-300">
-          Terms of Service
-        </Link>{' '}
-        and{' '}
-        <Link href="/privacy" className="underline hover:text-stone-700 dark:hover:text-stone-300">
-          Privacy Policy
-        </Link>
-        .
-      </p>
     </div>
   );
 }

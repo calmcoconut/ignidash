@@ -12,30 +12,18 @@ import PageLoading from '@/components/ui/page-loading';
 
 import ProfileInfoForm from './profile-info-form';
 import DataSettingsForm from './data-settings-form';
-import BillingFormStarter from './billing-form-starter';
-import BillingFormPro from './billing-form-pro';
 
 interface SettingsFormsProps {
   preloadedUser: Preloaded<typeof api.auth.getCurrentUserSafe>;
-  preloadedSubscriptions: Preloaded<typeof api.auth.listSubscriptions>;
 }
 
-export default function SettingsForms({ preloadedUser, preloadedSubscriptions }: SettingsFormsProps) {
+export default function SettingsForms({ preloadedUser }: SettingsFormsProps) {
   const auth = useConvexAuth();
   const isAuthenticated = auth.isAuthenticated;
   const isAuthLoading = auth.isLoading;
 
   const authData = usePreloadedAuthQuery(preloadedUser);
   const { accounts: accountsData, isLoading: isAccountsDataLoading } = useAccountsList();
-
-  const subscriptions = usePreloadedAuthQuery(preloadedSubscriptions);
-  const subscriptionsData = useMemo(
-    () => (subscriptions ?? []).map(({ plan, status, stripeSubscriptionId: id }) => ({ plan, status, id })),
-    [subscriptions]
-  );
-  const isProUser = subscriptionsData.some(
-    (subscription) => subscription.plan === 'pro' && (subscription.status === 'active' || subscription.status === 'trialing')
-  );
 
   const settingsCapabilities = useMemo(() => {
     const isSignedInWithSocialProvider = accountsData?.some((account) => account.providerId !== 'credential') ?? false;
@@ -57,7 +45,6 @@ export default function SettingsForms({ preloadedUser, preloadedSubscriptions }:
     );
   }
 
-  const isEmailVerified = authData?.emailVerified ?? false;
   const fetchedName = authData?.name ?? '';
   const fetchedEmail = authData?.email ?? '';
 
@@ -65,12 +52,10 @@ export default function SettingsForms({ preloadedUser, preloadedSubscriptions }:
     <>
       <main className="mx-auto min-h-dvh max-w-prose px-2 pt-[4.25rem] pb-[2.125rem] sm:px-3 lg:px-4">
         <Authenticated>
-          {!isProUser && <BillingFormStarter />}
           <ProfileInfoForm
-            userData={{ fetchedName, fetchedEmail, isEmailVerified, ...settingsCapabilities }}
+            userData={{ fetchedName, fetchedEmail, ...settingsCapabilities }}
             showSuccessNotification={showSuccessNotification}
           />
-          {isProUser && <BillingFormPro subscriptions={subscriptionsData} />}
           <DataSettingsForm showSuccessNotification={showSuccessNotification} />
         </Authenticated>
       </main>

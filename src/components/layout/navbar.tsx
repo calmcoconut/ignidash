@@ -3,10 +3,9 @@
 import Link from 'next/link';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { CircleUserRoundIcon, LogInIcon, LogOutIcon, LoaderIcon, LayoutDashboardIcon, GemIcon } from 'lucide-react';
+import { LogInIcon, LogOutIcon, LoaderIcon, LayoutDashboardIcon } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Unauthenticated, Authenticated, AuthLoading } from 'convex/react';
-import posthog from 'posthog-js';
 
 import { authClient } from '@/lib/auth-client';
 import {
@@ -22,6 +21,7 @@ import { Avatar } from '@/components/catalyst/avatar';
 import { Navbar as CatalystNavbar, NavbarItem, NavbarSection, NavbarSpacer, NavbarDivider } from '@/components/catalyst/navbar';
 import AppLogo from '@/components/app-logo';
 import { useThemeSwitcher } from '@/hooks/use-theme-switcher';
+import { getInitials } from '@/lib/utils/initials';
 
 function NavbarModeToggle() {
   const themeSwitcher = useThemeSwitcher();
@@ -40,19 +40,16 @@ export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const user = useQuery(api.auth.getCurrentUserSafe);
-  const hasActiveSubscription = useQuery(api.auth.getHasActiveSubscription) ?? false;
 
   const signInUrlWithRedirect = `/signin?redirect=${encodeURIComponent(pathname)}`;
 
   const name = user?.name ?? 'Anonymous';
   const email = user?.email;
-  const image = user?.image;
 
   const signOut = async () => {
     await authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
-          posthog.reset();
           router.push(signInUrlWithRedirect);
         },
       },
@@ -66,13 +63,6 @@ export default function Navbar() {
       </Link>
       <NavbarDivider className="max-lg:hidden" />
       <NavbarSection className="max-lg:hidden">
-        <NavbarItem href="/privacy" current={pathname === '/privacy'}>
-          Privacy
-        </NavbarItem>
-        <NavbarItem href="/terms" current={pathname === '/terms'}>
-          Terms
-        </NavbarItem>
-        <NavbarDivider />
         <NavbarItem href="/settings" current={pathname === '/settings'}>
           Settings
         </NavbarItem>
@@ -85,7 +75,7 @@ export default function Navbar() {
         <NavbarModeToggle />
         <Dropdown>
           <DropdownButton as={NavbarItem} aria-label="Account options">
-            {image ? <Avatar src={image} square /> : <CircleUserRoundIcon data-slot="icon" />}
+            <Avatar initials={getInitials(name)} square />
           </DropdownButton>
           <DropdownMenu className="z-[60] min-w-(--button-width)">
             <AuthLoading>
@@ -95,17 +85,10 @@ export default function Navbar() {
               </DropdownItem>
             </AuthLoading>
             <Unauthenticated>
-              {!hasActiveSubscription && (
-                <DropdownItem href="/pricing">
-                  <GemIcon data-slot="icon" />
-                  <DropdownLabel>Upgrade to Pro</DropdownLabel>
-                </DropdownItem>
-              )}
               <DropdownItem href="/dashboard">
                 <LayoutDashboardIcon data-slot="icon" />
                 <DropdownLabel>Dashboard</DropdownLabel>
               </DropdownItem>
-              {!hasActiveSubscription && <DropdownDivider />}
               <DropdownItem href={signInUrlWithRedirect}>
                 <LogInIcon data-slot="icon" />
                 <DropdownLabel>Sign in</DropdownLabel>
@@ -119,17 +102,10 @@ export default function Navbar() {
                 </div>
               </DropdownHeader>
               <DropdownDivider />
-              {!hasActiveSubscription && (
-                <DropdownItem href="/pricing">
-                  <GemIcon data-slot="icon" />
-                  <DropdownLabel>Upgrade to Pro</DropdownLabel>
-                </DropdownItem>
-              )}
               <DropdownItem href="/dashboard">
                 <LayoutDashboardIcon data-slot="icon" />
                 <DropdownLabel>Dashboard</DropdownLabel>
               </DropdownItem>
-              {!hasActiveSubscription && <DropdownDivider />}
               <DropdownItem onClick={() => signOut()}>
                 <LogOutIcon data-slot="icon" />
                 <DropdownLabel>Sign out</DropdownLabel>

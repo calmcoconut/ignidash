@@ -8,7 +8,6 @@ import Link from 'next/link';
 import { SparklesIcon, CopyIcon, CheckIcon, RefreshCwIcon, Loader2Icon } from 'lucide-react';
 import { ArrowLongLeftIcon, ArrowLongRightIcon } from '@heroicons/react/20/solid';
 import ReactMarkdown from 'react-markdown';
-import posthog from 'posthog-js';
 
 import { Heading } from '@/components/catalyst/heading';
 import { useInsightsSelectedPlan } from '@/lib/stores/simulator-store';
@@ -171,7 +170,6 @@ export default function AIOutput() {
                   <button
                     disabled={selectedInsight.isLoading}
                     onClick={() => {
-                      posthog.capture('open_generate_insights', { plan_id: selectedPlanId, is_regenerate: true });
                       setGenerateDialogOpen(true);
                     }}
                     aria-label="Regenerate insights"
@@ -188,7 +186,6 @@ export default function AIOutput() {
               {!isLoadingPage || numInsights === 0 ? (
                 <DataListEmptyStateButton
                   onClick={() => {
-                    posthog.capture('open_generate_insights', { plan_id: selectedPlanId, is_regenerate: false });
                     setGenerateDialogOpen(true);
                   }}
                   icon={SparklesIcon}

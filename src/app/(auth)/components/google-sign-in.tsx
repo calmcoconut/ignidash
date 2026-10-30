@@ -1,8 +1,5 @@
 'use client';
 
-import { track } from '@vercel/analytics';
-import posthog from 'posthog-js';
-
 import { authClient } from '@/lib/auth-client';
 import GoogleIcon from '@/components/ui/google-icon';
 
@@ -12,10 +9,6 @@ interface GoogleSignInProps {
 
 export default function GoogleSignIn({ safeRedirect }: GoogleSignInProps) {
   const handleGoogleSignIn = async () => {
-    track('Sign in', { signin_method: 'google' });
-    posthog.capture('sign_in', {
-      signin_method: 'google',
-    });
     await authClient.signIn.social({ provider: 'google', callbackURL: safeRedirect });
   };
 

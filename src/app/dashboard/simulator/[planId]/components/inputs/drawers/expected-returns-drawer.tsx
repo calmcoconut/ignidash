@@ -6,7 +6,6 @@ import { api } from '@/convex/_generated/api';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { useEffect, useMemo, useState } from 'react';
-import posthog from 'posthog-js';
 
 import { marketAssumptionsToConvex } from '@/lib/utils/data-transformers';
 import { type MarketAssumptionsInputs, marketAssumptionsFormSchema } from '@/lib/schemas/inputs/market-assumptions-form-schema';
@@ -69,7 +68,6 @@ export default function ExpectedReturnsDrawer({ setOpen, marketAssumptions }: Ex
   const onSubmit = async (data: MarketAssumptionsInputs) => {
     try {
       setSaveError(null);
-      posthog.capture('save_expected_returns', { plan_id: planId });
       await m({ marketAssumptions: marketAssumptionsToConvex(data), planId });
       setOpen(false);
     } catch (error) {

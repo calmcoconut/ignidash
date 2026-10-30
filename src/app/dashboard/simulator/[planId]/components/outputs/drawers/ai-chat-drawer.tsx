@@ -8,12 +8,9 @@ import { useSmoothText } from '@convex-dev/agent/react';
 import { PaperAirplaneIcon, PlusIcon } from '@heroicons/react/16/solid';
 import type { Id, Doc } from '@/convex/_generated/dataModel';
 import { EllipsisVerticalIcon } from '@heroicons/react/20/solid';
-import { CircleUserRoundIcon, CopyIcon, CheckIcon, WandSparklesIcon, Loader2Icon } from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
+import { CopyIcon, CheckIcon, WandSparklesIcon, Loader2Icon } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useTheme } from 'next-themes';
-import posthog from 'posthog-js';
 
 import AppLogo from '@/components/app-logo';
 import { Button } from '@/components/catalyst/button';
@@ -32,6 +29,7 @@ import {
 } from '@/lib/stores/simulator-store';
 import { Dropdown, DropdownButton, DropdownItem, DropdownMenu, DropdownLabel, DropdownDescription } from '@/components/catalyst/dropdown';
 import { cn } from '@/lib/utils';
+import { getInitials } from '@/lib/utils/initials';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Subheading } from '@/components/catalyst/heading';
 import ErrorMessageCard from '@/components/ui/error-message-card';
@@ -87,7 +85,6 @@ function DemoQuestionButton({ label, question, setChatMessage }: DemoQuestionBut
   return (
     <button
       onClick={() => {
-        posthog.capture('select_demo_question', { label });
         setChatMessage(question);
       }}
       type="button"
@@ -102,10 +99,10 @@ function DemoQuestionButton({ label, question, setChatMessage }: DemoQuestionBut
 
 interface ChatMessageProps {
   message: Doc<'messages'>;
-  image?: string | null;
+  name?: string | null;
 }
 
-function ChatMessage({ message, image }: ChatMessageProps) {
+function ChatMessage({ message, name }: ChatMessageProps) {
   const [copied, setCopied] = useState<boolean>(false);
   const { resolvedTheme } = useTheme();
 
@@ -172,11 +169,7 @@ function ChatMessage({ message, image }: ChatMessageProps) {
       </div>
       {message.author === 'user' && (
         <div className="bg-muted-foreground flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg">
-          {image ? (
-            <Image src={image} alt="Profile image" width={32} height={32} className="object-cover" />
-          ) : (
-            <CircleUserRoundIcon className="text-background text-sm font-medium" />
-          )}
+          <span className="text-background text-xs font-semibold">{getInitials(name)}</span>
         </div>
       )}
     </div>
@@ -200,7 +193,6 @@ function ConversationListItem({
 
   const handleDelete = async () => {
     if (conversation._id === selectedConversationId) clearSelectedConversationId();
-    posthog.capture('delete_conversation');
     await deleteConversation({ conversationId: conversation._id });
   };
 
@@ -214,7 +206,6 @@ function ConversationListItem({
       <button
         className="focus-outline min-w-0 flex-auto"
         onClick={() => {
-          posthog.capture('select_conversation');
           setSelectedConversationId(conversation._id);
         }}
       >
@@ -329,7 +320,6 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
 
     try {
       updateChatState({ errorMessage: '' });
-      posthog.capture('send_ai_message');
       const { conversationId } = await m({
         conversationId: selectedConversationId,
         planId,
@@ -347,7 +337,6 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
 
   const handleLoadMore = () => {
     prevScrollHeightRef.current = scrollAreaRef.current?.scrollHeight ?? 0;
-    posthog.capture('load_more_ai_messages');
     loadMore(PAGE_SIZE);
   };
 
@@ -390,7 +379,6 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
               color="dark/white"
               className="w-full"
               onClick={() => {
-                posthog.capture('create_new_chat', { location: 'drawer' });
                 clearSelectedConversationId(planId);
               }}
             >
@@ -407,7 +395,6 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
               <Button
                 outline
                 onClick={() => {
-                  posthog.capture('create_new_chat', { location: 'header' });
                   clearSelectedConversationId(planId);
                 }}
               >
@@ -425,11 +412,7 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
                   <AppLogo className="mx-auto h-10 w-auto" />
                   <h2 className="mt-6 text-center text-2xl/9 font-bold tracking-tight text-stone-900 dark:text-white">Your AI Assistant</h2>
                   <p className="text-muted-foreground mt-2 text-center text-sm/6">
-                    The AI assistant is for educational purposes only and does not provide professional financial advice. Read our{' '}
-                    <Link href="/terms" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
-                      Terms of Service
-                    </Link>{' '}
-                    for more.
+                    The AI assistant is for educational purposes only and does not provide professional financial advice.
                   </p>
                   <Divider className="my-6" soft />
                   <CheckboxGroup>
@@ -469,7 +452,7 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
                   {messages
                     .filter((message) => message.body !== undefined)
                     .map((message) => (
-                      <ChatMessage key={message._id} message={message} image={user?.image} />
+                      <ChatMessage key={message._id} message={message} name={user?.name} />
                     ))}
                   {showMessageLoadingDots && (
                     <div className="flex gap-4">
@@ -539,12 +522,7 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
             {canUseChat ? (
               'AI can make mistakes. Verify important info.'
             ) : (
-              <strong>
-                Upgrade to start chatting.{' '}
-                <Link href="/pricing" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
-                  View pricing →
-                </Link>
-              </strong>
+              <strong>AI features are not configured for this deployment.</strong>
             )}
           </p>
         </div>

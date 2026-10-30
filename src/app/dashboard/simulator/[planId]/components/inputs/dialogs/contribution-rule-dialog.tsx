@@ -8,7 +8,6 @@ import { HandCoinsIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import posthog from 'posthog-js';
 
 import { useAccountsData, useIncomesData, useTimelineData } from '@/hooks/use-convex-data';
 import { contributionToConvex } from '@/lib/utils/data-transformers';
@@ -85,7 +84,6 @@ export default function ContributionRuleDialog({
     const contributionRuleId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      posthog.capture('save_contribution_rule', { plan_id: planId, save_mode: selectedContributionRule ? 'edit' : 'create' });
       await m({ contributionRule: contributionToConvex({ ...data, id: contributionRuleId }), planId });
       onClose();
     } catch (error) {

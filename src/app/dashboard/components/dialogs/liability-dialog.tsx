@@ -8,7 +8,6 @@ import { CreditCardIcon } from '@heroicons/react/24/outline';
 import { v4 as uuidv4 } from 'uuid';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import posthog from 'posthog-js';
 
 import { liabilityToConvex } from '@/lib/utils/data-transformers';
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
@@ -64,7 +63,6 @@ export default function LiabilityDialog({ onClose, selectedLiability: _selectedL
     const liabilityId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      posthog.capture('save_liability', { save_mode: selectedLiability ? 'edit' : 'create' });
       await m({ liability: liabilityToConvex({ ...data, id: liabilityId }) });
       onClose();
     } catch (error) {

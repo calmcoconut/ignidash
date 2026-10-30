@@ -5,7 +5,7 @@ import { isAuthenticated as getIsAuthenticated } from '@/lib/auth-server';
 export async function proxy(request: NextRequest) {
   const isAuthenticated = await getIsAuthenticated();
 
-  const isAuthPage = ['/signin', '/signup', '/forgot-password'].some((path) => request.nextUrl.pathname.startsWith(path));
+  const isAuthPage = ['/signin', '/signup'].some((path) => request.nextUrl.pathname.startsWith(path));
   if (isAuthenticated && isAuthPage) return NextResponse.redirect(new URL('/dashboard', request.url));
 
   const isProtectedPage = request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/settings');
@@ -16,5 +16,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/signin', '/signup', '/forgot-password', '/dashboard/:path*', '/settings'],
+  matcher: ['/signin', '/signup', '/dashboard/:path*', '/settings'],
 };

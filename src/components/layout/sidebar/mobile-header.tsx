@@ -1,16 +1,16 @@
 'use client';
 
-import Image from 'next/image';
 import { LayoutDashboardIcon, MenuIcon } from 'lucide-react';
 import { useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { CircleUserRoundIcon } from 'lucide-react';
 import { MenuButton } from '@headlessui/react';
 import { usePathname } from 'next/navigation';
 
+import { Avatar } from '@/components/catalyst/avatar';
 import { Dropdown } from '@/components/catalyst/dropdown';
 import { useNavigationItems, isCurrentPath } from '@/hooks/use-sidebar-navigation';
 import { useCurrentPageTitle } from '@/hooks/use-sidebar-navigation';
+import { getInitials } from '@/lib/utils/initials';
 
 import AccountDropdownMenu from './auth/account-dropdown-menu';
 
@@ -32,11 +32,9 @@ export default function MobileHeader({ onMenuClick }: MobileHeaderProps) {
   const currentPageTitle = useCurrentPageTitle();
 
   const user = useQuery(api.auth.getCurrentUserSafe);
-  const hasActiveSubscription = useQuery(api.auth.getHasActiveSubscription) ?? false;
 
   const name = user?.name ?? 'Anonymous';
   const email = user?.email;
-  const image = user?.image;
 
   return (
     <div className="bg-emphasized-background border-border/50 fixed top-0 z-40 flex w-full items-center gap-x-6 border-b px-4 py-4 sm:px-6 lg:hidden">
@@ -50,13 +48,9 @@ export default function MobileHeader({ onMenuClick }: MobileHeaderProps) {
       </div>
       <Dropdown>
         <MenuButton aria-label="Account options" className="focus-outline shrink-0" suppressHydrationWarning>
-          {image ? (
-            <Image alt="Profile pic" src={image} className="size-8 shrink-0 rounded-full" width={32} height={32} />
-          ) : (
-            <CircleUserRoundIcon className="size-8 shrink-0 rounded-full" />
-          )}
+          <Avatar initials={getInitials(name)} className="size-8 shrink-0" />
         </MenuButton>
-        <AccountDropdownMenu fetchedName={name} fetchedEmail={email} hasActiveSubscription={hasActiveSubscription} />
+        <AccountDropdownMenu fetchedName={name} fetchedEmail={email} />
       </Dropdown>
     </div>
   );

@@ -10,7 +10,6 @@ import { MinusIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { CalendarIcon, HomeIcon, BanknoteArrowDownIcon, BanknoteXIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
-import posthog from 'posthog-js';
 
 import { useTimelineData } from '@/hooks/use-convex-data';
 import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
@@ -107,7 +106,6 @@ export default function PhysicalAssetDialog({
     const assetId = processedData.id === '' ? uuidv4() : processedData.id;
     try {
       setSaveError(null);
-      posthog.capture('save_physical_asset', { plan_id: planId, save_mode: selectedPhysicalAsset ? 'edit' : 'create' });
       await m({ physicalAsset: physicalAssetToConvex({ ...processedData, id: assetId }), planId });
       onClose();
     } catch (error) {

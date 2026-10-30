@@ -1,11 +1,5 @@
 const navigation = {
-  main: [
-    { name: 'About', href: '/about' },
-    { name: 'Pricing', href: '/pricing' },
-    { name: 'Privacy', href: '/privacy' },
-    { name: 'Terms', href: '/terms' },
-    { name: 'Contact', href: 'mailto:joe@schelske.dev' },
-  ],
+  main: [{ name: 'Contact', href: 'mailto:joe@schelske.dev' }],
   social: [
     {
       name: 'GitHub',

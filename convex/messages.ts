@@ -7,7 +7,7 @@ import { internal } from './_generated/api';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
 import { getConversationForCurrentUserOrThrow } from './utils/conversation_utils';
 import { getUserIdOrThrow } from './utils/auth_utils';
-import { checkUsageLimits, recordUsage, getCanUseAIFeatures, getSubscriptionInfo } from './utils/ai_utils';
+import { getCanUseAIFeatures } from './utils/ai_utils';
 import { getSystemPrompt } from './utils/sys_prompt_utils';
 import { keyMetricsValidator } from './validators/key_metrics_validator';
 import { simulationResultValidator } from './validators/simulation_result_validator';
@@ -49,14 +49,9 @@ export const send = mutation({
   handler: async (ctx, { conversationId: currConvId, planId, content, keyMetrics, simulationResult, includeSimData }) => {
     if (content.length > 4000) throw new ConvexError('Message cannot be longer than 4,000 characters.');
 
-    const [{ userId }, { canUseAIFeatures: canUseChat, isAdmin }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
+    const [{ userId }, { canUseAIFeatures: canUseChat }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
 
-    if (!canUseChat) throw new ConvexError('AI chat is not available. Upgrade to start chatting.');
-
-    const { startTime: subscriptionStartTime, type: subscriptionType } = await getSubscriptionInfo(ctx, isAdmin);
-
-    const { ok, retryAfter } = await checkUsageLimits(ctx, userId, 'chat', subscriptionStartTime, subscriptionType);
-    if (!ok) throw new ConvexError(`AI usage limit exceeded. Try again after ${new Date(Date.now() + retryAfter).toLocaleString()}.`);
+    if (!canUseChat) throw new ConvexError('AI chat is not available on this deployment.');
 
     const [loadingMessage, plan] = await Promise.all([
       ctx.db
@@ -108,8 +103,6 @@ export const send = mutation({
       messages,
       assistantMessageId,
       systemPrompt,
-      subscriptionStartTime,
-      subscriptionType,
     });
 
     return { messages, userMessageId, assistantMessageId, conversationId };
@@ -133,26 +126,17 @@ export const setBody = internalMutation({
 export const setUsage = internalMutation({
   args: {
     messageId: v.id('messages'),
-    userId: v.string(),
     inputTokens: v.number(),
     cachedInputTokens: v.number(),
     outputTokens: v.number(),
     totalTokens: v.number(),
-    subscriptionStartTime: v.number(),
-    subscriptionType: v.union(v.literal('active'), v.literal('trialing'), v.literal('admin')),
   },
-  handler: async (
-    ctx,
-    { messageId, userId, inputTokens, cachedInputTokens, outputTokens, totalTokens, subscriptionStartTime, subscriptionType }
-  ) => {
+  handler: async (ctx, { messageId, inputTokens, cachedInputTokens, outputTokens, totalTokens }) => {
     if (inputTokens + outputTokens !== totalTokens) {
       console.warn(`Token mismatch for message ${messageId}: ${inputTokens} + ${outputTokens} !== ${totalTokens}`);
     }
 
-    await Promise.all([
-      ctx.db.patch(messageId, { usage: { inputTokens, cachedInputTokens, outputTokens, totalTokens }, updatedAt: Date.now() }),
-      recordUsage(ctx, userId, inputTokens, cachedInputTokens, outputTokens, 'chat', subscriptionStartTime, subscriptionType),
-    ]);
+    await ctx.db.patch(messageId, { usage: { inputTokens, cachedInputTokens, outputTokens, totalTokens }, updatedAt: Date.now() });
   },
 });
 

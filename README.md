@@ -91,12 +91,12 @@ See [Known Limitations](https://www.ignidash.com/help#:~:text=Known%20limitation
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS
 - **Backend:** Convex (DB & server functions)
 - **Auth:** Better-Auth with Google OAuth
-- **Payments:** Stripe
-- **AI:** Azure OpenAI
+- **AI:** OpenAI-compatible (optional; local or remote endpoint)
+- **Email:** none — password recovery is operator-assisted
 
 ## Self-Hosting with Docker
 
-See [SELF_HOSTING.md](./SELF_HOSTING.md) for how to host Ignidash yourself with Docker.
+See [SELF_HOSTING.md](./SELF_HOSTING.md) for how to host Ignidash yourself. The whole stack runs in one container: the Convex backend and the Next.js app are supervised as two processes in a single image.
 
 ## Local Development
 
@@ -119,19 +119,17 @@ Generate secrets and edit `.env.local` with them:
 
 ```bash
 openssl rand -base64 32  # For BETTER_AUTH_SECRET
-openssl rand -base64 32  # For CONVEX_API_SECRET
 ```
 
 ### Optional Environment Variables
 
-| Variable                                                        | Description                                                               |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                      | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
-| `OPENAI_API_KEY`, `OPENAI_ENDPOINT`                             | [Azure AI Foundry](https://ai.azure.com/)                                 |
-| `RESEND_API_KEY`                                                | [Resend](https://resend.com/)                                             |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | [Stripe Dashboard](https://dashboard.stripe.com/)                         |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`                            | [Stripe Dashboard](https://dashboard.stripe.com/)                         |
-| `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`           | [PostHog](https://posthog.com/)                                           |
+| Variable                                     | Description                                                     |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`   | Google OAuth; also set `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=true`  |
+| `OPENAI_API_KEY`                             | Enables AI chat and insights                                    |
+| `OPENAI_BASE_URL`                            | OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM, LM Studio) |
+| `OPENAI_ENDPOINT`                            | Azure OpenAI endpoint, used when `OPENAI_BASE_URL` is unset     |
+| `OPENAI_CHAT_MODEL`, `OPENAI_INSIGHTS_MODEL` | Model or deployment names                                       |
 
 ### Syncing Environment Variables
 

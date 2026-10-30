@@ -8,7 +8,6 @@ import { PiggyBankIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
-import posthog from 'posthog-js';
 
 import { accountToConvex } from '@/lib/utils/data-transformers';
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
@@ -94,7 +93,6 @@ export default function SavingsDialog({ onClose, selectedAccount: _selectedAccou
     const accountId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      posthog.capture('save_account', { plan_id: planId, save_mode: selectedAccount ? 'edit' : 'create' });
       await m({ account: accountToConvex({ ...data, id: accountId }), planId });
       onClose();
     } catch (error) {

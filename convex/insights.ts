@@ -4,7 +4,7 @@ import { query, mutation, internalMutation } from './_generated/server';
 import { internal } from './_generated/api';
 
 import { getUserIdOrThrow } from './utils/auth_utils';
-import { checkUsageLimits, recordUsage, getCanUseAIFeatures, getSubscriptionInfo } from './utils/ai_utils';
+import { getCanUseAIFeatures } from './utils/ai_utils';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
 import { getInsightsSystemPrompt } from './utils/sys_prompt_utils';
 import { keyMetricsValidator } from './validators/key_metrics_validator';
@@ -59,17 +59,9 @@ export const generate = mutation({
   handler: async (ctx, { planId, keyMetrics, simulationResult, userPrompt }) => {
     if (userPrompt && userPrompt.length > 250) throw new ConvexError('Supplemental prompt cannot be longer than 250 characters.');
 
-    const [{ userId }, { canUseAIFeatures: canUseInsights, isAdmin }] = await Promise.all([
-      getUserIdOrThrow(ctx),
-      getCanUseAIFeatures(ctx),
-    ]);
+    const [{ userId }, { canUseAIFeatures: canUseInsights }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
 
-    if (!canUseInsights) throw new ConvexError('AI insights are not available. Upgrade to start generating insights.');
-
-    const { startTime: subscriptionStartTime, type: subscriptionType } = await getSubscriptionInfo(ctx, isAdmin);
-
-    const { ok, retryAfter } = await checkUsageLimits(ctx, userId, 'insights', subscriptionStartTime, subscriptionType);
-    if (!ok) throw new ConvexError(`AI usage limit exceeded. Try again after ${new Date(Date.now() + retryAfter).toLocaleString()}.`);
+    if (!canUseInsights) throw new ConvexError('AI insights are not available on this deployment.');
 
     const [loadingInsight, plan] = await Promise.all([
       ctx.db
@@ -89,8 +81,6 @@ export const generate = mutation({
       userId,
       insightId,
       systemPrompt,
-      subscriptionStartTime,
-      subscriptionType,
     });
 
     return { insightId };
@@ -114,26 +104,17 @@ export const setContent = internalMutation({
 export const setUsage = internalMutation({
   args: {
     insightId: v.id('insights'),
-    userId: v.string(),
     inputTokens: v.number(),
     cachedInputTokens: v.number(),
     outputTokens: v.number(),
     totalTokens: v.number(),
-    subscriptionStartTime: v.number(),
-    subscriptionType: v.union(v.literal('active'), v.literal('trialing'), v.literal('admin')),
   },
-  handler: async (
-    ctx,
-    { insightId, userId, inputTokens, cachedInputTokens, outputTokens, totalTokens, subscriptionStartTime, subscriptionType }
-  ) => {
+  handler: async (ctx, { insightId, inputTokens, cachedInputTokens, outputTokens, totalTokens }) => {
     if (inputTokens + outputTokens !== totalTokens) {
       console.warn(`Token mismatch for insight ${insightId}: ${inputTokens} + ${outputTokens} !== ${totalTokens}`);
     }
 
-    await Promise.all([
-      ctx.db.patch(insightId, { usage: { inputTokens, cachedInputTokens, outputTokens, totalTokens }, updatedAt: Date.now() }),
-      recordUsage(ctx, userId, inputTokens, cachedInputTokens, outputTokens, 'insights', subscriptionStartTime, subscriptionType),
-    ]);
+    await ctx.db.patch(insightId, { usage: { inputTokens, cachedInputTokens, outputTokens, totalTokens }, updatedAt: Date.now() });
   },
 });
 

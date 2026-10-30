@@ -7,7 +7,6 @@ import { FileTextIcon } from 'lucide-react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 import { useState } from 'react';
-import posthog from 'posthog-js';
 
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import { planMetadataSchema, type PlanMetadata } from '@/lib/schemas/plan-metadata-schema';
@@ -68,17 +67,13 @@ export default function PlanDialog({ onClose, numPlans, selectedPlan: _selectedP
     try {
       setSaveError(null);
       if (selectedPlan) {
-        posthog.capture('save_plan', { save_mode: 'edit' });
         await updateNameMutation({ planId: selectedPlan._id, name: data.name });
       } else if (isJsonImport && data.jsonImport !== undefined) {
-        posthog.capture('save_plan', { save_mode: 'json_import' });
         const { name: _name, isDefault: _isDefault, ...planData } = JSON.parse(data.jsonImport);
         await createPlanWithDataMutation({ ...planData, newPlanName: data.name, isDefault: false });
       } else if (data.clonedPlanId) {
-        posthog.capture('save_plan', { save_mode: 'clone' });
         await clonePlanMutation({ planId: data.clonedPlanId as Id<'plans'> | 'template1' | 'template2', newPlanName: data.name });
       } else {
-        posthog.capture('save_plan', { save_mode: 'create' });
         await createPlanMutation({ newPlanName: data.name });
       }
 

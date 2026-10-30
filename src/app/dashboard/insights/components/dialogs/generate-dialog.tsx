@@ -8,8 +8,6 @@ import { SparklesIcon } from '@heroicons/react/24/outline';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import type { Id } from '@/convex/_generated/dataModel';
-import Link from 'next/link';
-import posthog from 'posthog-js';
 
 import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import { simulationResultToConvex } from '@/lib/utils/data-transformers';
@@ -61,7 +59,6 @@ export default function GenerateDialog({
   const onSubmit = async (data: GenerateInsightsInputs) => {
     try {
       setSaveError(null);
-      posthog.capture('generate_insights', { plan_id: planId, has_user_prompt: !!data.userPrompt });
       await m({ planId, keyMetrics, simulationResult: simulationResultToConvex(simulationResult), userPrompt: data.userPrompt });
       onGenerate();
       onClose();
@@ -107,23 +104,7 @@ export default function GenerateDialog({
               </Field>
               <Divider soft />
               <Description>
-                {canUseInsights ? (
-                  <>
-                    <strong>Disclaimer:</strong> AI insights are for educational purposes only and do not provide professional financial
-                    advice. For more information, read our{' '}
-                    <Link href="/terms" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
-                      Terms of Service
-                    </Link>
-                    .
-                  </>
-                ) : (
-                  <strong>
-                    Upgrade to start generating insights.{' '}
-                    <Link href="/pricing" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
-                      View pricing →
-                    </Link>
-                  </strong>
-                )}
+                <strong>Disclaimer:</strong> AI insights are for educational purposes only and do not provide professional financial advice.
               </Description>
             </FieldGroup>
           </DialogBody>

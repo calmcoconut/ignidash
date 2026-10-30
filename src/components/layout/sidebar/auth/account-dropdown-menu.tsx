@@ -1,4 +1,4 @@
-import { SettingsIcon, LoaderIcon, GemIcon, GlobeLockIcon, HandshakeIcon } from 'lucide-react';
+import { SettingsIcon, LoaderIcon } from 'lucide-react';
 import { Unauthenticated, Authenticated, AuthLoading } from 'convex/react';
 
 import { DropdownItem, DropdownMenu, DropdownDivider, DropdownLabel, DropdownHeader } from '@/components/catalyst/dropdown';
@@ -9,10 +9,9 @@ import SignOutDropdownItem from './sign-out-dropdown-item';
 interface AccountDropdownMenuProps {
   fetchedName: string | undefined;
   fetchedEmail: string | undefined;
-  hasActiveSubscription: boolean;
 }
 
-export default function AccountDropdownMenu({ fetchedName, fetchedEmail, hasActiveSubscription }: AccountDropdownMenuProps) {
+export default function AccountDropdownMenu({ fetchedName, fetchedEmail }: AccountDropdownMenuProps) {
   const name = fetchedName ?? 'Anonymous';
   const email = fetchedEmail;
 
@@ -25,24 +24,9 @@ export default function AccountDropdownMenu({ fetchedName, fetchedEmail, hasActi
         </DropdownItem>
       </AuthLoading>
       <Unauthenticated>
-        {!hasActiveSubscription && (
-          <DropdownItem href="/pricing">
-            <GemIcon data-slot="icon" />
-            <DropdownLabel>Upgrade to Pro</DropdownLabel>
-          </DropdownItem>
-        )}
         <DropdownItem href="/settings">
           <SettingsIcon data-slot="icon" />
           <DropdownLabel>Settings</DropdownLabel>
-        </DropdownItem>
-        {!hasActiveSubscription && <DropdownDivider />}
-        <DropdownItem href="/privacy">
-          <GlobeLockIcon data-slot="icon" />
-          <DropdownLabel>Privacy</DropdownLabel>
-        </DropdownItem>
-        <DropdownItem href="/terms">
-          <HandshakeIcon data-slot="icon" />
-          <DropdownLabel>Terms</DropdownLabel>
         </DropdownItem>
         <DropdownDivider />
         <SignInDropdownItem />
@@ -55,24 +39,9 @@ export default function AccountDropdownMenu({ fetchedName, fetchedEmail, hasActi
           </div>
         </DropdownHeader>
         <DropdownDivider />
-        {!hasActiveSubscription && (
-          <DropdownItem href="/pricing">
-            <GemIcon data-slot="icon" />
-            <DropdownLabel>Upgrade to Pro</DropdownLabel>
-          </DropdownItem>
-        )}
         <DropdownItem href="/settings">
           <SettingsIcon data-slot="icon" />
           <DropdownLabel>Settings</DropdownLabel>
-        </DropdownItem>
-        {!hasActiveSubscription && <DropdownDivider />}
-        <DropdownItem href="/privacy">
-          <GlobeLockIcon data-slot="icon" />
-          <DropdownLabel>Privacy</DropdownLabel>
-        </DropdownItem>
-        <DropdownItem href="/terms">
-          <HandshakeIcon data-slot="icon" />
-          <DropdownLabel>Terms</DropdownLabel>
         </DropdownItem>
         <DropdownDivider />
         <SignOutDropdownItem />

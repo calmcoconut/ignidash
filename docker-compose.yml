@@ -1,67 +1,65 @@
+# Single-container Ignidash: the Convex backend and the Next.js app run as two
+# supervised processes inside one image. See PLAN-single-container-offline.md.
+#
+# Host defaults assume the existing LAN setup: app on 3030, Convex API on 3210,
+# Convex HTTP actions on 3211. The browser dials 3210 directly, so it stays
+# published.
 services:
-  convex-backend:
-    image: ghcr.io/get-convex/convex-backend:latest
+  ignidash:
+    image: ghcr.io/calmcoconut/ignidash:${IGNIDASH_TAG:-latest}
+    build:
+      context: .
+      args:
+        # Pinned in the Dockerfile; only override to upgrade on purpose.
+        NEXT_PUBLIC_CONVEX_URL: >-
+          ${NEXT_PUBLIC_CONVEX_URL:-http://localhost:3210}
+        NEXT_PUBLIC_CONVEX_SITE_URL: >-
+          ${NEXT_PUBLIC_CONVEX_SITE_URL:-http://localhost:3211}
+        # Build-time only: Next inlines NEXT_PUBLIC_* into the client bundle.
+        NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED: >-
+          ${NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED:-false}
     restart: unless-stopped
     ports:
-      - '3210:3210'
-      - '3211:3211'
+      - '${APP_PORT:-3030}:3000'
+      - '${CONVEX_PORT:-3210}:3210'
+      - '${CONVEX_SITE_PORT:-3211}:3211'
     volumes:
+      # SQLite database, file storage and the instance credentials live here.
+      # Nothing else in the container is stateful.
       - convex-data:/convex/data
-    environment:
-      - RUST_LOG=info
-      - RUST_BACKTRACE=1
-      - CONVEX_CLOUD_ORIGIN=${NEXT_PUBLIC_CONVEX_URL:-http://localhost:3210}
-      - CONVEX_SITE_ORIGIN=${NEXT_PUBLIC_CONVEX_SITE_URL:-http://localhost:3211}
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:3210/version']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    stop_signal: SIGINT
-    stop_grace_period: 10s
-
-  convex-dashboard:
-    image: ghcr.io/get-convex/convex-dashboard:latest
-    restart: unless-stopped
-    ports:
-      - '6791:6791'
-    depends_on:
-      convex-backend:
-        condition: service_healthy
-    environment:
-      - CONVEX_BACKEND_URL=http://convex-backend:3210
-      - NEXT_PUBLIC_DEPLOYMENT_URL=${NEXT_PUBLIC_CONVEX_URL:-http://localhost:3210}
-    stop_signal: SIGINT
-    stop_grace_period: 10s
-
-  app:
-    image: ghcr.io/schelskedevco/ignidash:stable
-    restart: unless-stopped
-    ports:
-      - '3000:3000'
-    depends_on:
-      convex-backend:
-        condition: service_healthy
     env_file:
       - .env.local
     environment:
       - NODE_ENV=production
-      - SELF_HOSTED_CONVEX_URL=http://convex-backend:3210
-      - SELF_HOSTED_CONVEX_SITE_URL=http://convex-backend:3211
-      - SITE_URL=${SITE_URL:-http://localhost:3000}
+      # Server-side traffic never leaves the container.
+      - SELF_HOSTED_CONVEX_URL=http://127.0.0.1:3210
+      - SELF_HOSTED_CONVEX_SITE_URL=http://127.0.0.1:3211
+      # Advertised to the browser. Must be reachable from client machines.
+      - CONVEX_CLOUD_ORIGIN=${NEXT_PUBLIC_CONVEX_URL:-http://localhost:3210}
+      - CONVEX_SITE_ORIGIN=${NEXT_PUBLIC_CONVEX_SITE_URL:-http://localhost:3211}
+      - SITE_URL=${SITE_URL:-http://localhost:3030}
+      # Opt out of the backend's hourly telemetry beacon.
+      - DISABLE_BEACON=true
+      - RUST_LOG=${RUST_LOG:-info}
+      - RUST_BACKTRACE=1
     healthcheck:
-      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://127.0.0.1:3000/api/health']
-      interval: 10s
+      # Both processes must be healthy; the app alone can serve a dead backend.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS http://127.0.0.1:3210/version >/dev/null &&
+          curl -fsS http://127.0.0.1:3000/api/health >/dev/null
+      interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: '3'
-    stop_signal: SIGINT
-    stop_grace_period: 10s
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
 
 volumes:
   convex-data:

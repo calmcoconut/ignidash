@@ -6,7 +6,6 @@ import { api } from '@/convex/_generated/api';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { useEffect, useMemo, useState } from 'react';
-import posthog from 'posthog-js';
 
 import { taxSettingsToConvex } from '@/lib/utils/data-transformers';
 import { type TaxSettingsInputs, taxSettingsFormSchema } from '@/lib/schemas/inputs/tax-settings-form-schema';
@@ -52,7 +51,6 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
   const onSubmit = async (data: TaxSettingsInputs) => {
     try {
       setSaveError(null);
-      posthog.capture('save_tax_settings', { plan_id: planId });
       await m({ taxSettings: taxSettingsToConvex(data), planId });
       setOpen(false);
     } catch (error) {
