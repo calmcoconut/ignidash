@@ -7,6 +7,8 @@
 
 import { z } from 'zod';
 
+import { type ISODateString, parseISODateString } from '@/lib/calc/clock';
+import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { ageField, percentageField } from '@/lib/utils/zod-utils';
 
 export const retirementStrategySchema = z.discriminatedUnion('type', [
@@ -68,10 +70,24 @@ export const timelineFormSchema = z
 export type RetirementStrategyInputs = z.infer<typeof retirementStrategySchema>;
 export type TimelineInputs = z.infer<typeof timelineFormSchema>;
 
-export function calculateAge(birthMonth: number, birthYear: number): number {
-  const today = new Date();
-  const currentYear = today.getFullYear();
-  const currentMonth = today.getMonth() + 1;
+/**
+ * Calendar year and month of `now`, read without depending on the host timezone.
+ * ISO date strings are parsed as calendar values; `Date` instances are read in UTC.
+ */
+function calendarYearAndMonth(now: ISODateString | Date): { year: number; month: number } {
+  if (typeof now === 'string') {
+    const { year, month } = parseISODateString(now);
+    return { year, month };
+  }
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };
+}
+
+/**
+ * Whole years since birth as of `now` (defaults to today's local calendar date, read once
+ * at the boundary in `@/lib/utils/system-clock`).
+ */
+export function calculateAge(birthMonth: number, birthYear: number, now: ISODateString | Date = currentLocalISODate()): number {
+  const { year: currentYear, month: currentMonth } = calendarYearAndMonth(now);
 
   let age = currentYear - birthYear;
   if (currentMonth < birthMonth) {
@@ -80,10 +96,9 @@ export function calculateAge(birthMonth: number, birthYear: number): number {
   return age;
 }
 
-export function calculatePreciseAge(birthMonth: number, birthYear: number): number {
-  const today = new Date();
-  const currentYear = today.getFullYear();
-  const currentMonth = today.getMonth() + 1;
+/** Age in fractional years as of `now`; `now` is explicit so simulations are deterministic. */
+export function calculatePreciseAge(birthMonth: number, birthYear: number, now: ISODateString | Date): number {
+  const { year: currentYear, month: currentMonth } = calendarYearAndMonth(now);
 
   const yearDiff = currentYear - birthYear;
   const monthDiff = currentMonth - birthMonth;

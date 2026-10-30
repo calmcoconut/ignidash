@@ -10,6 +10,8 @@
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import { type TimelineInputs, type RetirementStrategyInputs, calculatePreciseAge } from '@/lib/schemas/inputs/timeline-form-schema';
 
+import { type CalendarDate, type Clock, type ISODateString, addMonths, formatISODate, parseISODateString, toSimulationDate } from './clock';
+
 import type { ReturnsProvider } from './returns-providers/returns-provider';
 import { StochasticReturnsProvider } from './returns-providers/stochastic-returns-provider';
 import { LcgHistoricalBacktestReturnsProvider } from './returns-providers/lcg-historical-backtest-returns-provider';
@@ -34,7 +36,18 @@ import { type AssetFlows, zeroAssetAmounts } from './asset';
  */
 export const TAX_CONVERGENCE_THRESHOLD = 1;
 
-type ISODateString = string;
+/** The first day of the calendar month reached `months` months after the run's start date. */
+function monthStartAfter(start: CalendarDate, months: number): CalendarDate {
+  return { ...addMonths(start, months), day: 1 };
+}
+
+/**
+ * The first day of the calendar month reached `years` years after the run's start date.
+ * Pure integer month arithmetic on the clock date, so it never consults a timezone.
+ */
+function yearStartAfter(start: CalendarDate, years: number): CalendarDate {
+  return monthStartAfter(start, years * 12);
+}
 
 /** A single year's output data from the simulation */
 export interface SimulationDataPoint {
@@ -84,9 +97,17 @@ export interface SimulationState {
   annualData: { expenses: ExpensesData[]; debts: DebtsData[]; physicalAssets: PhysicalAssetsData[] };
 }
 
-/** Base simulation engine that runs a month-by-month simulation with annual tax reconciliation */
+/**
+ * Base simulation engine that runs a month-by-month simulation with annual tax reconciliation.
+ *
+ * The engine never reads the wall clock: `clock.asOf` is the only source of "today", so a run
+ * is a pure function of its inputs plus that explicit date.
+ */
 export class FinancialSimulationEngine {
-  constructor(protected readonly inputs: SimulatorInputs) {}
+  constructor(
+    protected readonly inputs: SimulatorInputs,
+    protected readonly clock: Clock
+  ) {}
 
   /**
    * Runs a complete financial simulation from start to end date
@@ -95,8 +116,10 @@ export class FinancialSimulationEngine {
    * @returns Complete simulation result with time-series data and context
    */
   runSimulation(returnsProvider: ReturnsProvider, timeline: TimelineInputs): SimulationResult {
-    // Init context and state
-    const simulationContext: SimulationContext = this.initSimulationContext(timeline);
+    // Init context and state. Calendar values come from the clock's ISO string only, never
+    // from host-timezone getters, so ages and date labels are identical on every host.
+    const startCalendarDate = parseISODateString(this.clock.asOf);
+    const simulationContext: SimulationContext = this.initSimulationContext(timeline, startCalendarDate);
     const simulationState: SimulationState = this.initSimulationState(simulationContext);
 
     const incomes = new Incomes(Object.values(this.inputs.incomes));
@@ -121,7 +144,7 @@ export class FinancialSimulationEngine {
     simulationState.phase = phaseIdentifier.getCurrentPhase();
 
     while (simulationState.time.date < simulationContext.endDate) {
-      this.incrementSimulationTime(simulationState, simulationContext);
+      this.incrementSimulationTime(simulationState, startCalendarDate, simulationContext.startAge);
 
       // Process RMDs at the start of each year before other transactions
       if (simulationState.time.age >= simulationContext.rmdAge && simulationState.time.month % 12 === 1)
@@ -178,7 +201,7 @@ export class FinancialSimulationEngine {
 
         // Store annual data in results
         resultData.push({
-          date: simulationState.time.date.toISOString().split('T')[0],
+          date: formatISODate(monthStartAfter(startCalendarDate, simulationState.time.month)),
           age: simulationState.time.age,
           portfolio: annualPortfolioDataAfterTaxes,
           incomes: annualIncomesData,
@@ -204,8 +227,8 @@ export class FinancialSimulationEngine {
       startAge: simulationContext.startAge,
       endAge: simulationContext.endAge,
       yearsToSimulate: simulationContext.yearsToSimulate,
-      startDate: simulationContext.startDate.toISOString().split('T')[0],
-      endDate: simulationContext.endDate.toISOString().split('T')[0],
+      startDate: formatISODate(startCalendarDate),
+      endDate: formatISODate(yearStartAfter(startCalendarDate, simulationContext.yearsToSimulate)),
       retirementStrategy: simulationContext.retirementStrategy,
       rmdAge: simulationContext.rmdAge,
     };
@@ -213,18 +236,14 @@ export class FinancialSimulationEngine {
     return { data: resultData, context };
   }
 
-  private incrementSimulationTime(simulationState: SimulationState, simulationContext: SimulationContext): void {
+  private incrementSimulationTime(simulationState: SimulationState, startCalendarDate: CalendarDate, startAge: number): void {
     simulationState.time.month += 1;
 
     const monthsElapsed = simulationState.time.month;
 
-    simulationState.time.date = new Date(
-      simulationContext.startDate.getFullYear(),
-      simulationContext.startDate.getMonth() + monthsElapsed,
-      1
-    );
+    simulationState.time.date = toSimulationDate(monthStartAfter(startCalendarDate, monthsElapsed));
 
-    simulationState.time.age = simulationContext.startAge + monthsElapsed / 12;
+    simulationState.time.age = startAge + monthsElapsed / 12;
     simulationState.time.year = monthsElapsed / 12;
   }
 
@@ -282,14 +301,14 @@ export class FinancialSimulationEngine {
     return { taxesData, portfolioData, discretionaryExpense };
   }
 
-  private initSimulationContext(timeline: TimelineInputs): SimulationContext {
-    const startAge = calculatePreciseAge(timeline.birthMonth, timeline.birthYear);
+  private initSimulationContext(timeline: TimelineInputs, startCalendarDate: CalendarDate): SimulationContext {
+    const startAge = calculatePreciseAge(timeline.birthMonth, timeline.birthYear, this.clock.asOf);
     const endAge = timeline.lifeExpectancy;
 
     const yearsToSimulate = Math.ceil(endAge - startAge);
 
-    const startDate = new Date();
-    const endDate = new Date(startDate.getFullYear() + yearsToSimulate, startDate.getMonth(), 1);
+    const startDate = toSimulationDate(startCalendarDate);
+    const endDate = toSimulationDate(yearStartAfter(startCalendarDate, yearsToSimulate));
 
     const retirementStrategy = timeline.retirementStrategy;
 
@@ -415,7 +434,7 @@ export class FinancialSimulationEngine {
     };
 
     return {
-      date: new Date().toISOString().split('T')[0],
+      date: this.clock.asOf,
       age: initialSimulationState.time.age,
       portfolio: {
         totalValue: totalPortfolioValue,
@@ -457,9 +476,10 @@ export interface MultiSimulationResult {
 export class MonteCarloSimulationEngine extends FinancialSimulationEngine {
   constructor(
     inputs: SimulatorInputs,
-    private baseSeed: number
+    private baseSeed: number,
+    clock: Clock
   ) {
-    super(inputs);
+    super(inputs, clock);
   }
 
   runSingleSimulation(seed: number): SimulationResult {
@@ -500,9 +520,10 @@ export class MonteCarloSimulationEngine extends FinancialSimulationEngine {
 export class LcgHistoricalBacktestSimulationEngine extends FinancialSimulationEngine {
   constructor(
     inputs: SimulatorInputs,
-    private baseSeed: number
+    private baseSeed: number,
+    clock: Clock
   ) {
-    super(inputs);
+    super(inputs, clock);
   }
 
   runSingleSimulation(

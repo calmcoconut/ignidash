@@ -22,6 +22,7 @@ import { Incomes, IncomesProcessor } from './incomes';
 import { Expenses, ExpensesProcessor } from './expenses';
 import { PhaseIdentifier } from './phase';
 import { SeededRandom } from './returns-providers/seeded-random';
+import { TEST_CLOCK } from './__tests__/test-utils';
 import { uniformLifetimeMap } from './historical-data/rmd-table';
 
 // ============================================================================
@@ -472,7 +473,7 @@ describe('FinancialSimulationEngine', () => {
         expenses: { 'expense-1': createLivingExpense({ id: 'expense-1', amount: 40000 }) },
         contributionRules: { 'rule-1': createContributionRule({ id: 'rule-1', accountId: 'account-1' }) },
       });
-      const engine = new FinancialSimulationEngine(inputs);
+      const engine = new FinancialSimulationEngine(inputs, TEST_CLOCK);
       const result = engine.runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
       expect(result.data.length).toBeGreaterThan(0);
       expect(result.context.endAge).toBe(95);
@@ -483,7 +484,7 @@ describe('FinancialSimulationEngine', () => {
         timeline: createDefaultTimeline(),
         accounts: { 'account-1': create401kAccount({ id: 'account-1', balance: 100000 }) },
       });
-      const engine = new FinancialSimulationEngine(inputs);
+      const engine = new FinancialSimulationEngine(inputs, TEST_CLOCK);
       const result = engine.runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
       expect(result.data[0].portfolio.totalValue).toBe(100000);
       expect(result.data[result.data.length - 1].portfolio.totalValue).toBeGreaterThan(0);
@@ -497,7 +498,7 @@ describe('FinancialSimulationEngine', () => {
         accounts: { 'account-1': create401kAccount({ id: 'account-1' }) },
         incomes: { 'income-1': createWageIncome({ id: 'income-1', timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } } }) },
       });
-      const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+      const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
       const before = result.data.find((d) => Math.floor(d.age) === 64);
       const after = result.data.find((d) => Math.floor(d.age) === 66);
       expect(before?.phase?.name).toBe('accumulation');
@@ -508,14 +509,14 @@ describe('FinancialSimulationEngine', () => {
   describe('RMD processing', () => {
     it('should calculate RMD age based on birth year', () => {
       const inputs1960 = createSimulatorInputs({ timeline: { ...createDefaultTimeline(), birthYear: 1960 } });
-      const result1960 = new FinancialSimulationEngine(inputs1960).runSimulation(
+      const result1960 = new FinancialSimulationEngine(inputs1960, TEST_CLOCK).runSimulation(
         new FixedReturnsProvider(inputs1960),
         inputs1960.timeline!
       );
       expect(result1960.context.rmdAge).toBe(75);
 
       const inputs1959 = createSimulatorInputs({ timeline: { ...createDefaultTimeline(), birthYear: 1959 } });
-      const result1959 = new FinancialSimulationEngine(inputs1959).runSimulation(
+      const result1959 = new FinancialSimulationEngine(inputs1959, TEST_CLOCK).runSimulation(
         new FixedReturnsProvider(inputs1959),
         inputs1959.timeline!
       );
@@ -534,7 +535,7 @@ describe('MonteCarloSimulationEngine', () => {
       timeline: createDefaultTimeline(),
       accounts: { 'account-1': create401kAccount({ id: 'account-1', balance: 500000 }) },
     });
-    const result = new MonteCarloSimulationEngine(inputs, 12345).runMonteCarloSimulation(3);
+    const result = new MonteCarloSimulationEngine(inputs, 12345, TEST_CLOCK).runMonteCarloSimulation(3);
     expect(result.simulations.length).toBe(3);
     expect(new Set(result.simulations.map(([seed]) => seed)).size).toBe(3);
   });
@@ -544,8 +545,8 @@ describe('MonteCarloSimulationEngine', () => {
       timeline: createDefaultTimeline(),
       accounts: { 'account-1': create401kAccount({ id: 'account-1', balance: 100000 }) },
     });
-    const r1 = new MonteCarloSimulationEngine(inputs, 99999).runSingleSimulation(99999);
-    const r2 = new MonteCarloSimulationEngine(inputs, 99999).runSingleSimulation(99999);
+    const r1 = new MonteCarloSimulationEngine(inputs, 99999, TEST_CLOCK).runSingleSimulation(99999);
+    const r2 = new MonteCarloSimulationEngine(inputs, 99999, TEST_CLOCK).runSingleSimulation(99999);
     expect(r1.data[r1.data.length - 1].portfolio.totalValue).toBe(r2.data[r2.data.length - 1].portfolio.totalValue);
   });
 
@@ -555,7 +556,7 @@ describe('MonteCarloSimulationEngine', () => {
       accounts: { 'account-1': createSavingsAccount({ id: 'account-1' }) },
     });
     let count = 0;
-    new MonteCarloSimulationEngine(inputs, 12345).runMonteCarloSimulation(5, () => count++);
+    new MonteCarloSimulationEngine(inputs, 12345, TEST_CLOCK).runMonteCarloSimulation(5, () => count++);
     expect(count).toBe(5);
   });
 });
@@ -570,7 +571,7 @@ describe('LcgHistoricalBacktestSimulationEngine', () => {
       timeline: createDefaultTimeline(),
       accounts: { 'account-1': create401kAccount({ id: 'account-1', balance: 500000 }) },
     });
-    const result = new LcgHistoricalBacktestSimulationEngine(inputs, 42).runLcgHistoricalBacktest(3);
+    const result = new LcgHistoricalBacktestSimulationEngine(inputs, 42, TEST_CLOCK).runLcgHistoricalBacktest(3);
     expect(result.simulations.length).toBe(3);
     for (const [, sim] of result.simulations) {
       expect(sim.context.historicalRanges).toBeDefined();
@@ -583,7 +584,7 @@ describe('LcgHistoricalBacktestSimulationEngine', () => {
       timeline: createDefaultTimeline(),
       accounts: { 'account-1': create401kAccount({ id: 'account-1', balance: 100000 }) },
     });
-    const result = new LcgHistoricalBacktestSimulationEngine(inputs, 42).runSingleSimulation(42, 1929, undefined);
+    const result = new LcgHistoricalBacktestSimulationEngine(inputs, 42, TEST_CLOCK).runSingleSimulation(42, 1929, undefined);
     expect(result.context.historicalRanges![0].startYear).toBe(1929);
   });
 });
@@ -595,7 +596,7 @@ describe('LcgHistoricalBacktestSimulationEngine', () => {
 describe('Edge Cases', () => {
   it('should handle simulation with no accounts', () => {
     const inputs = createSimulatorInputs({ timeline: createDefaultTimeline(), accounts: {} });
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
     expect(result.data[0].portfolio.totalValue).toBe(0);
   });
 
@@ -606,7 +607,9 @@ describe('Edge Cases', () => {
       incomes: {},
       expenses: {},
     });
-    expect(() => new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!)).not.toThrow();
+    expect(() =>
+      new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!)
+    ).not.toThrow();
   });
 
   it('should handle zero balance accounts', () => {
@@ -614,7 +617,9 @@ describe('Edge Cases', () => {
       timeline: createDefaultTimeline(),
       accounts: { 'account-1': create401kAccount({ id: 'account-1', balance: 0 }) },
     });
-    expect(() => new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!)).not.toThrow();
+    expect(() =>
+      new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!)
+    ).not.toThrow();
   });
 });
 
@@ -635,7 +640,7 @@ describe('Debts Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const resultWithoutDebt = new FinancialSimulationEngine(inputsWithoutDebt).runSimulation(
+    const resultWithoutDebt = new FinancialSimulationEngine(inputsWithoutDebt, TEST_CLOCK).runSimulation(
       new FixedReturnsProvider(inputsWithoutDebt),
       inputsWithoutDebt.timeline!
     );
@@ -661,7 +666,7 @@ describe('Debts Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const resultWithDebt = new FinancialSimulationEngine(inputsWithDebt).runSimulation(
+    const resultWithDebt = new FinancialSimulationEngine(inputsWithDebt, TEST_CLOCK).runSimulation(
       new FixedReturnsProvider(inputsWithDebt),
       inputsWithDebt.timeline!
     );
@@ -699,7 +704,7 @@ describe('Debts Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
 
     // Year 1: Debt should have payments and be paid off by end of year
     expect(result.data[1].debts!.totalPayment).toBeGreaterThan(0);
@@ -730,7 +735,7 @@ describe('Debts Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
 
     // Find year before and after age 40
     const yearBefore40 = result.data.find((d) => Math.floor(d.age) === 39);
@@ -761,7 +766,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const resultWithoutSale = new FinancialSimulationEngine(inputsWithoutSale).runSimulation(
+    const resultWithoutSale = new FinancialSimulationEngine(inputsWithoutSale, TEST_CLOCK).runSimulation(
       new FixedReturnsProvider(inputsWithoutSale),
       inputsWithoutSale.timeline!
     );
@@ -788,7 +793,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const resultWithSale = new FinancialSimulationEngine(inputsWithSale).runSimulation(
+    const resultWithSale = new FinancialSimulationEngine(inputsWithSale, TEST_CLOCK).runSimulation(
       new FixedReturnsProvider(inputsWithSale),
       inputsWithSale.timeline!
     );
@@ -821,7 +826,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const resultWithoutPurchase = new FinancialSimulationEngine(inputsWithoutPurchase).runSimulation(
+    const resultWithoutPurchase = new FinancialSimulationEngine(inputsWithoutPurchase, TEST_CLOCK).runSimulation(
       new FixedReturnsProvider(inputsWithoutPurchase),
       inputsWithoutPurchase.timeline!
     );
@@ -854,7 +859,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const resultWithPurchase = new FinancialSimulationEngine(inputsWithPurchase).runSimulation(
+    const resultWithPurchase = new FinancialSimulationEngine(inputsWithPurchase, TEST_CLOCK).runSimulation(
       new FixedReturnsProvider(inputsWithPurchase),
       inputsWithPurchase.timeline!
     );
@@ -898,7 +903,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
 
     // Find year when sale occurs by checking physicalAssets data
     const saleYearData = result.data.find((d) => (d.physicalAssets?.totalSaleProceeds ?? 0) > 0);
@@ -940,7 +945,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
 
     // Verify physical assets data is tracked over time
     expect(result.data[1].physicalAssets).not.toBeNull();
@@ -980,7 +985,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
 
     // Find year when sale occurs - sale proceeds are positive even though there's a loss
     // (because it's unfinanced, saleProceeds = marketValue which is still positive)
@@ -1030,7 +1035,7 @@ describe('Physical Assets Integration', () => {
       baseContributionRule: { type: 'save' },
     });
 
-    const result = new FinancialSimulationEngine(inputs).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const result = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
 
     // Find year when sale occurs using isSold flag
     const saleYearData = result.data.find((d) => d.physicalAssets?.perAssetData['asset-1']?.isSold === true);
@@ -1073,7 +1078,7 @@ describe('Physical Assets Integration', () => {
 
 describe('full simulation year scenarios', () => {
   const runFixedSimulation = (inputs: SimulatorInputs): SimulationResult => {
-    const engine = new FinancialSimulationEngine(inputs);
+    const engine = new FinancialSimulationEngine(inputs, TEST_CLOCK);
     const timeline = inputs.timeline!;
     const returnsProvider = new FixedReturnsProvider(inputs);
     return engine.runSimulation(returnsProvider, timeline);

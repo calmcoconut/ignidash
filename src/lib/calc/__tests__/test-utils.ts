@@ -24,12 +24,19 @@ import type { PhysicalAssetsData } from '../physical-assets';
 import type { DebtsData } from '../debts';
 import type { TaxCategory } from '../asset';
 import { Portfolio } from '../portfolio';
+import { type Clock, fixedClock } from '../clock';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 export const DEFAULT_ALLOCATION = { stocks: 0.6, bonds: 0.4, cash: 0 };
+
+/**
+ * Fixed clock for engine tests: every run starts from 2026-10-01, so ages, date labels
+ * and results never depend on the day the test suite happens to run.
+ */
+export const TEST_CLOCK: Clock = fixedClock('2026-10-01');
 
 // ============================================================================
 // Account Factories

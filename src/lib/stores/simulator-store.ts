@@ -11,6 +11,7 @@ import type { SimulationResult as ConvexSimulationResult } from '@/convex/valida
 
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import { FinancialSimulationEngine, type SimulationResult } from '@/lib/calc/simulation-engine';
+import { type Clock, fixedClock } from '@/lib/calc/clock';
 import type { MultiSimulationAnalysis } from '@/lib/calc/data-analyzers/multi-simulation-analyzer';
 import { FixedReturnsProvider } from '@/lib/calc/returns-providers/fixed-returns-provider';
 import { StochasticReturnsProvider } from '@/lib/calc/returns-providers/stochastic-returns-provider';
@@ -50,6 +51,7 @@ import type {
 } from '@/lib/types/chart-data-views';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 import { usePrevious } from '@/hooks/use-previous';
+import { systemClock } from '@/lib/utils/system-clock';
 
 // ================================
 // STATE INTERFACE & DEFAULT STATE
@@ -385,6 +387,21 @@ export const useSidebarAnimating = () => useSimulatorStore((state) => state.pref
  * Simulation & Analysis Hooks
  * These hooks provide access to simulation and analysis functions
  */
+
+/**
+ * Resolves the clock every simulation run is pinned to.
+ *
+ * This is the store boundary where "today" is decided: a plan's optional
+ * `simulationSettings.asOfDate` pins the run, otherwise the system clock is read exactly
+ * once (per mount) and otherwise passed down explicitly. The resolved `asOf` is then sent
+ * to the engine directly, and to the Monte Carlo workers as a plain argument, so no
+ * simulation code reads the wall clock.
+ */
+export const useSimulationClock = (inputs: SimulatorInputs): Clock => {
+  const asOfDate = inputs.simulationSettings.asOfDate;
+  return useMemo(() => (asOfDate ? fixedClock(asOfDate) : systemClock()), [asOfDate]);
+};
+
 export const useSimulationResult = (
   inputs: SimulatorInputs,
   simulationMode: 'fixedReturns' | 'stochasticReturns' | 'historicalReturns',
@@ -401,11 +418,13 @@ export const useSimulationResult = (
   let retirementStartYearOverride = inputs.simulationSettings.historicalRetirementStartYearOverride;
   retirementStartYearOverride = !hasSeedOverride ? retirementStartYearOverride : undefined;
 
+  const clock = useSimulationClock(inputs);
+
   return useMemo(() => {
     const timeline = inputs.timeline;
     if (!timeline) return null;
 
-    const engine = new FinancialSimulationEngine(inputs);
+    const engine = new FinancialSimulationEngine(inputs, clock);
     switch (simulationMode) {
       case 'fixedReturns': {
         const returnsProvider = new FixedReturnsProvider(inputs);
@@ -428,7 +447,7 @@ export const useSimulationResult = (
         };
       }
     }
-  }, [inputs, seed, simulationMode, startYearOverride, retirementStartYearOverride]);
+  }, [inputs, clock, seed, simulationMode, startYearOverride, retirementStartYearOverride]);
 };
 
 export const useMultiSimulationResult = (
@@ -446,17 +465,18 @@ export const useMultiSimulationResult = (
   const planId = useSelectedPlanId();
   const simulationSeed = inputs.simulationSettings.simulationSeed;
   const mergeWorker = getMergeWorker();
+  const clock = useSimulationClock(inputs);
 
   const [completedSimulations, setCompletedSimulations] = useState(0);
   const onProgress = useCallback(() => setCompletedSimulations((prev) => prev + 1), []);
 
   useEffect(() => {
     setCompletedSimulations(0);
-  }, [planId, simulationSeed, simulationMode]);
+  }, [planId, simulationSeed, simulationMode, clock.asOf]);
 
   const swrOptions = { revalidateOnFocus: false, revalidateIfStale: false, revalidateOnReconnect: false };
 
-  const swrKey = ['simulationHandle', planId, simulationSeed, simulationMode];
+  const swrKey = ['simulationHandle', planId, simulationSeed, simulationMode, clock.asOf];
   const {
     data: handleData,
     isLoading,
@@ -483,7 +503,7 @@ export const useMultiSimulationResult = (
         pool.map(async (worker) => {
           let chunk;
           while ((chunk = getNextChunk())) {
-            await worker.runSimulation(inputs, chunk.seed, chunk.size, simulationMode, mergeWorker, Comlink.proxy(onProgress));
+            await worker.runSimulation(inputs, clock.asOf, chunk.seed, chunk.size, simulationMode, mergeWorker, Comlink.proxy(onProgress));
           }
         })
       );
