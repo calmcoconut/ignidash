@@ -67,10 +67,22 @@ Options:
                          to keep (default: 12)
   --no-prune             Keep every archive; skip retention
   --no-file-storage      Do not include Convex file storage in the export
+  --expect-empty         Accept a snapshot with no table data. Only for a brand-new
+                         install that has no schema deployed yet; every other path
+                         fails closed on an empty export.
+  --skip-snapshot-check  Do not inspect the export at all. The escape hatch for a
+                         legitimate deployment the checks misjudge; it also lets a
+                         corrupt or foreign archive through, so use it knowingly.
   -h, --help             Show this help
 
 Backup settings can also live in the env file: AGE_RECIPIENT,
-AGE_RECIPIENTS_FILE, AGE_IDENTITY_FILE and IGNIDASH_BACKUP_DIR.
+AGE_RECIPIENTS_FILE, AGE_IDENTITY_FILE, IGNIDASH_BACKUP_DIR,
+IGNIDASH_BACKUP_ALLOW_UNENCRYPTED and the retention knobs
+IGNIDASH_BACKUP_KEEP_NIGHTLY / IGNIDASH_BACKUP_KEEP_MONTHLY. They are read the
+same way on every path, including from the export gate in scripts/selfhost.sh.
+
+An age identity must be PLAINTEXT (an AGE-SECRET-KEY-1 line). age-keygen -y
+prompts for a passphrase otherwise, and a no-TTY cron run cannot answer.
 
 Pruning only ever considers archives this script wrote (ignidash-<timestamp>
 .zip[.age]); any other file in the directory is left alone. Requires node, the
@@ -120,11 +132,13 @@ OPT_ADMIN_KEY=""
 RECIPIENT="${AGE_RECIPIENT:-}"
 RECIPIENTS_FILE="${AGE_RECIPIENTS_FILE:-}"
 IDENTITY_FILE="${AGE_IDENTITY_FILE:-}"
-ALLOW_UNENCRYPTED="${IGNIDASH_BACKUP_ALLOW_UNENCRYPTED:-0}"
-KEEP_NIGHTLY="${IGNIDASH_BACKUP_KEEP_NIGHTLY:-30}"
-KEEP_MONTHLY="${IGNIDASH_BACKUP_KEEP_MONTHLY:-12}"
+ALLOW_UNENCRYPTED="${IGNIDASH_BACKUP_ALLOW_UNENCRYPTED:-}"
+KEEP_NIGHTLY="${IGNIDASH_BACKUP_KEEP_NIGHTLY:-}"
+KEEP_MONTHLY="${IGNIDASH_BACKUP_KEEP_MONTHLY:-}"
 INCLUDE_FILE_STORAGE=1
 PRUNE=1
+EXPECT_EMPTY=0
+SKIP_SNAPSHOT_CHECK=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -185,6 +199,14 @@ while [ "$#" -gt 0 ]; do
       INCLUDE_FILE_STORAGE=0
       shift
       ;;
+    --expect-empty)
+      EXPECT_EMPTY=1
+      shift
+      ;;
+    --skip-snapshot-check)
+      SKIP_SNAPSHOT_CHECK=1
+      shift
+      ;;
     -h | --help)
       usage
       exit 0
@@ -194,11 +216,6 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
-
-case "$KEEP_NIGHTLY" in '' | *[!0-9]*) die "--keep-nightly must be a positive integer" ;; esac
-case "$KEEP_MONTHLY" in '' | *[!0-9]*) die "--keep-monthly must be a positive integer" ;; esac
-[ "$KEEP_NIGHTLY" -ge 1 ] || die "--keep-nightly must be at least 1"
-[ "$KEEP_MONTHLY" -ge 1 ] || die "--keep-monthly must be at least 1"
 
 cd -- "$REPO_ROOT" || die "cannot enter $REPO_ROOT"
 
@@ -227,7 +244,21 @@ if [ -n "$ENV_FILE" ]; then
     OUTPUT_DIR=$(read_env_value "$ENV_FILE" IGNIDASH_BACKUP_DIR)
     [ -z "$OUTPUT_DIR" ] || OUTPUT_DIR=$(resolve_against "$OUTPUT_DIR" "$ENV_DIR")
   fi
+  # The knobs are read through the same path as everything else, so a value in
+  # .env.local takes effect however the script was invoked (the gate runs before
+  # `npm run selfhost` sources that file).
+  [ -n "$ALLOW_UNENCRYPTED" ] || ALLOW_UNENCRYPTED=$(read_env_value "$ENV_FILE" IGNIDASH_BACKUP_ALLOW_UNENCRYPTED)
+  [ -n "$KEEP_NIGHTLY" ] || KEEP_NIGHTLY=$(read_env_value "$ENV_FILE" IGNIDASH_BACKUP_KEEP_NIGHTLY)
+  [ -n "$KEEP_MONTHLY" ] || KEEP_MONTHLY=$(read_env_value "$ENV_FILE" IGNIDASH_BACKUP_KEEP_MONTHLY)
 fi
+
+[ -n "$ALLOW_UNENCRYPTED" ] || ALLOW_UNENCRYPTED=0
+[ -n "$KEEP_NIGHTLY" ] || KEEP_NIGHTLY=30
+[ -n "$KEEP_MONTHLY" ] || KEEP_MONTHLY=12
+case "$KEEP_NIGHTLY" in '' | *[!0-9]*) die "--keep-nightly must be a positive integer (got: $KEEP_NIGHTLY)" ;; esac
+case "$KEEP_MONTHLY" in '' | *[!0-9]*) die "--keep-monthly must be a positive integer (got: $KEEP_MONTHLY)" ;; esac
+[ "$KEEP_NIGHTLY" -ge 1 ] || die "--keep-nightly must be at least 1"
+[ "$KEEP_MONTHLY" -ge 1 ] || die "--keep-monthly must be at least 1"
 
 if [ -z "$OUTPUT_DIR" ]; then
   OUTPUT_DIR="$REPO_ROOT/backups"
@@ -278,7 +309,12 @@ if [ "$ENCRYPT" = 1 ]; then
   elif [ -z "$RECIPIENT" ]; then
     command -v age-keygen >/dev/null 2>&1 || die "age-keygen is not installed, so the recipient cannot be derived from $IDENTITY_FILE"
     [ -f "$IDENTITY_FILE" ] || die "identity file not found: $IDENTITY_FILE"
-    RECIPIENT=$(age-keygen -y "$IDENTITY_FILE") || die "could not read a recipient from $IDENTITY_FILE"
+    # age-keygen -y prompts for a passphrase on a TTY, which a no-TTY cron run
+    # cannot answer, so refuse an encrypted identity up front instead of hanging.
+    if ! grep -q '^AGE-SECRET-KEY-1' "$IDENTITY_FILE" 2>/dev/null; then
+      die "$IDENTITY_FILE is not a plaintext age identity: age-keygen -y would ask for a passphrase, which a no-TTY run cannot answer. Use an unencrypted identity (create it with age-keygen, not age-keygen -p), or set AGE_RECIPIENT to its public key."
+    fi
+    RECIPIENT=$(age-keygen -y "$IDENTITY_FILE" < /dev/null) || die "could not read a recipient from $IDENTITY_FILE"
     [ -n "$RECIPIENT" ] || die "could not read a recipient from $IDENTITY_FILE"
   fi
 elif [ "$ALLOW_UNENCRYPTED" != 1 ]; then
@@ -356,46 +392,68 @@ MAGIC=$(head -c 2 -- "$RAW" | od -An -tx1 | tr -d ' \n')
 
 # The gate is only a rollback point if this file really is a snapshot of this
 # deployment's data, so inspect the contents instead of trusting the exit status.
-command -v unzip >/dev/null 2>&1 ||
-  die "unzip is required to verify the export (install it, e.g. via NerdTools on Unraid)"
-unzip_status=0
-SNAPSHOT_LISTING=$(unzip -Z1 "$RAW" 2>/dev/null) || unzip_status=$?
-case "$unzip_status" in
-  0) ;;
-  1)
-    # unzip's only benign non-zero case here is a valid but empty archive.
-    case "$SNAPSHOT_LISTING" in
-      '' | 'Empty zipfile.') SNAPSHOT_LISTING="" ;;
-      *) die "the export could not be listed cleanly (unzip exited 1)" ;;
-    esac
-    ;;
-  *) die "the export is not a readable ZIP archive (unzip exited $unzip_status)" ;;
-esac
-
-SNAPSHOT_TABLES=$(printf '%s\n' "$SNAPSHOT_LISTING" | awk -F/ 'NF == 2 && $2 == "documents.jsonl" { print $1 }' | LC_ALL=C sort -u)
-SNAPSHOT_DOCS=0
-if [ -n "$SNAPSHOT_TABLES" ]; then
-  printf '%s\n' "$SNAPSHOT_TABLES" | grep -qx 'plans' ||
-    die "the export has no plans table, so it is not a snapshot of this deployment's schema (tables: $(printf '%s ' $SNAPSHOT_TABLES))"
-  for table in $SNAPSHOT_TABLES; do
-    count=$(unzip -p "$RAW" "$table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
-    [ -n "$count" ] || count=0
-    SNAPSHOT_DOCS=$((SNAPSHOT_DOCS + count))
-  done
-  if [ "$SNAPSHOT_DOCS" -eq 0 ]; then
-    warn "the export contains tables but no documents (a freshly deployed, still empty deployment)"
-  else
-    log "Snapshot: $SNAPSHOT_DOCS document(s) across $(printf '%s\n' "$SNAPSHOT_TABLES" | wc -l | tr -d ' ') table(s)"
-  fi
+if [ "$SKIP_SNAPSHOT_CHECK" = 1 ]; then
+  warn "--skip-snapshot-check: the export contents were NOT verified; a corrupt or foreign archive would pass this check"
 else
-  # No <table>/documents.jsonl entries. That is legitimate only when the volume
-  # has no schema deployed yet (first install), where Convex writes either an
-  # empty archive or just the file-storage folder. Anything else is not a
-  # snapshot, and a rollback point that cannot be restored is worse than none.
-  unexpected=$(printf '%s\n' "$SNAPSHOT_LISTING" | grep -v '^_storage/' | grep -v '^$' | head -n 5 || true)
-  [ -z "$unexpected" ] ||
-    die "the export is not a Convex snapshot: unexpected entries ($(printf '%s ' $unexpected))"
-  warn "the export contains no tables: the deployment has no schema deployed yet (first install?)"
+  command -v unzip >/dev/null 2>&1 ||
+    die "unzip is required to verify the export (install it, e.g. via NerdTools on Unraid), or pass --skip-snapshot-check"
+  unzip_status=0
+  SNAPSHOT_LISTING=$(unzip -Z1 "$RAW" 2>/dev/null) || unzip_status=$?
+  case "$unzip_status" in
+    0) ;;
+    1)
+      # unzip's only benign non-zero case here is a valid but empty archive.
+      case "$SNAPSHOT_LISTING" in
+        '' | 'Empty zipfile.') SNAPSHOT_LISTING="" ;;
+        *) die "the export could not be listed cleanly (unzip exited 1)" ;;
+      esac
+      ;;
+    *) die "the export is not a readable ZIP archive (unzip exited $unzip_status)" ;;
+  esac
+
+  SNAPSHOT_TABLES=$(printf '%s\n' "$SNAPSHOT_LISTING" | awk -F/ 'NF == 2 && $2 == "documents.jsonl" { print $1 }' | LC_ALL=C sort -u)
+  SNAPSHOT_DOCS=0
+  if [ -n "$SNAPSHOT_TABLES" ]; then
+    if ! printf '%s\n' "$SNAPSHOT_TABLES" | grep -qx 'plans'; then
+      die "the export has no plans table, so it is not a snapshot of this deployment's schema.
+  Tables found: $(printf '%s ' $SNAPSHOT_TABLES)
+  If the deployment really has no plans table yet, this is a first install: re-run with --expect-empty.
+  If you have checked the archive by hand and know it is the right one, re-run with --skip-snapshot-check."
+    fi
+    for table in $SNAPSHOT_TABLES; do
+      count=$(unzip -p "$RAW" "$table/documents.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+      [ -n "$count" ] || count=0
+      SNAPSHOT_DOCS=$((SNAPSHOT_DOCS + count))
+    done
+    if [ "$SNAPSHOT_DOCS" -eq 0 ]; then
+      if [ "$EXPECT_EMPTY" = 1 ]; then
+        warn "the export contains tables but no documents (accepted because --expect-empty was passed)"
+      else
+        die "the export contains no documents, so it is not a rollback point.
+  A first install (no schema deployed yet) may pass --expect-empty.
+  If you have checked the archive by hand and know it is the right one, re-run with --skip-snapshot-check."
+      fi
+    else
+      log "Snapshot: $SNAPSHOT_DOCS document(s) across $(printf '%s\n' "$SNAPSHOT_TABLES" | wc -l | tr -d ' ') table(s)"
+    fi
+  else
+    # No <table>/documents.jsonl entries. That is legitimate only when the volume
+    # has no schema deployed yet (first install), where Convex writes either an
+    # empty archive or just the file-storage folder — and only the path that knows
+    # it is a first install may say so.
+    unexpected=$(printf '%s\n' "$SNAPSHOT_LISTING" | grep -v '^_storage/' | grep -v '^$' | head -n 5 || true)
+    [ -z "$unexpected" ] ||
+      die "the export is not a Convex snapshot: unexpected entries ($(printf '%s ' $unexpected)).
+  If the deployment has no schema deployed yet, this is a first install: re-run with --expect-empty.
+  If you have checked the archive by hand and know it is the right one, re-run with --skip-snapshot-check."
+    if [ "$EXPECT_EMPTY" = 1 ]; then
+      warn "the export contains no tables (accepted because --expect-empty was passed: no schema deployed yet)"
+    else
+      die "the export contains no tables, so it is not a rollback point.
+  A first install (no schema deployed yet) may pass --expect-empty.
+  If you have checked the archive by hand and know it is the right one, re-run with --skip-snapshot-check."
+    fi
+  fi
 fi
 
 # --- encrypt and publish --------------------------------------------------

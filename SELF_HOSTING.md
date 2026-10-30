@@ -212,6 +212,11 @@ export AGE_RECIPIENT=$(age-keygen -y ~/.keys/ignidash-backup.txt)
 `AGE_IDENTITY_FILE=backup-key.txt` also work. A restore **without** the identity
 fails, which is the point: the archives are unreadable without the key.
 
+The identity must be **unencrypted**: `scripts/backup.sh` derives the recipient with
+`age-keygen -y`, and that prompts for a passphrase on a TTY, which a nightly cron run
+cannot answer. Do not create it with `age-keygen -p`; the script detects such a file
+and refuses it immediately instead of hanging.
+
 The plaintext escape hatch is `--allow-unencrypted` (or
 `IGNIDASH_BACKUP_ALLOW_UNENCRYPTED=1`), which permits a plain ZIP **when no recipient
 is configured**. A configured recipient always encrypts, so the flag cannot silently
@@ -219,9 +224,15 @@ weaken a configured setup. Use it once if you truly must, never as a default.
 
 After every export the archive is inspected: it must be a readable Convex snapshot that
 contains the `plans` table. A stub, a ZIP of something else, or a snapshot of a
-different schema fails the backup, and with it the deploy gate. The one exception is
-a volume with no schema deployed yet (a fresh install), where there is nothing to
-roll back; that case warns instead of failing.
+different schema fails the backup, and with it the deploy gate. Two explicit escapes
+cover the cases a check cannot judge:
+
+- `--expect-empty` accepts a snapshot with no table data. Only the fresh-install path
+  (`npm run selfhost -- --init` on an empty volume, which gates before the first
+  deploy) passes it, because there is nothing to roll back yet.
+- `--skip-snapshot-check` skips the inspection entirely. It exists so a legitimate
+  deployment the checks misjudge cannot lock the operator out of their own deploy,
+  and it also lets a corrupt or foreign archive through, so use it knowingly.
 
 ### Retention
 
@@ -230,7 +241,10 @@ last **12** calendar months (UTC) — the nightly-plus-monthly policy. Only arch
 named `ignidash-<8-digit date>T<6-digit time>Z.zip[.age]` are eligible: anything else
 in the directory, such as a hand-made `ignidash-pre-migration.zip`, is never pruned.
 An archive is never overwritten either — re-running in the same second is a no-op.
-Tune retention with `--keep-nightly`, `--keep-monthly` or `--no-prune`.
+Tune retention with `--keep-nightly`, `--keep-monthly` or `--no-prune`, or set
+`IGNIDASH_BACKUP_KEEP_NIGHTLY` / `IGNIDASH_BACKUP_KEEP_MONTHLY` in `.env.local` (a flag
+wins over the file). Every one of those settings is read the same way regardless of
+which path runs the backup, including the export gate inside `npm run selfhost`.
 
 ### Scheduling on Unraid
 
@@ -344,11 +358,26 @@ npm run selfhost -- --sync-only
 npm run selfhost:convex-deploy
 ```
 
-`npm run selfhost`, `npm run selfhost -- --init` (when a backend is already
-running) and `npm run selfhost:convex-deploy` all run `scripts/backup.sh` before
-they deploy functions or run migrations, and **abort if the export fails**. The last
-one is `bash scripts/selfhost.sh --deploy-only`: the same deploy and the same gate,
-without the container rebuild, the admin-key rotation or the migrations.
+`npm run selfhost`, `npm run selfhost -- --init` and `npm run selfhost:convex-deploy` all
+run `scripts/backup.sh` before they deploy functions or run migrations, and **abort if
+the export fails**. The last one is `bash scripts/selfhost.sh --deploy-only`: the same
+deploy and the same gate, without the container rebuild, the admin-key rotation or the
+migrations.
+
+`--init` re-run on an existing install behaves the same way: a non-empty
+`CONVEX_SELF_HOSTED_ADMIN_KEY` in `.env.local` marks the install as pre-existing even
+when its container is down, so the export is attempted first and a stopped container
+aborts with the "start the CURRENT image first" instruction instead of being rebuilt
+past the gate.
+
+Two entry points are **not** gated, by design:
+
+- `npm run selfhost:convex-dev` runs the `convex dev` watcher, which pushes functions on
+  every edit — a backup per save would be noise. Export before starting it on an install
+  you care about.
+- `npm run docker:up` starts the container, and the backend applies its on-start
+  migrations as it boots. It is the right way to bring a stopped install back up _before_
+  exporting (see above), but it is not a substitute for the export itself.
 
 The backend applies in-place migrations on start, so **rolling it back is unsafe**.
 That is why the image is pinned by digest rather than tracking `:latest`. Export

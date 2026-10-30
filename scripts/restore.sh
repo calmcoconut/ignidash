@@ -62,6 +62,10 @@ Options:
 AGE_IDENTITY_FILE may also live in the env file (relative paths there resolve
 against the env file's directory).
 
+The identity that backups were encrypted to should be unencrypted: a
+passphrase-protected one makes age prompt on the TTY, which works here by hand but
+never from scripts/backup.sh's no-TTY cron run.
+
 Requires node, the Convex CLI in node_modules, unzip (the archive is inspected
 before a destructive import) and age for .age archives.
 

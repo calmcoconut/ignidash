@@ -6,6 +6,16 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Idempotency marker for the export gate.
+#
+# `deploy_convex` and `run_migrations` source .env.local into this shell, so any
+# writable variable can be overwritten by that file — which is how a stray
+# "_IGNIDASH_EXPORT_DONE=1" in user config used to skip the gate. The marker path
+# is therefore derived inline from this shell's PID ($$ cannot be assigned by a
+# config file) and never stored in a variable, so nothing in .env.local can
+# influence whether the gate has already run.
+trap 'rm -f -- "${TMPDIR:-/tmp}/.ignidash-export-$$"' EXIT
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -221,21 +231,41 @@ sync_convex_env() {
     echo ""
 }
 
+# Read KEY=value from .env.local without sourcing it, so a config file cannot
+# change this script's own state.
+read_env_value() {
+    local key="$1" line="" value=""
+    [ -f ".env.local" ] || return 0
+    line=$(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}=" .env.local 2>/dev/null | tail -n 1 || true)
+    [ -n "$line" ] || return 0
+    value=${line#*=}
+    value=${value%$'\r'}
+    case "$value" in
+        \"*\") value=${value#\"} && value=${value%\"} ;;
+        \'*\') value=${value#\'} && value=${value%\'} ;;
+    esac
+    printf '%s' "$value"
+}
+
 # Export the deployment before anything irreversible.
 #
 # `convex deploy` and `migrations:runAll` are one-way: the only rollback path is
 # restoring an export into the previous image. So the export is not optional —
 # when it fails, this function aborts the run instead of continuing without a
 # rollback point. It runs at most once per invocation, however many irreversible
-# steps follow.
+# steps follow (tracked by the marker file, not by a variable).
+#
+# Extra arguments are forwarded to scripts/backup.sh, e.g. --expect-empty.
 #
 export_before_migration() {
-    if [ "${_IGNIDASH_EXPORT_DONE:-0}" = "1" ]; then
+    local marker
+    marker="${TMPDIR:-/tmp}/.ignidash-export-$$"
+    if [ -f "$marker" ]; then
         return 0
     fi
 
     echo "Exporting a backup before deploy/migrations (required)..."
-    if ! bash "$SCRIPT_DIR/backup.sh"; then
+    if ! bash "$SCRIPT_DIR/backup.sh" "$@"; then
         echo ""
         echo -e "${RED}Error: the pre-migration export failed — aborting${NC}"
         echo "Deploy and migrations are one-way; the export is the only rollback path."
@@ -248,8 +278,7 @@ export_before_migration() {
         exit 1
     fi
 
-    _IGNIDASH_EXPORT_DONE=1
-    export _IGNIDASH_EXPORT_DONE
+    : > "$marker"
     echo -e "${GREEN}Pre-migration export complete${NC}"
     echo ""
 }
@@ -328,10 +357,19 @@ show_help() {
     echo "  --init         First-time setup: create .env.local from template"
     echo "  --sync-only    Only sync environment variables to Convex (skip setup)"
     echo "  --deploy-only  Only deploy Convex functions (still exports a backup first)"
+    echo "  --expect-empty Passed to scripts/backup.sh: accept a snapshot with no table"
+    echo "                 data (a brand-new install, before its first deploy)"
+    echo "  --skip-snapshot-check"
+    echo "                 Passed to scripts/backup.sh: skip the export inspection, for"
+    echo "                 a legitimate deployment the checks misjudge"
     echo "  --help         Show this help message"
     echo ""
-    echo "Every path that deploys functions or runs migrations exports a backup"
-    echo "first and aborts if the export fails (see scripts/backup.sh)."
+    echo "Gated: this script's own paths (default, --deploy-only, and --init on an"
+    echo "install that has run before) export a backup and abort if that export fails."
+    echo "NOT gated, by design: 'npm run selfhost:convex-dev' (the convex dev watcher"
+    echo "pushes functions per edit) and 'npm run docker:up' (the backend applies"
+    echo "on-start migrations as the container boots). Export before using either on"
+    echo "an install you care about."
     echo ""
 }
 
@@ -348,14 +386,10 @@ require_env_file() {
 # True when a Convex backend answers at the URL in .env.local. Parsing the file
 # instead of sourcing it keeps this probe side-effect free.
 backend_reachable() {
-    local url=""
-    if [ -f ".env.local" ]; then
-        url=$(awk -F= '/^[[:space:]]*CONVEX_SELF_HOSTED_URL=/{ v = $2 } END { gsub(/["\047\r]/, "", v); print v }' .env.local)
-    fi
+    local url
+    url=$(read_env_value CONVEX_SELF_HOSTED_URL)
     [ -n "$url" ] || url="http://127.0.0.1:3210"
-    if ! command -v curl > /dev/null 2>&1; then
-        return 1
-    fi
+    command -v curl > /dev/null 2>&1 || return 1
     curl -sf --max-time 10 "$url/version" > /dev/null 2>&1
 }
 
@@ -366,7 +400,8 @@ main() {
     # The rollback point has to be taken while the CURRENT image is still
     # serving: the backend applies in-place migrations when it starts, so
     # exporting after `docker compose up` would capture a post-migration state.
-    export_before_migration
+    # "$@" carries the snapshot-inspection opt-ins through to scripts/backup.sh.
+    export_before_migration "$@"
     build_and_start_containers
     setup_convex_admin_key
     sync_convex_env
@@ -378,19 +413,46 @@ main() {
 # Main with --init flag (creates new .env.local)
 main_init() {
     check_prerequisites
+
+    # Captured before setup_env_file can replace .env.local: an admin key means
+    # this install has run before. "Backend not answering" alone is NOT proof of
+    # a fresh volume — it also means "this install has data and its container is
+    # stopped", which must export before anything is rebuilt or restarted.
+    local previous_url previous_key
+    previous_url=$(read_env_value CONVEX_SELF_HOSTED_URL)
+    previous_key=$(read_env_value CONVEX_SELF_HOSTED_ADMIN_KEY)
+
     setup_env_file
-    # Re-running --init on a live install must export before the container is
-    # rebuilt. A brand-new install has no backend to export from and no data to
-    # lose, so there the gate runs after startup, still before the first deploy.
-    if backend_reachable; then
+
+    local existing_install=0
+    if [ -n "$previous_key" ] || backend_reachable; then
+        existing_install=1
+    fi
+    local -r existing_install_flag=$existing_install
+
+    if [ "$existing_install_flag" = 1 ]; then
+        # Export while the current image is still the one holding the data. If
+        # the container is down this fails closed and tells the operator to
+        # start the CURRENT image first, rather than rebuilding past the gate.
+        if [ -n "$previous_key" ]; then
+            CONVEX_SELF_HOSTED_URL="$previous_url"
+            CONVEX_SELF_HOSTED_ADMIN_KEY="$previous_key"
+            export CONVEX_SELF_HOSTED_URL CONVEX_SELF_HOSTED_ADMIN_KEY
+        fi
         export_before_migration
     else
-        echo "No Convex backend is answering yet: treating this as a fresh install."
+        echo "No previous deployment found: treating this as a fresh install."
         echo "The export gate runs after the container starts, before any deploy or migration."
         echo ""
     fi
+
     build_and_start_containers
     setup_convex_admin_key
+    if [ "$existing_install_flag" = 0 ]; then
+        # A brand-new volume has no schema deployed yet, so its snapshot is
+        # legitimately empty. Only this path may say so.
+        export_before_migration --expect-empty
+    fi
     sync_convex_env
     deploy_convex
     run_migrations
@@ -418,9 +480,18 @@ case "$1" in
         # Same deploy path as npm run selfhost, minus the container rebuild,
         # the admin-key rotation and the migrations. The export gate still
         # runs, so this entry point cannot skip the backup.
+        shift
         require_env_file
+        export_before_migration "$@"
         deploy_convex
         exit 0
+        ;;
+    --expect-empty | --skip-snapshot-check)
+        # Forwarded to scripts/backup.sh for a deployment the default snapshot
+        # inspection cannot judge (see bash scripts/backup.sh --help).
+        GATE_ARGS="$1"
+        shift
+        main "$GATE_ARGS"
         ;;
     --help)
         show_help
