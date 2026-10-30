@@ -128,6 +128,77 @@ export const FEDERAL_2026: FederalTaxRuleset = {
         selfEmploymentDeduction: 0.5,
       },
     },
+    // Alternative minimum tax (IRC §55). Exemption and phase-out threshold from the IRS 2026
+    // inflation adjustments: "For tax year 2026, the exemption amount for unmarried individuals is
+    // $90,100 and begins to phase out at $500,000 ($140,200 for married couples filing jointly for
+    // whom the exemption begins to phase out at $1,000,000)." The 26%/28% rates and the 25%
+    // phase-out rate are statutory; the ceiling on the 26% band is the fixed §55(b)(1) $175,000
+    // ($87,500 on a separate return), which is *not* indexed.
+    alternativeMinimumTax: {
+      indexing: 'indexed',
+      source:
+        'IRC §55(b)(1) (26%/28% rates, $175,000 / $87,500 band ceiling), §55(d)(1) (25% phase-out) and §56(b)(1) ' +
+        '(disallowed deductions); IRS 2026 inflation adjustments: $90,100 single / $140,200 MFJ exemption, ' +
+        'phasing out at $500,000 / $1,000,000.',
+      values: {
+        exemption: { single: 90100, marriedFilingJointly: 140200, headOfHousehold: 90100 },
+        exemptionPhaseOutThreshold: { single: 500000, marriedFilingJointly: 1000000, headOfHousehold: 500000 },
+        exemptionPhaseOutRate: 0.25,
+        rateLow: 0.26,
+        rateHigh: 0.28,
+        rateLowCeiling: { single: 175000, marriedFilingJointly: 175000, headOfHousehold: 175000 },
+        // IRC §56(b)(1): the standard deduction, state and local taxes and miscellaneous itemized
+        // deductions do not survive into AMTI. Qualified mortgage interest and charitable
+        // contributions are allowed and are deliberately absent. Only the standard deduction can be
+        // non-zero today, because the engine applies no itemized deductions yet (P3-P3).
+        disallowedDeductions: ['standardDeduction', 'stateAndLocalTaxes', 'propertyTaxes', 'miscellaneousItemized'],
+      },
+    },
+    // Medicare IRMAA, Parts B and D (42 U.S.C. §1395r(i)). CMS, "2026 Medicare Parts A & B
+    // Premiums and Deductibles" fact sheet (Nov 14, 2025), read 2026-10-30:
+    //   Part B standard premium $202.90/month, income-related adjustments $0.00 / $81.20 /
+    //   $202.90 / $324.60 / $446.30 / $487.00/month;
+    //   Part D income-related adjustments $0.00 / $14.50 / $37.50 / $60.40 / $83.30 / $91.00/month;
+    //   MAGI tiers ≤109,000 / ≤137,000 / ≤171,000 / ≤205,000 / <500,000 / ≥500,000 (individual),
+    //   doubled for a joint return. The tier is set from the return filed two years earlier.
+    medicareIrmaa: {
+      indexing: 'indexed',
+      source:
+        'CMS, "2026 Medicare Parts A & B Premiums and Deductibles" (Nov 14, 2025): Part B adjustments ' +
+        '$0.00/$81.20/$202.90/$324.60/$446.30/$487.00 and Part D $0.00/$14.50/$37.50/$60.40/$83.30/$91.00 per month, ' +
+        'on MAGI tiers of $109k/$137k/$171k/$205k/$500k (individual), doubled for a joint return.',
+      values: {
+        standardPartBMonthly: 202.9,
+        lookbackYears: 2,
+        tiers: {
+          single: [
+            { min: 0, max: 109000, partBMonthly: 0, partDMonthly: 0 },
+            { min: 109000, max: 137000, partBMonthly: 81.2, partDMonthly: 14.5 },
+            { min: 137000, max: 171000, partBMonthly: 202.9, partDMonthly: 37.5 },
+            { min: 171000, max: 205000, partBMonthly: 324.6, partDMonthly: 60.4 },
+            { min: 205000, max: 500000, partBMonthly: 446.3, partDMonthly: 83.3 },
+            { min: 500000, max: null, partBMonthly: 487, partDMonthly: 91 },
+          ],
+          marriedFilingJointly: [
+            { min: 0, max: 218000, partBMonthly: 0, partDMonthly: 0 },
+            { min: 218000, max: 274000, partBMonthly: 81.2, partDMonthly: 14.5 },
+            { min: 274000, max: 342000, partBMonthly: 202.9, partDMonthly: 37.5 },
+            { min: 342000, max: 410000, partBMonthly: 324.6, partDMonthly: 60.4 },
+            { min: 410000, max: 750000, partBMonthly: 446.3, partDMonthly: 83.3 },
+            { min: 750000, max: null, partBMonthly: 487, partDMonthly: 91 },
+          ],
+          // CMS publishes one "individual" column, which a head of household uses.
+          headOfHousehold: [
+            { min: 0, max: 109000, partBMonthly: 0, partDMonthly: 0 },
+            { min: 109000, max: 137000, partBMonthly: 81.2, partDMonthly: 14.5 },
+            { min: 137000, max: 171000, partBMonthly: 202.9, partDMonthly: 37.5 },
+            { min: 171000, max: 205000, partBMonthly: 324.6, partDMonthly: 60.4 },
+            { min: 205000, max: 500000, partBMonthly: 446.3, partDMonthly: 83.3 },
+            { min: 500000, max: null, partBMonthly: 487, partDMonthly: 91 },
+          ],
+        },
+      },
+    },
     // Additional Medicare Tax thresholds. Statutory amounts in IRC §3101(b)(2)(A) and
     // §1401(b)(2)(A), fixed since 2013 and deliberately not indexed. The employer withholding
     // threshold is $200,000 regardless of filing status; the liability these thresholds describe

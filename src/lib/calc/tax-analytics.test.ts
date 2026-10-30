@@ -20,6 +20,8 @@ import { join } from 'node:path';
 
 import { describe, it, expect } from 'vitest';
 
+import { createZeroAmtData, createZeroIrmaaData } from './__tests__/test-utils';
+
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
 import { parseISODateString } from './clock';
@@ -128,6 +130,8 @@ function makeInput(spec: YearSpec): TaxAnalyticsInput {
       totalIncome: 0,
       earlyWithdrawals: { rothEarnings: 0, '401kAndIra': 0, hsa: 0 },
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: 0,
     totalTaxesDue: 0,
     totalTaxesRefund: 0,
@@ -423,26 +427,28 @@ describe('marginal rates by income type', () => {
 
 describe('cliffs', () => {
   it('finds the Part B IRMAA cliff below and above the first threshold', () => {
-    // CMS 2026: standard premium $202.90/month. Tier 1 starts above $109,000 of MAGI and adds
-    // $81.20/month ($974.40/year); tier 2 adds $202.90/month ($2,434.80/year).
+    // CMS 2026: standard Part B premium $202.90/month. Tier 1 starts above $109,000 of MAGI and adds
+    // $81.20 Part B + $14.50 Part D a month = $95.70, or $1,148.40 a year.
     const below = irmaaCliff({ magi: 108000, taxYear: TAX_YEAR, filingStatus: 'single' });
     expect(below.tier.tier).toBe(0);
     expect(below.tier.monthlyPremium).toBeCloseTo(202.9);
     expect(below.tier.annualSurcharge).toBe(0);
     expect(below.headroomToNextTier).toBe(1000);
     expect(below.nextTier?.monthlyPremium).toBeCloseTo(284.1);
-    // One dollar past the threshold costs $974.40 a year: 81.20 − 0.00, times twelve.
-    expect(below.nextTier?.stepUp).toBeCloseTo(974.4);
+    // One dollar past the threshold costs $1,148.40 a year: (81.20 + 14.50) × 12.
+    expect(below.nextTier?.stepUp).toBeCloseTo(1148.4);
 
     const above = irmaaCliff({ magi: 110000, taxYear: TAX_YEAR, filingStatus: 'single' });
     expect(above.tier.tier).toBe(1);
     expect(above.tier.monthlyAdjustment).toBeCloseTo(81.2);
-    expect(above.tier.annualSurcharge).toBeCloseTo(974.4);
+    expect(above.tier.partDMonthly).toBeCloseTo(14.5);
+    expect(above.tier.annualSurcharge).toBeCloseTo(1148.4);
     // 137,000 − 110,000 = 27,000 of room before the next tier.
     expect(above.headroomToNextTier).toBe(27000);
-    // Tier 2 is $202.90/month, so crossing costs (202.90 − 81.20) × 12 = $1,460.40 more.
+    // Tier 2 is $202.90 Part B + $37.50 Part D = $240.40 a month, so crossing costs
+    // (240.40 − 95.70) × 12 = $1,736.40 more.
     expect(above.nextTier?.monthlyPremium).toBeCloseTo(405.8);
-    expect(above.nextTier?.stepUp).toBeCloseTo(1460.4);
+    expect(above.nextTier?.stepUp).toBeCloseTo(1736.4);
 
     // Joint filers double the thresholds: $220,000 is already inside tier 1.
     const joint = irmaaCliff({ magi: 220000, taxYear: TAX_YEAR, filingStatus: 'marriedFilingJointly' });
@@ -452,7 +458,7 @@ describe('cliffs', () => {
 
   it('uses the two-year lookback for premiums charged this year, and says when it cannot', () => {
     // MAGI 108,000 in 2024 charges the standard premium in 2026; the 2026 MAGI projects the 2028
-    // premium. Below, the 2024 MAGI is inside tier 0, so nothing is surcharged.
+    // premium. The 2024 MAGI is inside tier 0, so nothing is surcharged in 2026.
     const charged = analyzeTaxYear({
       ...makeInput({ taxableOrdinary: 60000, magi: 110000, taxYear: 2026 }),
       priorYearMagi: { taxYear: 2024, magi: 108000 },
@@ -509,8 +515,9 @@ describe('cliffs', () => {
     expect(analytics.notComputed.join(' ')).toMatch(/P3-P8/);
   });
 
-  it('refuses a year the IRMAA table does not cover', () => {
-    expect(() => irmaaCliff({ magi: 100000, taxYear: 2025, filingStatus: 'single' })).toThrow(/No IRMAA table for 2025/);
+  it('refuses a year the ruleset does not cover', () => {
+    // The table now lives in the ruleset, so the resolver's own error is the guard.
+    expect(() => irmaaCliff({ magi: 100000, taxYear: 2025, filingStatus: 'single' })).toThrow(/No federal tax ruleset for 2025/);
   });
 });
 

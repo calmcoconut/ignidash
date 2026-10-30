@@ -16,6 +16,23 @@
  * computed here, because it is settled with the return. `totalTaxLiability` is the one reconciled
  * total: it equals the sum of the lines below it, and `totalTaxesDue` is that total less what was
  * already withheld from the paycheques.
+ *
+ * ## AMT and IRMAA (P3-P7a)
+ *
+ * The alternative minimum tax is a *parallel* computation compared with the regular income tax, and
+ * the return pays the larger of the two. It is reported as a **top-up line, never a replacement**:
+ * `federalIncomeTaxes.federalIncomeTaxAmount` and `capitalGainsTaxes.capitalGainsTaxAmount` stay the
+ * regular tax, `amt.topUp` is `max(0, tentativeMinimumTax − regularIncomeTax)`, and
+ * `amt.applied` says which tax the year actually paid (`'regular'` when the AMT is shadowed,
+ * `'amt'` when it bites). Because the top-up is zero whenever the regular tax wins, one sum is
+ * correct in both cases and nothing is double counted.
+ *
+ * `amt.netCharge` is the signed line the reconciliation adds: `topUp` less any prior-year
+ * minimum-tax credit the year could use (IRC §53). A negative value is a credit reducing the bill.
+ *
+ * IRMAA is a Medicare premium surcharge, not an income tax, and it is charged on the return of the
+ * year it is paid: the tier comes from the MAGI of `lookbackYears` earlier (two), which is why this
+ * processor keeps a small MAGI history rather than looking at the current year alone.
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
@@ -29,6 +46,7 @@ import type { PhysicalAssetsData } from './physical-assets';
 import { sumFlows } from './asset';
 import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
+import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import type {
   CapitalGainsTaxBracket,
   FederalIncomeTaxBracket,
@@ -61,9 +79,61 @@ export interface NIITData {
   threshold: number;
 }
 
+/**
+ * The alternative minimum tax, as a shadow computation beside the regular tax.
+ *
+ * `regularIncomeTax` is the income tax the regular return computed (ordinary + capital gains); the
+ * AMT is measured against it, and `applied` records which one the year paid.
+ */
+export interface AlternativeMinimumTaxesData {
+  /** The regular income tax this year: `federalIncomeTaxAmount + capitalGainsTaxAmount`. */
+  regularIncomeTax: number;
+  /** Alternative minimum taxable income: regular taxable income plus the disallowed deductions. */
+  amtIncome: number;
+  /** The deductions added back to reach `amtIncome` (IRC §56(b)(1)). */
+  addbacks: number;
+  /** The exemption after its 25% phase-out. */
+  exemption: number;
+  /** AMT on the ordinary slice: 26% up to the statutory ceiling, 28% above it. */
+  ordinaryTax: number;
+  /** AMT on the capital-gain slice, at the regular long-term rates stacked on the ordinary base. */
+  capitalGainsTax: number;
+  /** `ordinaryTax + capitalGainsTax` — the tax if the AMT were the only system. */
+  tentativeMinimumTax: number;
+  /** `max(0, tentativeMinimumTax − regularIncomeTax)`: the AMT actually owed on top of the regular tax. */
+  topUp: number;
+  /** Prior-year minimum-tax credit used this year (IRC §53, simplified limit). */
+  creditApplied: number;
+  /** `topUp − creditApplied`. The one signed line `totalTaxLiability` adds; negative means a credit. */
+  netCharge: number;
+  /** The tax the year paid, so a reader can tell "AMT applied" from "AMT shadowed". */
+  applied: 'regular' | 'amt';
+  /** Minimum-tax credit available to later years after this one. */
+  creditCarryforward: number;
+}
+
+/** The Medicare income-related monthly adjustment charged in a year (Parts B and D). */
+export interface IrmaaData {
+  /** The MAGI the tier is based on, and the tax year it came from; `null` when unavailable. */
+  basisMagi: number | null;
+  basisTaxYear: TaxYear | null;
+  /** The year the surcharge is charged in — the year being settled. */
+  chargedInTaxYear: TaxYear;
+  /** Tier index: 0 is the standard premium, 1-5 are the surcharge tiers. */
+  tier: number;
+  partBMonthly: number;
+  partDMonthly: number;
+  /** `(partBMonthly + partDMonthly) × 12`: the income-related surcharge for the year. */
+  total: number;
+}
+
 export interface TaxesData {
   federalIncomeTaxes: FederalIncomeTaxesData;
   capitalGainsTaxes: CapitalGainsTaxesData;
+  /** The alternative minimum tax, reported as a top-up over the regular tax (see the header). */
+  amt: AlternativeMinimumTaxesData;
+  /** The Medicare Part B/D income-related surcharge charged this year, from the two-year lookback. */
+  irmaa: IrmaaData;
   niit: NIITData;
   earlyWithdrawalPenalties: EarlyWithdrawalPenaltyData;
   socialSecurityTaxes: SocialSecurityTaxesData;
@@ -71,11 +141,19 @@ export interface TaxesData {
   fica: FicaTaxesData;
   incomeSources: IncomeSourcesData;
   /**
-   * Everything the year owes: the sum of every line in this object that is a tax, i.e.
-   * `federalIncomeTaxes.federalIncomeTaxAmount + capitalGainsTaxes.capitalGainsTaxAmount +
-   * niit.niitAmount + earlyWithdrawalPenalties.totalPenaltyAmount + fica.total`. The
-   * reconciliation test asserts exactly that equality, so a new line cannot be added without
-   * being counted (or a line cannot be counted twice).
+   * Everything the year owes, and exactly the sum of its lines:
+   *
+   *   federalIncomeTaxes.federalIncomeTaxAmount   regular income tax on ordinary income
+   *   capitalGainsTaxes.capitalGainsTaxAmount     regular tax on gains and qualified dividends
+   *   amt.netCharge                              AMT top-up (positive) or minimum-tax credit (negative)
+   *   niit.niitAmount                            net investment income tax
+   *   irmaa.total                                Medicare Part B + D income-related surcharge
+   *   earlyWithdrawalPenalties.totalPenaltyAmount
+   *   fica.total                                 payroll taxes (FICA + SDI + SE tax)
+   *
+   * The reconciliation test asserts exactly that equality, so a new line cannot be added without
+   * being counted, and no line can be counted twice. The AMT enters as a *top-up* rather than as a
+   * replacement of the regular tax precisely so this stays one plain sum (see the header).
    */
   totalTaxLiability: number;
   /** Liability that still has to be paid: `totalTaxLiability` less income-tax and payroll withholding. */
@@ -139,6 +217,21 @@ export interface IncomeSourcesData {
 export class TaxProcessor {
   private capitalLossCarryover = 0;
   private capitalLossCarryoverSnapshot: number | null = null;
+  /** Minimum-tax credit available to later years (IRC §53), and its snapshot for the tax loop. */
+  private minimumTaxCreditCarryforward = 0;
+  private minimumTaxCreditSnapshot: number | null = null;
+  /**
+   * Adjusted gross income by tax year, for the IRMAA lookback. Keyed by year and *overwritten* on
+   * every pass through a year, so the convergence loop (which re-settles a year up to ten times)
+   * leaves one entry per year rather than ten.
+   */
+  private readonly magiByYear = new Map<TaxYear, number>();
+  /**
+   * The year being settled — the year *asked for*, not the year the rules resolved from. They differ
+   * whenever `getRules` falls back (a 2028 return uses the 2026 ruleset today), and the IRMAA
+   * lookback has to be keyed by the return's own year, not by the fallback's.
+   */
+  private taxYear: TaxYear;
   private ruleset: FederalTaxRuleset;
 
   /**
@@ -152,6 +245,7 @@ export class TaxProcessor {
     taxYear: TaxYear = LATEST_TAX_YEAR,
     rulesetOverride?: FederalTaxRuleset
   ) {
+    this.taxYear = taxYear;
     this.ruleset = rulesetOverride ?? getRules(taxYear);
   }
 
@@ -161,18 +255,29 @@ export class TaxProcessor {
    * freeze the first year's rules for the whole run.
    */
   setTaxYear(taxYear: TaxYear): void {
+    this.taxYear = taxYear;
     this.ruleset = getRules(taxYear);
   }
 
-  /** Save carryover state before first tax calculation of the year */
+  /**
+   * Save carryover state before first tax calculation of the year.
+   *
+   * Both carryforwards are saved: the capital-loss carryover and the minimum-tax credit, which is
+   * consumed by a year's return in exactly the same way (re-settling the year must not consume it
+   * twice).
+   */
   saveCarryoverSnapshot(): void {
     this.capitalLossCarryoverSnapshot = this.capitalLossCarryover;
+    this.minimumTaxCreditSnapshot = this.minimumTaxCreditCarryforward;
   }
 
   /** Restore carryover state before each convergence iteration */
   restoreCarryoverSnapshot(): void {
     if (this.capitalLossCarryoverSnapshot !== null) {
       this.capitalLossCarryover = this.capitalLossCarryoverSnapshot;
+    }
+    if (this.minimumTaxCreditSnapshot !== null) {
+      this.minimumTaxCreditCarryforward = this.minimumTaxCreditSnapshot;
     }
   }
 
@@ -247,12 +352,26 @@ export class TaxProcessor {
 
     const earlyWithdrawalPenalties = this.processEarlyWithdrawalPenalties(incomeData.earlyWithdrawals);
 
+    // AMT is measured against the regular income tax (ordinary + gains), which is why it is computed
+    // from the two lines above rather than from the reconciled total: payroll taxes and NIIT are not
+    // part of the tax the alternative minimum tax competes with.
+    const amt = this.processAlternativeMinimumTax({
+      taxableIncome: taxableIncomeTaxedAsOrdinary + taxableIncomeTaxedAsCapitalGains,
+      deductionApplied: deductionUsedForOrdinary + deductionUsedForGains,
+      netCapitalGains: taxableIncomeTaxedAsCapitalGains,
+      regularIncomeTax: federalIncomeTaxes.federalIncomeTaxAmount + capitalGainsTaxes.capitalGainsTaxAmount,
+    });
+
+    const irmaa = this.processIrmaa({ magi: incomeData.adjustedGrossIncome, taxYear: this.taxYear });
+
     // The one reconciled total. Every tax line is added here and nowhere else, and the
     // reconciliation test in `taxes.test.ts` asserts this equality line by line.
     const totalTaxLiability =
       federalIncomeTaxes.federalIncomeTaxAmount +
       capitalGainsTaxes.capitalGainsTaxAmount +
+      amt.netCharge +
       niit.niitAmount +
+      irmaa.total +
       earlyWithdrawalPenalties.totalPenaltyAmount +
       fica.total;
 
@@ -264,6 +383,8 @@ export class TaxProcessor {
     return {
       federalIncomeTaxes,
       capitalGainsTaxes,
+      amt,
+      irmaa,
       niit,
       earlyWithdrawalPenalties,
       socialSecurityTaxes,
@@ -280,6 +401,143 @@ export class TaxProcessor {
         selfEmploymentTaxDeduction: fica.selfEmployment.halfDeduction,
       },
       deductions: { standardDeduction },
+    };
+  }
+
+  /**
+   * The alternative minimum tax, computed beside the regular tax (IRC §55).
+   *
+   * The AMT is a parallel system: AMTI starts from the regular taxable income, adds back the
+   * deductions §56(b)(1) disallows, subtracts an exemption that phases out at 25 cents per dollar,
+   * and applies 26%/28% to the ordinary slice. Long-term gains keep their preferential rates, so
+   * they are taxed against the same capital-gains brackets, stacked on the AMT ordinary base. The
+   * tentative minimum tax is then compared with the regular income tax, and **only the excess is
+   * charged** — that is what keeps `totalTaxLiability` a plain sum (see the header).
+   *
+   * Hand check (2026, single, $150,000 of wages, no other income, no capital gains):
+   *   regular taxable income = 150,000 − 16,100 = $133,900
+   *   AMTI  = 133,900 + 16,100 (the standard deduction is disallowed)        = $150,000
+   *   exemption = 90,100 (AMTI is below the $500,000 phase-out start)        = $90,100
+   *   AMT base = 150,000 − 90,100 = $59,900, below the $175,000 28% ceiling
+   *   tentative minimum tax = 59,900 × 26%                                   = $15,574
+   *   regular tax on 133,900 = 1,240 + 4,560 + 12,166 + 28,200 × 24%         = $24,734
+   *   topUp = max(0, 15,574 − 24,734) = $0 → `applied: 'regular'` (the AMT is shadowed)
+   *
+   * Hand check (2026, single, $1,000,000 of wages):
+   *   regular taxable income = 983,900
+   *   AMTI = $1,000,000; exemption = 90,100 − 25% × (1,000,000 − 500,000) = $0 (fully phased out)
+   *   AMT base = 1,000,000; ordinary tax = 175,000 × 26% + 825,000 × 28% = $276,500
+   *   regular tax on 983,900 ≈ $313,518 (see the bracket table) → the AMT is still shadowed;
+   *   the phase-out is what the exemption test exercises, not the payment.
+   */
+  private processAlternativeMinimumTax({
+    taxableIncome,
+    deductionApplied,
+    netCapitalGains,
+    regularIncomeTax,
+  }: {
+    taxableIncome: number;
+    deductionApplied: number;
+    netCapitalGains: number;
+    regularIncomeTax: number;
+  }): AlternativeMinimumTaxesData {
+    const table = this.ruleset.tables.alternativeMinimumTax.values;
+
+    // The deductions the regular return took that AMT does not allow. Today the engine applies no
+    // itemized deductions, so `standardDeduction` is the only entry that can be non-zero; the list
+    // is read from the table so P3-P3's itemized lines join it without touching this code.
+    const appliedDeductions: Record<string, number> = { standardDeduction: deductionApplied };
+    const addbacks = table.disallowedDeductions.reduce((total, id) => total + (appliedDeductions[id] ?? 0), 0);
+
+    const amtIncome = taxableIncome + addbacks;
+
+    const exemption = Math.max(
+      0,
+      table.exemption[this.filingStatus] -
+        table.exemptionPhaseOutRate * Math.max(0, amtIncome - table.exemptionPhaseOutThreshold[this.filingStatus])
+    );
+
+    const amtBase = Math.max(0, amtIncome - exemption);
+    const gainsInBase = Math.min(amtBase, Math.max(0, netCapitalGains));
+    const ordinaryInBase = amtBase - gainsInBase;
+
+    const lowCeiling = table.rateLowCeiling[this.filingStatus];
+    const ordinaryTax = Math.min(ordinaryInBase, lowCeiling) * table.rateLow + Math.max(0, ordinaryInBase - lowCeiling) * table.rateHigh;
+
+    // The preferential rates apply to the gain slice exactly as they do on the regular return; the
+    // same bracketing traversal is reused so the two systems cannot disagree about the brackets.
+    const capitalGainsTax = this.processCapitalGainsTaxes({
+      taxableIncomeTaxedAsCapitalGains: gainsInBase,
+      taxableIncomeTaxedAsOrdinary: ordinaryInBase,
+    }).capitalGainsTaxAmount;
+
+    const tentativeMinimumTax = ordinaryTax + capitalGainsTax;
+    const topUp = Math.max(0, tentativeMinimumTax - regularIncomeTax);
+
+    // IRC §53: a prior-year minimum tax is creditable against the excess of the regular tax over the
+    // tentative minimum tax. The simplified limit only — the deferral-item refinement of Form 8801
+    // Part III is not modelled (Plan 3: "no full AMT credit machinery").
+    const creditApplied = Math.min(this.minimumTaxCreditCarryforward, Math.max(0, regularIncomeTax - tentativeMinimumTax));
+    this.minimumTaxCreditCarryforward = this.minimumTaxCreditCarryforward - creditApplied + topUp;
+
+    return {
+      regularIncomeTax,
+      amtIncome,
+      addbacks,
+      exemption,
+      ordinaryTax,
+      capitalGainsTax,
+      tentativeMinimumTax,
+      topUp,
+      creditApplied,
+      netCharge: topUp - creditApplied,
+      applied: topUp > 0 ? 'amt' : 'regular',
+      creditCarryforward: this.minimumTaxCreditCarryforward,
+    };
+  }
+
+  /**
+   * The Medicare Part B + D income-related monthly adjustment charged in the year being settled.
+   *
+   * The tier is set from the return filed `lookbackYears` earlier (two), so this processor keeps the
+   * MAGI of each settled year. The first `lookbackYears` years of a run charge nothing: there is no
+   * earlier return to look at, and assuming one would be worse than charging zero.
+   *
+   * Hand check (2026, single, MAGI $110,000 two years earlier):
+   *   tier 1 (> $109,000, ≤ $137,000): Part B $81.20 + Part D $14.50 = $95.70 a month
+   *   the year charges 95.70 × 12 = $1,148.40
+   */
+  private processIrmaa({ magi, taxYear }: { magi: number; taxYear: TaxYear }): IrmaaData {
+    this.magiByYear.set(taxYear, magi);
+
+    const table = this.ruleset.tables.medicareIrmaa.values;
+    const basisTaxYear = taxYear - table.lookbackYears;
+    const basisMagi = this.magiByYear.get(basisTaxYear) ?? null;
+    const tiers = table.tiers[this.filingStatus];
+
+    if (basisMagi === null) {
+      return {
+        basisMagi: null,
+        basisTaxYear,
+        chargedInTaxYear: taxYear,
+        tier: 0,
+        partBMonthly: 0,
+        partDMonthly: 0,
+        total: 0,
+      };
+    }
+
+    const tierIndex = irmaaTierFor(basisMagi, tiers);
+    const tier = tiers[tierIndex];
+
+    return {
+      basisMagi,
+      basisTaxYear,
+      chargedInTaxYear: taxYear,
+      tier: tierIndex,
+      partBMonthly: tier.partBMonthly,
+      partDMonthly: tier.partDMonthly,
+      total: (tier.partBMonthly + tier.partDMonthly) * 12,
     };
   }
 

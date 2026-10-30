@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
+import { createZeroAmtData, createZeroIrmaaData } from '../__tests__/test-utils';
+
 import { SimulationDataExtractor } from './simulation-data-extractor';
 import { ChartDataExtractor } from './chart-data-extractor';
 import { TableDataExtractor } from './table-data-extractor';
@@ -474,6 +476,8 @@ const createTaxDataPoint = (options: {
       },
       total: options.ficaTax ?? 0,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability:
       (options.federalIncomeTax ?? 0) +
       (options.capitalGainsTax ?? 0) +
@@ -531,6 +535,28 @@ describe('SimulationDataExtractor.getTaxAmountsByType', () => {
     expect(taxes.capitalGainsTax).toBe(3000);
     expect(taxes.niit).toBe(500);
     expect(taxes.earlyWithdrawalPenalties).toBe(1000);
+  });
+
+  it('adds the AMT top-up and the IRMAA surcharge into the same total (P3-P7a)', () => {
+    // The AMT is a top-up over the regular tax and the IRMAA surcharge is a Medicare premium, so
+    // both are separate lines; the extractor's total has to include them or it would stop
+    // reconciling with `TaxesData.totalTaxLiability`.
+    //   10,000 federal + 5,000 FICA + 2,000 gains + 500 NIIT + 1,266 AMT + 1,148.40 IRMAA = 19,914.40
+    const dp = createTaxDataPoint({ federalIncomeTax: 10000, ficaTax: 5000, capitalGainsTax: 2000, niit: 500 });
+    dp.taxes = {
+      ...dp.taxes!,
+      amt: createZeroAmtData({ netCharge: 1266, topUp: 1266, applied: 'amt' }),
+      irmaa: createZeroIrmaaData({ total: 1148.4, tier: 1, partBMonthly: 81.2, partDMonthly: 14.5 }),
+    };
+
+    const taxes = SimulationDataExtractor.getTaxAmountsByType(dp);
+
+    expect(taxes.amt).toBe(1266);
+    expect(taxes.irmaa).toBeCloseTo(1148.4);
+    expect(taxes.totalTaxes).toBeCloseTo(19914.4);
+    expect(taxes.totalTaxes).toBeCloseTo(
+      taxes.federalIncomeTax + taxes.ficaTax + taxes.capitalGainsTax + taxes.amt + taxes.niit + taxes.irmaa
+    );
   });
 
   it('reads FICA from TaxesData and never from the income side (PLAN-parity R10)', () => {
@@ -694,6 +720,8 @@ const createCashFlowDataPoint = (options: {
       },
       total: 0,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: options.totalTaxesAndPenalties,
     totalTaxesDue: options.totalTaxesAndPenalties,
     totalTaxesRefund: 0,
@@ -1063,6 +1091,8 @@ const createNetCashFlowDataPoint = (options: {
       },
       total: 0,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: options.totalTaxes ?? 0,
     totalTaxesDue: options.totalTaxes ?? 0,
     totalTaxesRefund: 0,
@@ -1738,6 +1768,8 @@ const createCashFlowInvariantDataPoint = (options: {
       },
       total: 0,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: options.totalTaxes ?? 0,
     totalTaxesDue: options.totalTaxes ?? 0,
     totalTaxesRefund: 0,

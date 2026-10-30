@@ -18,6 +18,7 @@ import type { DebtInputs } from '@/lib/schemas/inputs/debt-form-schema';
 import type { SimulationState, SimulationContext } from '../simulation-engine';
 import type { PortfolioData } from '../portfolio';
 import type { IncomesData } from '../incomes';
+import type { AlternativeMinimumTaxesData, IrmaaData } from '../taxes';
 import type { ExpensesData } from '../expenses';
 import type { ReturnsData } from '../returns';
 import type { PhysicalAssetsData } from '../physical-assets';
@@ -506,4 +507,39 @@ export const createEmptyYieldAmounts = (): Record<TaxCategory, { stocks: number;
   taxDeferred: { stocks: 0, bonds: 0, cash: 0 },
   taxFree: { stocks: 0, bonds: 0, cash: 0 },
   cashSavings: { stocks: 0, bonds: 0, cash: 0 },
+});
+
+/**
+ * A zeroed alternative-minimum-tax block, for fixtures that do not exercise AMT.
+ *
+ * The shape has to be present on every `TaxesData` literal now that the tax processor reports the
+ * AMT and IRMAA beside the regular tax; a fixture that cares about them overrides the fields it
+ * needs.
+ */
+export const createZeroAmtData = (overrides: Partial<AlternativeMinimumTaxesData> = {}): AlternativeMinimumTaxesData => ({
+  regularIncomeTax: 0,
+  amtIncome: 0,
+  addbacks: 0,
+  exemption: 0,
+  ordinaryTax: 0,
+  capitalGainsTax: 0,
+  tentativeMinimumTax: 0,
+  topUp: 0,
+  creditApplied: 0,
+  netCharge: 0,
+  applied: 'regular',
+  creditCarryforward: 0,
+  ...overrides,
+});
+
+/** A zeroed IRMAA block: no lookback year, no surcharge. */
+export const createZeroIrmaaData = (overrides: Partial<IrmaaData> = {}): IrmaaData => ({
+  basisMagi: null,
+  basisTaxYear: null,
+  chargedInTaxYear: 0,
+  tier: 0,
+  partBMonthly: 0,
+  partDMonthly: 0,
+  total: 0,
+  ...overrides,
 });

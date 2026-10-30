@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
+import { createZeroAmtData, createZeroIrmaaData } from '../__tests__/test-utils';
+
 import { KeyMetricsExtractor } from './key-metrics-extractor';
 import { ChartDataExtractor } from './chart-data-extractor';
 import type { SimulationResult, SimulationDataPoint, MultiSimulationResult } from '../simulation-engine';
@@ -131,6 +133,8 @@ const createDataPoint = (options: {
       },
       total: options.ficaTax ?? 7650,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: (options.federalIncomeTax ?? 10000) + (options.ficaTax ?? 7650),
     totalTaxesDue: (options.federalIncomeTax ?? 10000) + (options.ficaTax ?? 7650),
     totalTaxesRefund: 0,

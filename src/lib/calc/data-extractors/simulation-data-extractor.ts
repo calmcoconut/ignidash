@@ -59,7 +59,12 @@ export interface TaxAmountsByType {
   federalIncomeTax: number;
   ficaTax: number;
   capitalGainsTax: number;
+  /** The AMT top-up charged on top of the regular tax; negative when a credit is applied. */
+  amt: number;
   niit: number;
+  /** The Medicare Part B + D income-related surcharge charged this year. */
+  irmaa: number;
+  /** Sum of every line above, so it always reconciles with `TaxesData.totalTaxLiability`. */
   totalTaxes: number;
   earlyWithdrawalPenalties: number;
   totalTaxesAndPenalties: number;
@@ -120,8 +125,13 @@ export interface LifetimeTaxAmounts {
   lifetimeFederalIncomeTax: number;
   lifetimeFicaTax: number;
   lifetimeCapitalGainsTax: number;
+  /** The AMT top-up over the life of the run; negative when minimum-tax credits were used. */
+  lifetimeAmt: number;
   lifetimeNiit: number;
+  /** The Medicare Part B + D income-related surcharge over the life of the run. */
+  lifetimeIrmaa: number;
   lifetimeEarlyWithdrawalPenalties: number;
+  /** Sum of every line above, so it matches the per-year `totalTaxes` and `TaxesData.totalTaxLiability`. */
   lifetimeTaxesAndPenalties: number;
 }
 
@@ -315,6 +325,10 @@ export class SimulationDataExtractor {
    * copy as well would double count it. The income copy no longer exists, so the hazard is
    * structural rather than a convention: there is one field to read.
    *
+   * AMT and IRMAA join the same sum (P3-P7a) so this total keeps reconciling with
+   * `TaxesData.totalTaxLiability`; a chart that shows them as their own segments is a later
+   * display item, not a second total.
+   *
    * @param dp - A single simulation data point
    * @returns Individual and total tax amounts for the year
    */
@@ -323,13 +337,27 @@ export class SimulationDataExtractor {
     const federalIncomeTax = taxesData?.federalIncomeTaxes.federalIncomeTaxAmount ?? 0;
     const ficaTax = taxesData?.fica.total ?? 0;
     const capitalGainsTax = taxesData?.capitalGainsTaxes.capitalGainsTaxAmount ?? 0;
+    // The AMT is a top-up over the regular tax, and the credit form of the same line is negative,
+    // so it adds into the total without the regular tax ever being replaced (P3-P7a).
+    const amt = taxesData?.amt.netCharge ?? 0;
     const niit = taxesData?.niit.niitAmount ?? 0;
-    const totalTaxes = federalIncomeTax + capitalGainsTax + niit + ficaTax;
+    const irmaa = taxesData?.irmaa.total ?? 0;
+    const totalTaxes = federalIncomeTax + capitalGainsTax + amt + niit + irmaa + ficaTax;
 
     const earlyWithdrawalPenalties = taxesData?.earlyWithdrawalPenalties.totalPenaltyAmount ?? 0;
     const totalTaxesAndPenalties = totalTaxes + earlyWithdrawalPenalties;
 
-    return { federalIncomeTax, ficaTax, capitalGainsTax, niit, totalTaxes, earlyWithdrawalPenalties, totalTaxesAndPenalties };
+    return {
+      federalIncomeTax,
+      ficaTax,
+      capitalGainsTax,
+      amt,
+      niit,
+      irmaa,
+      totalTaxes,
+      earlyWithdrawalPenalties,
+      totalTaxesAndPenalties,
+    };
   }
 
   /**
@@ -582,36 +610,57 @@ export class SimulationDataExtractor {
    * @returns Cumulative lifetime tax amounts by type
    */
   static getLifetimeTaxesAndPenalties(data: SimulationDataPoint[]): LifetimeTaxAmounts {
-    const { lifetimeFederalIncomeTax, lifetimeFicaTax, lifetimeCapitalGainsTax, lifetimeNiit, lifetimeEarlyWithdrawalPenalties } =
-      data.reduce(
-        (acc, dp) => {
-          const { federalIncomeTax, ficaTax, capitalGainsTax, niit, earlyWithdrawalPenalties } = this.getTaxAmountsByType(dp);
+    const {
+      lifetimeFederalIncomeTax,
+      lifetimeFicaTax,
+      lifetimeCapitalGainsTax,
+      lifetimeAmt,
+      lifetimeNiit,
+      lifetimeIrmaa,
+      lifetimeEarlyWithdrawalPenalties,
+    } = data.reduce(
+      (acc, dp) => {
+        const { federalIncomeTax, ficaTax, capitalGainsTax, amt, niit, irmaa, earlyWithdrawalPenalties } = this.getTaxAmountsByType(dp);
 
-          return {
-            lifetimeFederalIncomeTax: acc.lifetimeFederalIncomeTax + federalIncomeTax,
-            lifetimeFicaTax: acc.lifetimeFicaTax + ficaTax,
-            lifetimeCapitalGainsTax: acc.lifetimeCapitalGainsTax + capitalGainsTax,
-            lifetimeNiit: acc.lifetimeNiit + niit,
-            lifetimeEarlyWithdrawalPenalties: acc.lifetimeEarlyWithdrawalPenalties + earlyWithdrawalPenalties,
-          };
-        },
-        {
-          lifetimeFederalIncomeTax: 0,
-          lifetimeFicaTax: 0,
-          lifetimeCapitalGainsTax: 0,
-          lifetimeNiit: 0,
-          lifetimeEarlyWithdrawalPenalties: 0,
-        }
-      );
+        return {
+          lifetimeFederalIncomeTax: acc.lifetimeFederalIncomeTax + federalIncomeTax,
+          lifetimeFicaTax: acc.lifetimeFicaTax + ficaTax,
+          lifetimeCapitalGainsTax: acc.lifetimeCapitalGainsTax + capitalGainsTax,
+          lifetimeAmt: acc.lifetimeAmt + amt,
+          lifetimeNiit: acc.lifetimeNiit + niit,
+          lifetimeIrmaa: acc.lifetimeIrmaa + irmaa,
+          lifetimeEarlyWithdrawalPenalties: acc.lifetimeEarlyWithdrawalPenalties + earlyWithdrawalPenalties,
+        };
+      },
+      {
+        lifetimeFederalIncomeTax: 0,
+        lifetimeFicaTax: 0,
+        lifetimeCapitalGainsTax: 0,
+        lifetimeAmt: 0,
+        lifetimeNiit: 0,
+        lifetimeIrmaa: 0,
+        lifetimeEarlyWithdrawalPenalties: 0,
+      }
+    );
 
+    // Every line the year reports is in the lifetime total too, so "lifetime taxes" cannot quietly
+    // drop the AMT top-up or the IRMAA surcharge the year's own total includes.
     const lifetimeTaxesAndPenalties =
-      lifetimeFederalIncomeTax + lifetimeFicaTax + lifetimeCapitalGainsTax + lifetimeNiit + lifetimeEarlyWithdrawalPenalties;
+      lifetimeFederalIncomeTax +
+      lifetimeFicaTax +
+      lifetimeCapitalGainsTax +
+      lifetimeAmt +
+      lifetimeNiit +
+      lifetimeIrmaa +
+      lifetimeEarlyWithdrawalPenalties;
 
     return {
       lifetimeFederalIncomeTax,
       lifetimeFicaTax,
       lifetimeCapitalGainsTax,
+      lifetimeAmt,
       lifetimeNiit,
+      lifetimeIrmaa,
       lifetimeEarlyWithdrawalPenalties,
       lifetimeTaxesAndPenalties,
     };

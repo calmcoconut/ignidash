@@ -123,3 +123,40 @@ rate published for that row's own year; rows from the second settlement on kept 
 and after; take-home fell by exactly the SDI delta; and gross income and income-tax withholding were
 unchanged everywhere. `simulation-engine.test.ts` pins the invariant for the first two settlements:
 each settlement's payroll lines equal `computeWagePayrollTaxes({ …, taxYear: rowYear })`.
+
+### P3-P7a: the AMT and the Medicare IRMAA surcharge
+
+Regenerated once, deliberately. Two lines the engine never charged are now in `TaxesData`:
+`amt` (the alternative minimum tax) and `irmaa` (the Part B + Part D income-related surcharge), and
+`totalTaxLiability` is the sum of seven lines instead of five.
+
+**The numeric movement is entirely IRMAA, in one fixture.** A surcharge is charged on the return of
+the year it is paid, from the MAGI of two years earlier, so a plan only pays it once it has two
+settled years and its MAGI has crossed $109,000 (individual). `time-binding-mixed` is the only
+fixture that gets there.
+
+| fixture              | does it charge AMT or IRMAA? | lifetime tax                            | final portfolio                             | what moved                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------- | ---------------------------- | --------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `steady-saver`       | neither                      | unchanged (all three modes)             | unchanged                                   | Nothing numerically; only the two added fields per row. MAGI stays under the first IRMAA tier and the AMT is shadowed.                                                                                                                                                                                                                                                                                                                                     |
+| `marginal-retiree`   | neither                      | unchanged                               | unchanged (0.00, bankrupt)                  | As above.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `time-binding-mixed` | **IRMAA**, six years         | 600,150.86 → **608,656.83** (+8,505.97) | 2,823,363.46 → **2,814,857.49** (−8,505.97) | Rows 37-41 are billed at tier 1 ($1,148.40/yr, from the MAGI of 2061-2065) and row 42 at tier 2 ($2,884.80, from 2066): **$8,626.80** of surcharge. It is funded by withdrawals, so the cash balance and its interest fall (−$512.05 of taxable interest over five rows), which _reduces_ federal income tax by $120.83; 8,626.80 − 120.83 = 8,505.97. One row also gains a `capitalLossDeduction` because the realized-gain path shifts by a few dollars. |
+| `shortfall-repaid`   | neither                      | unchanged                               | unchanged                                   | Pension only: MAGI never reaches the first tier, and the AMT cannot bite without preference items.                                                                                                                                                                                                                                                                                                                                                         |
+
+`crossPlan.finalValuePercentiles` moves because `time-binding-mixed` is the **middle** of the three
+frozen final values: each point moves by its interpolation weight on that value — p50 by the whole
+$8,505.97, p25/p75 by half, p10/p90 by a fifth, p5/p95 by a tenth. `crossPlan.multiSimulation` (the
+three `steady-saver` modes) is unchanged.
+
+**AMT is not exercised by this freeze, and cannot be yet.** The engine applies the standard deduction
+only, so AMT taxable income is simply AGI and the tentative minimum tax is 26%/28% of
+(AGI − exemption). At every income that is below the regular tax — checked at $150,000 ($15,574 vs
+$24,734), $600,000 and $1,000,000 ($276,500 vs $320,000) in `taxes.test.ts` — so `amt.applied` is
+`'regular'` and `amt.netCharge` is zero in all six runs. AMT bites in reality through preference
+items the model does not have yet: the SALT and miscellaneous itemized deductions (P3-P3), ISO
+exercises, private-activity-bond interest. The zero in the corpus is therefore a _shadowed_ AMT, not
+a missing one; `taxes.test.ts` exercises the charged path with a ruleset override and pins the credit
+carryforward.
+
+Cross-check run before regenerating: every data point's numeric leaves other than the IRMAA chain are
+identical, `taxes.amt` is zero everywhere, and the only newly present optional key is the
+`capitalLossDeduction` noted above.

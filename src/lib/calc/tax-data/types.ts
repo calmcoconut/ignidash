@@ -110,6 +110,66 @@ export interface PayrollTaxRates {
   readonly selfEmploymentDeduction: number;
 }
 
+/**
+ * Alternative minimum tax parameters (IRC §55-§59).
+ *
+ * The exemption is indexed; the 26%/28% rates, the 25% phase-out rate and the $175,000 ceiling on
+ * the 26% band are statutory and have not moved since 1993 (the ceiling is $87,500 on a separate
+ * return). The table is declared `indexed` because the amounts that do move are the exemption and
+ * its phase-out threshold; the fixed parts say so in their own source line, so the annual update
+ * knows exactly what to re-issue and what to copy forward.
+ *
+ * `disallowedDeductions` names the below-the-line deductions the regular return allows and AMT does
+ * not (IRC §56(b)(1)): the standard deduction, state and local taxes, and miscellaneous itemized
+ * deductions. Qualified mortgage interest and charitable contributions are deliberately absent —
+ * they survive. The engine has no itemized deductions yet (P3-P3), so only the standard deduction
+ * entry is ever non-zero today; the list is the table the add-back is driven from, not an if.
+ */
+export interface AlternativeMinimumTaxTable {
+  readonly exemption: ByFilingStatus<number>;
+  /** AMTI above which the exemption phases out at 25 cents per dollar. */
+  readonly exemptionPhaseOutThreshold: ByFilingStatus<number>;
+  readonly exemptionPhaseOutRate: number;
+  /** 26% on the AMT base up to `rateLowCeiling`, 28% above it. */
+  readonly rateLow: number;
+  readonly rateHigh: number;
+  /** Statutory: $175,000, or $87,500 on a separate return. */
+  readonly rateLowCeiling: ByFilingStatus<number>;
+  readonly disallowedDeductions: readonly string[];
+}
+
+/**
+ * One Medicare income-related monthly adjustment tier (42 U.S.C. §1395r(i)).
+ *
+ * `min` is exclusive and `max` inclusive, the way CMS publishes the table ("greater than X and
+ * less than or equal to Y"); the top tier is unbounded. The amounts are per month and are
+ * *surcharges*: the standard premium is not part of them.
+ */
+export interface MedicareIrmaaTier {
+  readonly min: number;
+  readonly max: number | null;
+  /** Monthly Part B income-related adjustment. */
+  readonly partBMonthly: number;
+  /** Monthly Part D income-related adjustment. */
+  readonly partDMonthly: number;
+}
+
+/**
+ * Medicare IRMAA (Part B and Part D income-related monthly adjustment amounts).
+ *
+ * The thresholds and amounts are indexed annually, and the tier charged in a year is set from the
+ * return filed **two years earlier** (`lookbackYears`), which is why the tax engine needs the MAGI
+ * history rather than the current year's alone. CMS publishes one "individual" column, so a head of
+ * household uses the single thresholds.
+ */
+export interface MedicareIrmaaTable {
+  readonly tiers: ByFilingStatus<readonly MedicareIrmaaTier[]>;
+  /** Years between the MAGI that sets the premium and the year the premium is charged. */
+  readonly lookbackYears: number;
+  /** Standard Part B premium, so a report can show the total premium and not only the surcharge. */
+  readonly standardPartBMonthly: number;
+}
+
 /** Table groups every jurisdiction has. */
 export interface TaxTables {
   /** Progressive ordinary-income schedule (federal: IRC §1). */
@@ -142,6 +202,10 @@ export interface FederalTaxTables extends TaxTables {
   readonly socialSecurityTaxation: TableMeta<ByFilingStatus<SocialSecurityTaxThreshold[]>>;
   /** Primary-residence gain exclusion (IRC §121). */
   readonly section121Exclusion: TableMeta<ByFilingStatus<number>>;
+  /** The alternative minimum tax (IRC §55-§59): exemption, phase-out, rates, disallowed deductions. */
+  readonly alternativeMinimumTax: TableMeta<AlternativeMinimumTaxTable>;
+  /** Medicare income-related monthly adjustment amounts, Parts B and D (42 U.S.C. §1395r(i)). */
+  readonly medicareIrmaa: TableMeta<MedicareIrmaaTable>;
 }
 
 /**

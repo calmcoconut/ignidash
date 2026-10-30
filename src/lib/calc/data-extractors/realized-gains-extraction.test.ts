@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
+import { createZeroAmtData, createZeroIrmaaData } from '../__tests__/test-utils';
+
 import { TableDataExtractor } from './table-data-extractor';
 import { ChartDataExtractor } from './chart-data-extractor';
 import type { SimulationResult, SimulationDataPoint } from '../simulation-engine';
@@ -85,6 +87,8 @@ function createZeroTaxesData(realizedGains: number): TaxesData {
       },
       total: 0,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: 0,
     totalTaxesDue: 0,
     totalTaxesRefund: 0,

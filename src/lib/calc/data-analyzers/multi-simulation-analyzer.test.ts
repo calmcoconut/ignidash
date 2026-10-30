@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
+import { createZeroAmtData, createZeroIrmaaData } from '../__tests__/test-utils';
+
 import { MultiSimulationAnalyzer } from './multi-simulation-analyzer';
 import type { SimulationResult, SimulationDataPoint, MultiSimulationResult } from '../simulation-engine';
 import type { ReturnsData } from '../returns';
@@ -120,6 +122,8 @@ const createDataPoint = (options: {
       },
       total: 7650,
     },
+    amt: createZeroAmtData(),
+    irmaa: createZeroIrmaaData(),
     totalTaxLiability: 17650,
     totalTaxesDue: 17650,
     totalTaxesRefund: 0,

@@ -27,24 +27,21 @@
  * - **ACA premium tax credit** — P3-P7b. The cliff depends on the SLCSP premium for the coverage
  *   year, the federal poverty line for a household size, and the applicable-percentage table;
  *   none of the three is in the result. It is reported as a prerequisite, never approximated.
- * - **AMT, and the Part D half of IRMAA** — P3-P7a. The Part B IRMAA table is included below
- *   *because analytics must be able to warn about the cliff*; it is a cost line, not a liability,
- *   and P3-P7a will move it into the ruleset with the rest of the Surcharge machinery.
+ * - **AMT credit machinery beyond the simplified §53 limit** — the engine charges the AMT top-up and
+ *   applies a credit against it, but the deferral-item refinement of Form 8801 Part III is not
+ *   modelled (Plan 3: "no full AMT credit machinery").
  * - **Itemized deductions and the SALT cap** — P3-P3. The engine applies the standard deduction
  *   only, so the analytics reads the taxable income it produced rather than assuming one.
  * - **The §72(t) additional tax on an early withdrawal** — the engine charges it from the account's
  *   age and type, not from a marginal rate, so a "next dollar of tax-deferred withdrawal" here is
  *   the income tax only. The list is returned per year in `notComputed`, so a consumer can say so.
  *
- * ## Provenance of the IRMAA table
+ * ## The IRMAA table
  *
- * CMS, "2026 Medicare Parts B premiums and deductibles" fact sheet (cms.gov newsroom), read
- * 2026-10-30. Part B standard premium $202.90/month; income-related monthly adjustment amounts
- * $0.00 / $81.20 / $202.90 / $324.60 / $446.30 / $487.00, on modified AGI tiers of
- * ≤109,000 / 109,001–137,000 / 137,001–171,000 / 171,001–205,000 / 205,001–<500,000 / ≥500,000 for
- * an individual return, doubled for a joint return. The thresholds are indexed annually; the
- * table carries the same `indexing` + `source` shape as a ruleset table so it can be lifted into
- * one unchanged.
+ * It lives in the ruleset (`tables.medicareIrmaa`, P3-P7a), not here: the tax engine charges the
+ * surcharge as a liability line, so there is one table with the CMS provenance rather than a second
+ * copy for the cliff. This module reads it to describe the tiers a MAGI lands in and what crossing
+ * the next threshold costs.
  *
  * The two-year lookback is a *lookup* concern, not a rate concern: premiums for year Y+2 are set
  * from year Y's MAGI. `analyzeTaxYear` reports both directions — the tier this year's MAGI will
@@ -58,6 +55,7 @@ import { parseISODateString } from './clock';
 import { computeSelfEmploymentTaxes, computeWagePayrollTaxes } from './payroll-taxes';
 import type { SimulationDataPoint } from './simulation-engine';
 import { getRules } from './tax-data';
+import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import type { CapitalGainsTaxBracket, ProgressiveBracket, TaxYear } from './tax-data/types';
 import type { TaxesData } from './taxes';
 
@@ -186,8 +184,13 @@ export interface IrmaaTier {
   min: number;
   /** `null` for the top tier. */
   max: number | null;
+  /** Part B income-related adjustment per month. */
   monthlyAdjustment: number;
+  /** The Part B premium actually paid: standard premium plus the adjustment. */
   monthlyPremium: number;
+  /** Part D income-related adjustment per month. */
+  partDMonthly: number;
+  /** `(Part B adjustment + Part D adjustment) × 12` — the surcharge the tax engine charges. */
   annualSurcharge: number;
 }
 
@@ -202,8 +205,8 @@ export interface IrmaaCliff {
   /** Room before the next tier; `null` in the top tier. */
   headroomToNextTier: number | null;
   nextTier: (IrmaaTier & { /** Extra annual cost of crossing into it. */ stepUp: number }) | null;
-  /** Part B only. The Part D surcharge is a separate table P3-P7a owns. */
-  includes: 'partB';
+  /** Both parts: the engine charges the Part B and Part D adjustments together. */
+  includes: 'partB-and-partD';
 }
 
 export interface IrmaaLookback {
@@ -371,103 +374,48 @@ function capitalGainsBracketRows(taxableOrdinary: number, taxableGains: number, 
 // IRMAA (a cost cliff, not a tax line — P3-P7a owns the liability)
 // ============================================================================
 
-interface IrmaaRow {
-  min: number;
-  /** Exclusive for the tiers the CMS tables express as "greater than X and less than or equal to";
-   *  the top row is unbounded. */
-  max: number | null;
-  monthlyAdjustment: number;
-  monthlyPremium: number;
-}
-
-/**
- * 2026 Part B income-related monthly adjustment amounts, keyed by filing status.
- *
- * CMS, "2026 Medicare Parts B premiums and deductibles" (cms.gov newsroom), read 2026-10-30:
- * standard premium $202.90/month, and adjustments of $0.00 / $81.20 / $202.90 / $324.60 / $446.30 /
- * $487.00. An individual return uses the single column; HOH does too (the CMS table has one
- * "individual" column); MFJ doubles the thresholds. MFS is not modelled yet (P3-P1b) and is
- * therefore absent from the union rather than guessed — adding it is a compile error here.
- */
-const IRMAA_PART_B_2026: Record<FilingStatus, IrmaaRow[]> = {
-  single: [
-    { min: 0, max: 109000, monthlyAdjustment: 0, monthlyPremium: 202.9 },
-    { min: 109000, max: 137000, monthlyAdjustment: 81.2, monthlyPremium: 284.1 },
-    { min: 137000, max: 171000, monthlyAdjustment: 202.9, monthlyPremium: 405.8 },
-    { min: 171000, max: 205000, monthlyAdjustment: 324.6, monthlyPremium: 527.5 },
-    { min: 205000, max: 500000, monthlyAdjustment: 446.3, monthlyPremium: 649.2 },
-    { min: 500000, max: null, monthlyAdjustment: 487, monthlyPremium: 689.9 },
-  ],
-  marriedFilingJointly: [
-    { min: 0, max: 218000, monthlyAdjustment: 0, monthlyPremium: 202.9 },
-    { min: 218000, max: 274000, monthlyAdjustment: 81.2, monthlyPremium: 284.1 },
-    { min: 274000, max: 342000, monthlyAdjustment: 202.9, monthlyPremium: 405.8 },
-    { min: 342000, max: 410000, monthlyAdjustment: 324.6, monthlyPremium: 527.5 },
-    { min: 410000, max: 750000, monthlyAdjustment: 446.3, monthlyPremium: 649.2 },
-    { min: 750000, max: null, monthlyAdjustment: 487, monthlyPremium: 689.9 },
-  ],
-  headOfHousehold: [
-    { min: 0, max: 109000, monthlyAdjustment: 0, monthlyPremium: 202.9 },
-    { min: 109000, max: 137000, monthlyAdjustment: 81.2, monthlyPremium: 284.1 },
-    { min: 137000, max: 171000, monthlyAdjustment: 202.9, monthlyPremium: 405.8 },
-    { min: 171000, max: 205000, monthlyAdjustment: 324.6, monthlyPremium: 527.5 },
-    { min: 205000, max: 500000, monthlyAdjustment: 446.3, monthlyPremium: 649.2 },
-    { min: 500000, max: null, monthlyAdjustment: 487, monthlyPremium: 689.9 },
-  ],
-};
-
 /**
  * The IRMAA tier a MAGI lands in, and what crossing the next threshold costs.
  *
- * These are the thresholds for `magiTaxYear` (the year whose MAGI is used); the premium is charged
- * in `magiTaxYear + 2`. Hand check (single, MAGI $108,000): tier 0, standard $202.90/month, and
- * $1,000 of room before the $109,000 threshold, where the premium would jump to $284.10/month —
- * $974.40 more per year for one dollar of MAGI. At MAGI $110,000 the tier is 1 ($81.20/month
- * adjustment, $974.40/year), with $27,000 of room before the $137,000 threshold and a $1,460.40
- * annual step up to $405.80/month.
+ * The thresholds are the ruleset's for `taxYear` (the year whose MAGI is used); the premium is
+ * charged in `taxYear + lookbackYears`. Hand check (single, MAGI $108,000): tier 0, standard
+ * $202.90/month, and $1,000 of room before the $109,000 threshold, where the premium would jump to
+ * $284.10/month — $1,148.40 more per year in Part B and D together, for one dollar of MAGI. At MAGI
+ * $110,000 the tier is 1 ($81.20 Part B + $14.50 Part D a month), with $27,000 of room before the
+ * $137,000 threshold.
  */
 export function irmaaCliff({ magi, taxYear, filingStatus }: { magi: number; taxYear: TaxYear; filingStatus: FilingStatus }): IrmaaCliff {
-  // Only the 2026 table is published in this repository; a year before it has no published
-  // thresholds and must not borrow 2026's as if they applied.
-  if (taxYear < 2026) {
-    throw new Error(`No IRMAA table for ${taxYear}: the published thresholds start at 2026 in this repository.`);
-  }
+  const table = getRules(taxYear).tables.medicareIrmaa.values;
+  const rows = table.tiers[filingStatus];
+  const index = irmaaTierFor(magi, rows);
+  const row = rows[index];
+  const nextRow = rows[index + 1] ?? null;
 
-  const rows = IRMAA_PART_B_2026[filingStatus];
-  const tierIndex = rows.reduce((found, row, index) => (magi > row.min ? index : found), 0);
-  const row = rows[tierIndex];
-  const nextRow = rows[tierIndex + 1] ?? null;
+  const toTier = (tier: number, values: (typeof rows)[number]): IrmaaTier => ({
+    tier,
+    min: values.min,
+    max: values.max,
+    monthlyAdjustment: values.partBMonthly,
+    monthlyPremium: table.standardPartBMonthly + values.partBMonthly,
+    partDMonthly: values.partDMonthly,
+    annualSurcharge: (values.partBMonthly + values.partDMonthly) * 12,
+  });
 
-  const tier: IrmaaTier = {
-    tier: tierIndex,
-    min: row.min,
-    max: row.max,
-    monthlyAdjustment: row.monthlyAdjustment,
-    monthlyPremium: row.monthlyPremium,
-    annualSurcharge: row.monthlyAdjustment * 12,
-  };
+  const tier = toTier(index, row);
 
   return {
     taxYear,
     filingStatus,
     magiTaxYear: taxYear,
-    premiumYear: taxYear + 2,
+    premiumYear: taxYear + table.lookbackYears,
     magi,
     tier,
     headroomToNextTier: nextRow === null ? null : nextRow.min - magi,
     nextTier:
       nextRow === null
         ? null
-        : {
-            tier: tierIndex + 1,
-            min: nextRow.min,
-            max: nextRow.max,
-            monthlyAdjustment: nextRow.monthlyAdjustment,
-            monthlyPremium: nextRow.monthlyPremium,
-            annualSurcharge: nextRow.monthlyAdjustment * 12,
-            stepUp: (nextRow.monthlyAdjustment - row.monthlyAdjustment) * 12,
-          },
-    includes: 'partB',
+        : { ...toTier(index + 1, nextRow), stepUp: toTier(index + 1, nextRow).annualSurcharge - tier.annualSurcharge },
+    includes: 'partB-and-partD',
   };
 }
 
@@ -685,7 +633,8 @@ function headroomTargets(taxable: number, brackets: readonly ProgressiveBracket[
 const NOT_COMPUTED = [
   'California income tax — P3-P8 supplies the state ruleset; only the SDI payroll line is available today.',
   'ACA premium tax credit and its cliff — P3-P7b. Needs the SLCSP premium, the federal poverty line for the household size and the applicable-percentage table; none is in the result.',
-  'AMT, and the Part D half of IRMAA — P3-P7a. The Part B IRMAA table here is a warning, not a liability line.',
+  'The AMT credit beyond the simplified §53 limit — the deferral-item refinement of Form 8801 Part III is not modelled (P3-P7a).',
+  'The non-income-related Medicare Part B and Part D premiums — only the IRMAA surcharge is a liability line.',
   'Itemized deductions and the SALT cap — P3-P3. The engine applies the standard deduction only.',
   'The §72(t) 10% additional tax and the §223(f)(4) 20% HSA tax on a marginal early withdrawal — the engine charges those from the account type and age, not from a marginal rate.',
   'Pro-rata basis on a Roth conversion (§408(d)(2)) — P3-P5. A conversion dollar here is fully taxable, so its rate is an upper bound.',

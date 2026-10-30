@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
 import { TaxProcessor } from './taxes';
+import { getRules } from './tax-data';
+import { irmaaTierFor } from './tax-data/medicare-irmaa';
+import type { FederalTaxRuleset } from './tax-data/types';
 import { Portfolio } from './portfolio';
 import { computeWagePayrollTaxes } from './payroll-taxes';
 import {
@@ -1419,11 +1422,288 @@ describe('TaxProcessor', () => {
    * `TaxProcessor.process()`, and this asserts that the total is that sum — no line omitted, no
    * line counted twice (the old double-counting hazard R10 describes).
    */
+  /**
+   * AMT and IRMAA (P3-P7a), hand-worked against the 2026 ruleset.
+   *
+   * The AMT is a parallel system, so the only representation that keeps one reconciled total is a
+   * top-up: `amt.topUp = max(0, tentativeMinimumTax − regularIncomeTax)`, charged as `amt.netCharge`
+   * beside the regular tax, with `amt.applied` saying which one the year paid.
+   */
+  describe('alternative minimum tax', () => {
+    /** 2026 single, hand-worked from the bracket table: 12,400 / 38,000 / 55,300 / 28,200. */
+    const regularTaxOn133900 = 1240 + 4560 + 12166 + 28200 * 0.24; // = 24,734
+
+    it('is shadowed when the regular tax wins, and charges nothing', () => {
+      // $150,000 of wages, single, 2026:
+      //   regular taxable income = 150,000 − 16,100 = $133,900
+      //   regular tax            = 1,240 + 4,560 + 12,166 + 28,200 × 24% = $24,734
+      //   AMTI = 133,900 + 16,100 (the standard deduction is disallowed, §56(b)(1)) = $150,000
+      //   exemption = $90,100 (below the $500,000 phase-out start)
+      //   AMT base = 59,900, below the $175,000 ceiling → 59,900 × 26% = $15,574
+      //   topUp = max(0, 15,574 − 24,734) = $0 → `applied: 'regular'`
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026);
+      const incomes = createEmptyIncomesData({ totalIncome: 150000, totalWageIncome: 150000 });
+
+      const result = processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+
+      expect(regularTaxOn133900).toBeCloseTo(24734);
+      expect(result.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(regularTaxOn133900);
+
+      expect(result.amt.regularIncomeTax).toBeCloseTo(24734);
+      expect(result.amt.amtIncome).toBeCloseTo(150000);
+      expect(result.amt.addbacks).toBeCloseTo(16100);
+      expect(result.amt.exemption).toBeCloseTo(90100);
+      expect(result.amt.tentativeMinimumTax).toBeCloseTo(15574);
+      expect(result.amt.topUp).toBe(0);
+      expect(result.amt.applied).toBe('regular');
+      expect(result.amt.netCharge).toBe(0);
+      expect(result.amt.creditCarryforward).toBe(0);
+      // The total is the regular tax; the AMT contributed exactly zero.
+      expect(result.totalTaxLiability).toBeCloseTo(24734 + result.fica.total);
+    });
+
+    it('applies as a top-up, and carries the excess forward as a credit', () => {
+      // A ruleset whose exemption is $50,000 instead of $90,100: today's law cannot make the AMT
+      // bite without preference items, and the engine has no itemized deductions yet (P3-P3), so the
+      // exemption is overridden to exercise the top-up path. The arithmetic is the overridden
+      // table's, not a claim about 2026 law:
+      //   AMTI 150,000 − 50,000 = 100,000 × 26% = $26,000
+      //   regular tax $24,734 → topUp = $1,266, applied 'amt', carried forward $1,266
+      const base = getRules(2026);
+      const lowExemption: FederalTaxRuleset = {
+        ...base,
+        tables: {
+          ...base.tables,
+          alternativeMinimumTax: {
+            ...base.tables.alternativeMinimumTax,
+            values: {
+              ...base.tables.alternativeMinimumTax.values,
+              exemption: { single: 50000, marriedFilingJointly: 100000, headOfHousehold: 50000 },
+            },
+          },
+        },
+      };
+
+      const processor = new TaxProcessor(createMockSimulationState(40), 'single', 2026, lowExemption);
+      const highYear = processor.process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 150000, totalWageIncome: 150000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(highYear.amt.exemption).toBeCloseTo(50000);
+      expect(highYear.amt.tentativeMinimumTax).toBeCloseTo(26000);
+      expect(highYear.amt.topUp).toBeCloseTo(1266);
+      expect(highYear.amt.applied).toBe('amt');
+      expect(highYear.amt.netCharge).toBeCloseTo(1266);
+      expect(highYear.amt.creditCarryforward).toBeCloseTo(1266);
+      expect(highYear.totalTaxLiability).toBeCloseTo(24734 + 1266 + highYear.fica.total);
+
+      // The next year earns $80,000 with the same overridden table (the processor keeps it, since
+      // this fixture does not advance the year):
+      //   regular taxable income = 80,000 − 16,100 = 63,900
+      //   regular tax = 1,240 + 4,560 + (63,900 − 50,400) × 22% = $8,770
+      //   AMT base    = 80,000 − 50,000 = 30,000 × 26% = $7,800 → the regular tax wins
+      //   credit = min(1,266 carryforward, 8,770 − 7,800 = 970) = $970 → net charge −$970
+      const lowYear = processor.process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 80000, totalWageIncome: 80000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(lowYear.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(8770);
+      expect(lowYear.amt.tentativeMinimumTax).toBeCloseTo(7800);
+      expect(lowYear.amt.topUp).toBe(0);
+      expect(lowYear.amt.applied).toBe('regular');
+      expect(lowYear.amt.creditApplied).toBeCloseTo(970);
+      expect(lowYear.amt.netCharge).toBeCloseTo(-970);
+      expect(lowYear.amt.creditCarryforward).toBeCloseTo(296);
+      expect(lowYear.totalTaxLiability).toBeCloseTo(8770 - 970 + lowYear.fica.total);
+    });
+
+    it('phases the exemption out at 25 cents per dollar of AMTI', () => {
+      // $600,000 of wages, single, 2026:
+      //   AMTI = 600,000; exemption = 90,100 − 25% × (600,000 − 500,000) = $65,100 (partial)
+      const partial = new TaxProcessor(createMockSimulationState(40), 'single', 2026).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 600000, totalWageIncome: 600000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(partial.amt.exemption).toBeCloseTo(65100);
+      // base 534,900 → 175,000 × 26% + 359,900 × 28% = 45,500 + 100,772 = $146,272
+      expect(partial.amt.ordinaryTax).toBeCloseTo(146272);
+      // The regular tax on 583,900 still wins at this income.
+      expect(partial.amt.applied).toBe('regular');
+
+      // $1,000,000 of wages: exemption = 90,100 − 25% × 500,000 = $0 (fully phased out).
+      //   base 1,000,000 → 175,000 × 26% + 825,000 × 28% = 45,500 + 231,000 = $276,500
+      const gone = new TaxProcessor(createMockSimulationState(40), 'single', 2026).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 1000000, totalWageIncome: 1000000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(gone.amt.exemption).toBe(0);
+      expect(gone.amt.ordinaryTax).toBeCloseTo(276500);
+      // Regular tax on 983,900 = 58,448 + 384,375 × 35% + 343,300 × 37% = $320,000.25
+      expect(gone.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(320000.25);
+      expect(gone.amt.applied).toBe('regular');
+      expect(gone.amt.topUp).toBe(0);
+    });
+
+    it('taxes the gain slice of the AMT base at the capital-gains rates', () => {
+      // 2026 single, $200,000 of ordinary income and $100,000 of realized gains, with a ruleset
+      // whose exemption is $50,000 so the AMT path is priced (see the note above):
+      //   AMTI = 300,000; base = 250,000; gains in base = 100,000, ordinary = 150,000
+      //   ordinary AMT = 150,000 × 26% = $39,000
+      //   gains: stacked on 150,000 → all inside the 15% band (49,450–545,500) = $15,000
+      //   tentative minimum tax = $54,000
+      const base = getRules(2026);
+      const lowExemption: FederalTaxRuleset = {
+        ...base,
+        tables: {
+          ...base.tables,
+          alternativeMinimumTax: {
+            ...base.tables.alternativeMinimumTax,
+            values: {
+              ...base.tables.alternativeMinimumTax.values,
+              exemption: { single: 50000, marriedFilingJointly: 100000, headOfHousehold: 50000 },
+            },
+          },
+        },
+      };
+      const portfolio = createEmptyPortfolioData();
+      portfolio.realizedGains = 100000;
+
+      const result = new TaxProcessor(createMockSimulationState(40), 'single', 2026, lowExemption).process(
+        portfolio,
+        createEmptyIncomesData({ totalIncome: 200000, totalWageIncome: 200000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(result.capitalGainsTaxes.taxableIncomeTaxedAsCapitalGains).toBeCloseTo(100000);
+      expect(result.amt.ordinaryTax).toBeCloseTo(39000);
+      expect(result.amt.capitalGainsTax).toBeCloseTo(15000);
+      expect(result.amt.tentativeMinimumTax).toBeCloseTo(54000);
+    });
+  });
+
+  describe('Medicare IRMAA', () => {
+    /**
+     * 2026 CMS table, single: tiers at >$109,000 / >$137,000 / … with Part B adjustments of
+     * $0 / $81.20 / $202.90 and Part D of $0 / $14.50 / $37.50 a month. The premium is charged on
+     * the return of the year itself, from the MAGI of two years earlier.
+     */
+    const year = (totalIncome: number) => createEmptyIncomesData({ totalIncome, totalWageIncome: totalIncome });
+
+    it('charges nothing until two years of MAGI exist, then bills the lookback tier', () => {
+      const processor = new TaxProcessor(createMockSimulationState(70), 'single', 2026);
+      const run = (taxYear: number, totalIncome: number) => {
+        processor.setTaxYear(taxYear);
+        return processor.process(createEmptyPortfolioData(), year(totalIncome), createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+      };
+
+      // 2026: MAGI 108,000 — no 2024 return to look at.
+      const y2026 = run(2026, 108000);
+      expect(y2026.irmaa.total).toBe(0);
+      expect(y2026.irmaa.basisMagi).toBeNull();
+      expect(y2026.irmaa.basisTaxYear).toBe(2024);
+
+      // 2027: MAGI 110,000 — no 2025 return either.
+      const y2027 = run(2027, 110000);
+      expect(y2027.irmaa.total).toBe(0);
+
+      // 2028: billed on 2026's MAGI of 108,000, which is inside tier 0 → still nothing.
+      const y2028 = run(2028, 140000);
+      expect(y2028.irmaa.basisMagi).toBeCloseTo(108000);
+      expect(y2028.irmaa.tier).toBe(0);
+      expect(y2028.irmaa.total).toBe(0);
+
+      // 2029: billed on 2027's MAGI of 110,000 → tier 1: (81.20 + 14.50) × 12 = $1,148.40.
+      const y2029 = run(2029, 90000);
+      expect(y2029.irmaa.basisMagi).toBeCloseTo(110000);
+      expect(y2029.irmaa.basisTaxYear).toBe(2027);
+      expect(y2029.irmaa.tier).toBe(1);
+      expect(y2029.irmaa.partBMonthly).toBeCloseTo(81.2);
+      expect(y2029.irmaa.partDMonthly).toBeCloseTo(14.5);
+      expect(y2029.irmaa.total).toBeCloseTo(1148.4);
+      // …and it is inside the reconciled total, not beside it.
+      expect(y2029.totalTaxLiability).toBeCloseTo(
+        y2029.federalIncomeTaxes.federalIncomeTaxAmount +
+          y2029.capitalGainsTaxes.capitalGainsTaxAmount +
+          y2029.amt.netCharge +
+          y2029.niit.niitAmount +
+          y2029.irmaa.total +
+          y2029.earlyWithdrawalPenalties.totalPenaltyAmount +
+          y2029.fica.total
+      );
+
+      // 2030: billed on 2028's MAGI of 140,000 → the next tier: (202.90 + 37.50) × 12 = $2,884.80.
+      const y2030 = run(2030, 90000);
+      expect(y2030.irmaa.tier).toBe(2);
+      expect(y2030.irmaa.total).toBeCloseTo(2884.8);
+    });
+
+    it('resolves the tier boundary the way CMS writes it, including the inclusive top tier', () => {
+      // The published table reads "greater than X and less than or equal to Y", and the top tier
+      // "greater than or equal to $500,000" — so the last threshold is inclusive where the rest are
+      // exclusive. Hand check: 109,000 → 0; 109,001 → 1; 205,001 → 4; 499,999 → 4; 500,000 → 5.
+      const tiers = getRules(2026).tables.medicareIrmaa.values.tiers.single;
+
+      expect(irmaaTierFor(0, tiers)).toBe(0);
+      expect(irmaaTierFor(109000, tiers)).toBe(0);
+      expect(irmaaTierFor(109001, tiers)).toBe(1);
+      expect(irmaaTierFor(137000, tiers)).toBe(1);
+      expect(irmaaTierFor(137001, tiers)).toBe(2);
+      expect(irmaaTierFor(205001, tiers)).toBe(4);
+      expect(irmaaTierFor(499999, tiers)).toBe(4);
+      expect(irmaaTierFor(500000, tiers)).toBe(5);
+      expect(irmaaTierFor(1000000, tiers)).toBe(5);
+    });
+
+    it('uses the joint thresholds for a joint return', () => {
+      // MFJ: the first tier starts above $218,000, so $200,000 is still the standard premium.
+      const processor = new TaxProcessor(createMockSimulationState(70), 'marriedFilingJointly', 2026);
+      processor.process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 200000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+      processor.setTaxYear(2027);
+      processor.process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 0 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+      processor.setTaxYear(2028);
+      const billed = processor.process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 0 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(billed.irmaa.basisMagi).toBeCloseTo(200000);
+      expect(billed.irmaa.tier).toBe(0);
+      expect(billed.irmaa.total).toBe(0);
+    });
+  });
+
   describe('totalTaxLiability reconciliation', () => {
     const sumOfLines = (result: ReturnType<TaxProcessor['process']>) =>
       result.federalIncomeTaxes.federalIncomeTaxAmount +
       result.capitalGainsTaxes.capitalGainsTaxAmount +
+      result.amt.netCharge +
       result.niit.niitAmount +
+      result.irmaa.total +
       result.earlyWithdrawalPenalties.totalPenaltyAmount +
       result.fica.total;
 
