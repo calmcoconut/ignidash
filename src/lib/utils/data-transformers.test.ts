@@ -176,6 +176,73 @@ describe('Expense transforms', () => {
 });
 
 // ============================================================================
+// Ownership Roundtrips (P1-P2)
+// ============================================================================
+
+describe('ownership survives the round trip', () => {
+  // `owner` and `propertyRegime` ride inside each entity, so a converter that forgets them
+  // loses the tag silently — the same failure mode as `clonePlan` dropping `glidePath`. The
+  // clone guard only reaches the *optional top-level* plan fields (debts, physical assets,
+  // glidePath), so accounts, incomes and expenses are covered here, in both directions.
+  const OWNED = { owner: 'joint', propertyRegime: 'jointTenancy' } as const;
+
+  it('account: reads an owner off the document and writes it back', () => {
+    const doc = { ...createConvexAccount({ type: 'savings' }), ...OWNED };
+
+    const zod = accountFromConvex(doc);
+    expect(zod).toMatchObject(OWNED);
+
+    // A converter that dropped the fields would return an account whose reader default
+    // (`ownerOf`) silently says `primary` again.
+    expect(accountToConvex(zod)).toMatchObject(OWNED);
+  });
+
+  it('income: reads an owner off the document and writes it back', () => {
+    const doc = { ...createConvexIncome(), ...OWNED };
+
+    const zod = incomeFromConvex(doc);
+    expect(zod).toMatchObject(OWNED);
+
+    expect(incomeToConvex(zod)).toMatchObject(OWNED);
+  });
+
+  it('expense: reads an owner off the document and writes it back', () => {
+    const doc = { ...createConvexExpense(), ...OWNED };
+
+    const zod = expenseFromConvex(doc);
+    expect(zod).toMatchObject(OWNED);
+
+    expect(expenseToConvex(zod)).toMatchObject(OWNED);
+  });
+
+  it('leaves the fields unset when the stored item has none, so old plans stay old', () => {
+    // Unset is what every reader defaults from; a converter that invented `owner: 'primary'`
+    // would rewrite plans on their next save. An explicit `undefined` is how the converters
+    // carry "not stored" — Convex drops such a key from an optional field, and `ownerOf`
+    // treats it as absent.
+    for (const entity of [
+      accountFromConvex(createConvexAccount({ type: 'savings' })),
+      incomeFromConvex(createConvexIncome()),
+      expenseFromConvex(createConvexExpense()),
+    ]) {
+      expect(entity.owner).toBeUndefined();
+      expect(entity.propertyRegime).toBeUndefined();
+    }
+
+    // Stored form: the key is dropped entirely, so an untouched plan is byte-identical.
+    const stored = (value: unknown) => JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+    for (const doc of [
+      accountToConvex(accountFromConvex(createConvexAccount({ type: 'savings' }))),
+      incomeToConvex(incomeFromConvex(createConvexIncome())),
+      expenseToConvex(expenseFromConvex(createConvexExpense())),
+    ]) {
+      expect(stored(doc)).not.toHaveProperty('owner');
+      expect(stored(doc)).not.toHaveProperty('propertyRegime');
+    }
+  });
+});
+
+// ============================================================================
 // Debt Roundtrips
 // ============================================================================
 

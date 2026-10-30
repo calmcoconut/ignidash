@@ -1,6 +1,8 @@
 // @vitest-environment edge-runtime
 import { describe, expect, it } from 'vitest';
 
+import { SINGLE_MEMBER_HOUSEHOLD as SCHEMA_SINGLE_MEMBER_HOUSEHOLD } from '../../src/lib/schemas/inputs/household-schema';
+
 import { backfillPatch, SINGLE_MEMBER_HOUSEHOLD } from './household_backfill';
 
 /**
@@ -76,6 +78,16 @@ const asPlan = (plan: ReturnType<typeof legacyPlan>) => plan as unknown as Param
 /** Applying a patch the way `ctx.db.patch` does, for the second-run comparison. */
 const applyPatch = (plan: ReturnType<typeof legacyPlan>, patch: NonNullable<ReturnType<typeof backfillPatch>>) =>
   ({ ...plan, ...patch }) as ReturnType<typeof legacyPlan>;
+
+describe('the household this migration writes', () => {
+  it('is the same literal the app reads, so the two copies cannot drift', () => {
+    // The duplication is deliberate — Convex functions may only import from `convex/`, so the
+    // migration cannot import `src/lib/schemas/inputs/household-schema.ts`. This test is what
+    // keeps the copies equal: the app's `isCoupleHousehold`, the timeline drawer's default and
+    // the migration's backfill must all describe the same single member.
+    expect(SINGLE_MEMBER_HOUSEHOLD).toStrictEqual(SCHEMA_SINGLE_MEMBER_HOUSEHOLD);
+  });
+});
 
 describe('backfillOwnerAndHousehold', () => {
   it('tags every entity of a plan that has no ownership at all', () => {

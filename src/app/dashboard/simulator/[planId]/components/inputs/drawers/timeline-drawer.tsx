@@ -10,6 +10,7 @@ import { useForm, useWatch, type FieldErrors, Controller } from 'react-hook-form
 import { timelineToConvex } from '@/lib/utils/data-transformers';
 import { currentLocalISODate } from '@/lib/utils/system-clock';
 import { createTimelineFormSchema, type TimelineInputs, type RetirementStrategyInputs } from '@/lib/schemas/inputs/timeline-form-schema';
+import { SINGLE_MEMBER_HOUSEHOLD } from '@/lib/schemas/inputs/household-schema';
 import NumberInput from '@/components/ui/number-input';
 import SectionHeader from '@/components/ui/section-header';
 import SectionContainer from '@/components/ui/section-container';
@@ -73,6 +74,10 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
           type: 'swrTarget',
           safeWithdrawalRate: 4,
         },
+        // One person, explicitly (P1-P2). Without it a plan created after the backfill
+        // migration would store no household and stay in the pre-migration shape, where every
+        // reader has to default — the migration exists precisely so that does not happen.
+        household: SINGLE_MEMBER_HOUSEHOLD,
       }) as const satisfies Partial<TimelineInputs>,
     []
   );

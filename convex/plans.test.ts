@@ -78,6 +78,18 @@ const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets
   },
 };
 
+/**
+ * Accounts, incomes and expenses are required plan fields, so the derived optional-field guard
+ * above cannot reach them. They carry an `owner` and a `propertyRegime` here (P1-P2) so the
+ * whole-field comparison below fails if `clonePlan` ever stops copying either — the exact
+ * failure mode that let `glidePath` be dropped for months.
+ */
+const OWNED_COLLECTION_FIXTURES = {
+  accounts: [{ ...basicTemplate.accounts[0], owner: 'partner' as const }],
+  incomes: [{ ...basicTemplate.incomes[0], owner: 'joint' as const, propertyRegime: 'jointTenancy' as const }],
+  expenses: [{ ...basicTemplate.expenses[0], owner: 'primary' as const }],
+};
+
 // --- deletePlan ---
 
 describe('deletePlan', () => {
@@ -297,7 +309,7 @@ describe('clonePlan field round-trip', () => {
   it('preserves every plan field, including every optional one, through a clone', async () => {
     const t = convexTest(schema, modules);
     const planId = await t.run(async (ctx) => {
-      return ctx.db.insert('plans', makePlan({ isDefault: true, ...OPTIONAL_PLAN_FIELD_FIXTURES }));
+      return ctx.db.insert('plans', makePlan({ isDefault: true, ...OPTIONAL_PLAN_FIELD_FIXTURES, ...OWNED_COLLECTION_FIXTURES }));
     });
 
     const asUser = t.withIdentity({ subject: TEST_USER });
@@ -308,6 +320,11 @@ describe('clonePlan field round-trip', () => {
       const cloned = await ctx.db.get(clonedId);
       expect(source).not.toBeNull();
       expect(cloned).not.toBeNull();
+
+      // The tags are really there, so the whole-field comparison below is not vacuous.
+      expect(source!.accounts[0].owner).toBe('partner');
+      expect(source!.incomes[0]).toMatchObject({ owner: 'joint', propertyRegime: 'jointTenancy' });
+      expect(source!.expenses[0].owner).toBe('primary');
 
       const optionalFields = optionalPlanFieldNames();
       expect(optionalFields).toContain('glidePath');
