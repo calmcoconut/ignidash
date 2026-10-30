@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { isISODateString } from '@/lib/calc/clock';
-import { DEFAULT_MONTE_CARLO_TRIALS, simulate } from '@/lib/calc/simulate';
+import { DEFAULT_MONTE_CARLO_TRIALS, MONTE_CARLO_MAX_TRIALS, simulate } from '@/lib/calc/simulate';
 import type { ImportIssue } from '@/lib/export/plan-envelope';
 import { createTimelineFormSchema } from '@/lib/schemas/inputs/timeline-form-schema';
 import { simulatorSchema, type SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
@@ -233,9 +233,17 @@ export function runHeadlessSimulate(argv: string[], io: HeadlessIo): number {
       '\n'
   );
 
+  const largeRunWarning = fullRetentionWarning(trials);
+  if (largeRunWarning) io.writeStderr(`${largeRunWarning}\n`);
+
   let outcome;
   try {
-    outcome = trials === undefined ? simulate(plan, { mode, seed, asOf }) : simulate(plan, { mode, seed, asOf, trials });
+    // Full retention is opt-in on `simulate()`; this CLI's contract is to print every trial's
+    // result, so it asks for exactly that alongside the trial count.
+    outcome =
+      trials === undefined
+        ? simulate(plan, { mode, seed, asOf })
+        : simulate(plan, { mode, seed, asOf, trials, monteCarlo: { retention: 'full' } });
   } catch (error) {
     printIssues(io, 'headless:simulate: the simulation failed', [
       { path: '', message: error instanceof Error ? error.message : String(error) },
@@ -243,8 +251,34 @@ export function runHeadlessSimulate(argv: string[], io: HeadlessIo): number {
     return HEADLESS_EXIT.invalidPlan;
   }
 
-  io.writeStdout(`${JSON.stringify(outcome, null, 2)}\n`);
+  const serialized = serializeOutcome(outcome);
+  if (!serialized.ok) {
+    printIssues(io, 'headless:simulate: the result is too large to print', [
+      {
+        path: '--trials',
+        message: `the retained results could not be written as one JSON document (${serialized.message}). Rerun with fewer --trials.`,
+      },
+    ]);
+    return HEADLESS_EXIT.invalidPlan;
+  }
+
+  io.writeStdout(serialized.text);
   return HEADLESS_EXIT.ok;
+}
+
+/**
+ * Pretty-prints the outcome, reporting rather than throwing when it cannot.
+ *
+ * Full retention makes this reachable: V8 refuses to build a string larger than ~512 MB, and a
+ * few hundred trials on a realistic plan are enough to reach it. A stack trace would be a poor
+ * answer for an explicit, documented flag value.
+ */
+export function serializeOutcome(outcome: unknown): { ok: true; text: string } | { ok: false; message: string } {
+  try {
+    return { ok: true, text: `${JSON.stringify(outcome, null, 2)}\n` };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 type ResolvedRun =
@@ -256,6 +290,38 @@ type ResolvedRun =
       provenance: Record<'mode' | 'seed' | 'asOf' | 'trials', string>;
     }
   | number;
+
+/**
+ * Above this many trials the CLI's full-retention output gets expensive: it prints every
+ * trial's complete result, and a single pretty-printed result measured ~0.75 MB on a plan with
+ * income, expenses and a savings account (100 trials ≈ 75 MB, the 500-trial default ≈ 375 MB).
+ * The engine already refuses more than `MONTE_CARLO_MAX_TRIALS`; this warns earlier and still
+ * runs, because a large run can be deliberate and the flag is explicit.
+ */
+export const FULL_RETENTION_WARNING_TRIALS = 100;
+
+/**
+ * Measured on the CLI's own fixture-sized plan. Output is what the user sees; the same results
+ * are also held in memory before they are printed.
+ */
+const APPROX_OUTPUT_BYTES_PER_TRIAL = 770_000;
+
+/** The stderr warning for a large full-retention run, or null when the run is small. */
+export function fullRetentionWarning(trials: number | undefined): string | null {
+  if (trials === undefined || trials <= FULL_RETENTION_WARNING_TRIALS) return null;
+
+  return (
+    `headless:simulate: warning: --trials ${trials} keeps the full result of every trial — about ` +
+    `${formatBytes(trials * APPROX_OUTPUT_BYTES_PER_TRIAL)} of JSON on stdout, held in memory first. ` +
+    `simulate() refuses more than ${MONTE_CARLO_MAX_TRIALS} trials.`
+  );
+}
+
+function formatBytes(bytes: number): string {
+  const gigabytes = bytes / 1024 ** 3;
+  if (gigabytes >= 1) return `${gigabytes.toFixed(2)} GB`;
+  return `${Math.round(bytes / 1024 ** 2)} MB`;
+}
 
 /**
  * Resolves mode/seed/as-of/trials, recording where each came from so the banner can show

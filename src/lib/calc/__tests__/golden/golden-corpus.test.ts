@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { buildCorpus, parseCorpus, serializeCorpus, type GoldenCorpus } from './snapshot';
 import { GOLDEN_AS_OF, GOLDEN_FIXTURES } from './fixtures';
 import { getNyuDataRange } from '../../historical-data/nyu-returns';
+import { SimulationDataExtractor } from '../../data-extractors/simulation-data-extractor';
 
 const corpusPath = fileURLToPath(new URL('./corpus.json', import.meta.url));
 const corpusText = readFileSync(corpusPath, 'utf8');
@@ -192,5 +193,39 @@ describe('golden corpus', () => {
     const amounts = data.map((dataPoint) => dataPoint.expenses?.perExpenseData['trips']?.expense ?? 0).filter((amount) => amount > 0);
     expect(amounts.length).toBeGreaterThan(0);
     expect(Math.max(...amounts)).toBeLessThan(12000);
+  });
+
+  it('freezes the one run whose verdict flips under the predicates P2-P2 replaced', () => {
+    const run = corpus.fixtures['shortfall-repaid']?.fixedReturns;
+    if (!run) throw new Error('expected a fixedReturns snapshot for shortfall-repaid');
+
+    const result = (
+      run.simulation as {
+        result: {
+          data: Array<{ phase: { name: string } | null; portfolio: { totalValue: number; shortfall: number; shortfallRepaid: number } }>;
+          context: { startAge: number };
+        };
+      }
+    ).result;
+
+    const { retirementAge } = SimulationDataExtractor.getMilestonesData(result.data as never, result.context.startAge);
+    const finalDataPoint = result.data[result.data.length - 1];
+    const shortfallYears = result.data.filter((dataPoint) => dataPoint.portfolio.shortfall > 0).length;
+    const repaid = result.data.reduce((total, dataPoint) => total + dataPoint.portfolio.shortfallRepaid, 0);
+
+    // The frozen verdict, under the shared predicate.
+    expect(run.success).toBe(false);
+    expect(run.keyMetrics.success).toBe(0);
+
+    // The terms the former predicates would have judged differently.
+    expect(retirementAge).not.toBeNull();
+    expect(finalDataPoint.portfolio.totalValue).toBeGreaterThan(0.1);
+    expect(finalDataPoint.phase?.name).toBe('retirement');
+    expect(shortfallYears).toBeGreaterThan(0);
+    expect(repaid).toBeGreaterThan(0);
+
+    // Former table predicate: retirementAge !== null && final > 0.1 -> true.
+    // Former analyzer predicate: final > 0.1 && final phase === 'retirement' -> true.
+    // So a regression to either would flip this frozen `false` to a failure here.
   });
 });

@@ -23,7 +23,7 @@ npx tsx scripts/headless-simulate.ts plan.json --as-of 2026-01-01 > result.json
 | `--mode <mode>`        | Engine path: `fixedReturns`, `stochasticReturns`, `historicalReturns`, `monteCarloStochasticReturns`, `monteCarloHistoricalReturns` | the plan's `simulationSettings.simulationMode`                                |
 | `--seed <n>`           | Run seed, a positive integer                                                                                                        | the plan's `simulationSettings.simulationSeed`                                |
 | `--as-of <YYYY-MM-DD>` | The run's clock                                                                                                                     | the plan's `simulationSettings.asOfDate`; **if neither is set the run fails** |
-| `--trials <n>`         | Monte Carlo trials, positive integer                                                                                                | `500` (Monte Carlo modes only; rejected otherwise)                            |
+| `--trials <n>`         | Monte Carlo trials, positive integer, full retention (every trial's result is printed)                                              | `500` (Monte Carlo modes only; rejected otherwise; warns above 1000)          |
 | `-h`, `--help`         | Usage, defaults and exit codes                                                                                                      | —                                                                             |
 
 Both `--flag value` and `--flag=value` are accepted.
@@ -36,6 +36,22 @@ defaulted invisibly:
 headless:simulate: plan.json
   mode=fixedReturns (from plan) seed=7 (--seed) asOf=2026-01-01 (--as-of)
 ```
+
+### Monte Carlo output and cost
+
+`--trials` runs with **full retention**: `stdout` carries every trial's complete result, because
+that is this command's output contract (the UI is where a summary comes from). Retention is opt-in
+on `simulate()`, so the command asks for it explicitly.
+
+The cost grows with the trial count: one pretty-printed trial measured **~0.75 MB** on a plan with
+income, expenses and a savings account, so 100 trials is about 75 MB of JSON and the 500-trial
+default about 375 MB — all of it held in memory before it is printed. The command therefore warns
+above **100** trials and still runs, since a large run can be deliberate; `simulate()` itself
+refuses more than 5000.
+
+If the retained results cannot be written as one JSON document (V8 caps a string at roughly 512 MB,
+which a few hundred trials can reach on a realistic plan) the command exits 1 with
+`the result is too large to print` and asks for fewer trials, instead of crashing.
 
 ### Exit codes
 
@@ -181,7 +197,8 @@ Nothing in the app is weakened to match the document.
 - Single-run modes: `{ "mode": "fixedReturns", "result": <SimulationResult> }`, whose `data` is
   one entry per simulated month.
 - Monte Carlo modes: `{ "mode": "monteCarloStochasticReturns", "result": { "simulations": [[seed,
-<SimulationResult>], …] } }`.
+<SimulationResult>], …] } }` — one entry per trial, because the command always requests full
+  retention.
 
 A deterministic run of a small plan is a few hundred kilobytes of JSON. Use
 `jq`/`node -e`/your own script to pull out what you need; the extractors in

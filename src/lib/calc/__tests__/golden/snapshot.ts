@@ -6,9 +6,18 @@
  * where. Every value here is produced by the pure entry point, so the generator needs no store, no
  * worker and no clock — `GOLDEN_AS_OF` pins the only date the run may use.
  *
- * Monte Carlo is deliberately absent: it is P2-P3, which lands *after* this freeze, and the
- * multi-simulation yearly extractors index runs by yearly row count (they throw when a fixture has
- * fewer runs than years). Keeping the corpus to single runs means it does not depend on that quirk.
+ * Monte Carlo runs are deliberately absent: the corpus holds single runs only (P2-P3 lands after
+ * this freeze). The cross-run block *does* call two multi-simulation helpers,
+ * `MultiSimulationAnalyzer.analyze` and `TableDataExtractor.extractMultiSimulationData`, over three
+ * same-length runs; both iterate the run list directly and are safe at that size. What the corpus
+ * never calls is `ChartDataExtractor.extractMultiSimulationPhasesData` (nor
+ * `TableDataExtractor.extractMultiSimulationYearlyAggregateData`), which index the run list by
+ * yearly row index and throw when there are fewer runs than years. That is the quirk the corpus
+ * avoids — not "no multi-simulation extractor at all".
+ *
+ * Tax-year resolution is likewise *not* covered here: with one checked-in ruleset every simulated
+ * year resolves to the same object, so a wrong-year regression would leave these numbers identical.
+ * That property is guarded by `src/lib/calc/tax-data/tax-year.test.ts`; see README.md.
  */
 
 import type { SimulationResult } from '../../simulation-engine';
@@ -23,7 +32,7 @@ import { TableDataExtractor } from '../../data-extractors/table-data-extractor';
 import { KeyMetricsExtractor } from '../../data-extractors/key-metrics-extractor';
 import { MultiSimulationAnalyzer } from '../../data-analyzers/multi-simulation-analyzer';
 import { StatsUtils } from '@/lib/utils/stats-utils';
-import { CROSS_RUN_FIXTURE_ID, GOLDEN_AS_OF, GOLDEN_FIXTURES, validateFixture, type GoldenMode } from './fixtures';
+import { CROSS_PLAN_FIXTURE_IDS, CROSS_RUN_FIXTURE_ID, GOLDEN_AS_OF, GOLDEN_FIXTURES, validateFixture, type GoldenMode } from './fixtures';
 
 /** The three single-run modes, in a fixed order, as the cross-run fixture runs them. */
 const CROSS_RUN_MODES = ['fixedReturns', 'stochasticReturns', 'historicalReturns'] as const;
@@ -115,10 +124,12 @@ export function buildCorpus(): GoldenCorpus {
         },
         rows: TableDataExtractor.extractMultiSimulationData(multi),
       },
+      // Deliberately over the named original trio (not every fixture), so adding a fixture cannot
+      // move an already-frozen cross-plan number.
       finalValuePercentiles: percentilesOf(
-        GOLDEN_FIXTURES.map((fixture) => {
-          const snapshot = fixtures[fixture.id].fixedReturns;
-          if (!snapshot) throw new Error(`Golden corpus needs a fixedReturns snapshot for ${fixture.id}`);
+        CROSS_PLAN_FIXTURE_IDS.map((fixtureId) => {
+          const snapshot = fixtures[fixtureId].fixedReturns;
+          if (!snapshot) throw new Error(`Golden corpus needs a fixedReturns snapshot for ${fixtureId}`);
           const result = (snapshot.simulation as { result: SimulationResult }).result;
           return result.data[result.data.length - 1].portfolio.totalValue;
         })

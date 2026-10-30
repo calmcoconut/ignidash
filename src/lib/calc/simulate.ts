@@ -93,8 +93,9 @@ export interface SimulateOptions<M extends SimulationMode = SimulationMode> {
    * validated as a positive integer but deliberately not held to the 100–5000 range so that CLI
    * keeps working for quick, small runs; new callers should use `monteCarlo`.
    *
-   * It also implies `retention: 'full'` when no retention is given, because the shorthand predates
-   * retention: `--trials 3` has always meant "run three trials and hand me the three runs".
+   * It does **not** imply full retention: retention is opt-in (`monteCarlo: { retention: 'full' }`),
+   * so a stray large `trials` cannot silently retain gigabytes of `SimulationResult`s. Above
+   * `MONTE_CARLO_MAX_TRIALS` it is rejected outright.
    */
   trials?: number;
 }
@@ -216,14 +217,19 @@ function resolveMonteCarloOptions(options: SimulateOptions): { retention: MonteC
     throw new Error(`simulate(): trials must be a positive integer, received ${String(shorthand)}.`);
   }
 
+  // The shorthand predates the range check, so it is bounded here: `retention: 'full'` at 5000
+  // trials keeps ~87 MB per 500 runs of results, and nothing should reach that by accident.
+  if (shorthand !== undefined && shorthand > MONTE_CARLO_MAX_TRIALS) {
+    throw new Error(
+      `simulate(): trials (${shorthand}) exceeds the ${MONTE_CARLO_MAX_TRIALS}-trial maximum; use monteCarlo.trials for the supported range.`
+    );
+  }
+
   // The public configuration is range-checked (100-5000) and its retention validated here.
   const resolved = configured === undefined ? undefined : resolveMonteCarloConfig(configured);
 
-  // The shorthand keeps its pre-retention behaviour: ask for N trials, get N runs back.
-  const shorthandRetention: MonteCarloRetention | undefined = shorthand === undefined ? undefined : 'full';
-
   return {
-    retention: resolved?.retention ?? shorthandRetention ?? 'summary',
+    retention: resolved?.retention ?? 'summary',
     trials: configured?.trials ?? shorthand ?? DEFAULT_MONTE_CARLO_TRIALS,
   };
 }

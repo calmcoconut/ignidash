@@ -14,7 +14,14 @@ import {
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 
 import { planJsonSchemaFileName } from './plan-json-schema';
-import { HEADLESS_EXIT, runHeadlessSimulate, type HeadlessIo } from './simulate-cli';
+import {
+  FULL_RETENTION_WARNING_TRIALS,
+  HEADLESS_EXIT,
+  fullRetentionWarning,
+  runHeadlessSimulate,
+  serializeOutcome,
+  type HeadlessIo,
+} from './simulate-cli';
 
 const PLAN_PATH = 'plan.json';
 const AS_OF = '2026-01-01';
@@ -210,6 +217,33 @@ describe('headless:simulate', () => {
     expect(run.stderr).toContain('runs once');
   });
 
+  it('warns above the full-retention threshold, and not at or below it', () => {
+    expect(FULL_RETENTION_WARNING_TRIALS).toBe(100);
+    expect(fullRetentionWarning(undefined)).toBeNull();
+    expect(fullRetentionWarning(FULL_RETENTION_WARNING_TRIALS)).toBeNull();
+
+    const warning = fullRetentionWarning(FULL_RETENTION_WARNING_TRIALS + 1);
+    expect(warning).toContain(`--trials ${FULL_RETENTION_WARNING_TRIALS + 1}`);
+    expect(warning).toContain('full result of every trial');
+    expect(warning).toContain('of JSON on stdout');
+    expect(warning).toContain('refuses more than 5000 trials');
+  });
+
+  it('reports a result too large to serialize instead of throwing', () => {
+    // A BigInt is a value JSON.stringify refuses to serialize; the target is ES2017, hence BigInt(1).
+    const failed = serializeOutcome({ notJson: BigInt(1) });
+
+    expect(failed.ok).toBe(false);
+    if (failed.ok) return;
+    expect(failed.message).toMatch(/BigInt/);
+
+    const ok = serializeOutcome({ mode: 'fixedReturns', result: { data: [] } });
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.text.endsWith('\n')).toBe(true);
+    expect(JSON.parse(ok.text)).toEqual({ mode: 'fixedReturns', result: { data: [] } });
+  });
+
   it('honours --trials for a Monte Carlo mode', () => {
     const run = runCli(
       [PLAN_PATH, '--mode', 'monteCarloStochasticReturns', '--trials', '3', '--seed', '1', '--as-of', AS_OF],
@@ -218,8 +252,10 @@ describe('headless:simulate', () => {
 
     expect(run.code).toBe(HEADLESS_EXIT.ok);
     expect(run.stderr).toContain('trials=3 (--trials)');
+    expect(run.stderr).not.toContain('full result of every trial');
     const result = JSON.parse(run.stdout) as { mode: string; result: { simulations: unknown[] } };
     expect(result.mode).toBe('monteCarloStochasticReturns');
+    // Full retention is what keeps the CLI's output contract: one entry per trial.
     expect(result.result.simulations).toHaveLength(3);
   });
 

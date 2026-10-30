@@ -10,7 +10,7 @@ import { mergeMonteCarloSummaries, runMonteCarloRange, type MonteCarloRunResult 
 import { FixedReturnsProvider } from './returns-providers/fixed-returns-provider';
 import { StochasticReturnsProvider } from './returns-providers/stochastic-returns-provider';
 import { LcgHistoricalBacktestReturnsProvider } from './returns-providers/lcg-historical-backtest-returns-provider';
-import { cumulativeInflationIndex, DEFAULT_MONTE_CARLO_TRIALS, simulate, type SimulateOptions } from './simulate';
+import { cumulativeInflationIndex, DEFAULT_MONTE_CARLO_TRIALS, MONTE_CARLO_MAX_TRIALS, simulate, type SimulateOptions } from './simulate';
 import {
   create401kAccount,
   createContributionRule,
@@ -316,21 +316,39 @@ describe('simulate trials', () => {
     expect(outcome.result.summary.histogram.bins.reduce((total, bin) => total + bin.count, 0)).toBe(DEFAULT_MONTE_CARLO_TRIALS);
   });
 
-  it('keeps the trials shorthand on full retention, the behaviour it had before retention existed', () => {
-    // The headless CLI's `--trials N` means "run N trials and hand me the N runs"; `monteCarlo`
-    // is the supported configuration and defaults to summary retention.
+  it('keeps the trials shorthand on summary retention, with full retention now opt-in', () => {
+    // The shorthand predates both the range check and retention. It no longer retains runs by
+    // itself, so a stray large `--trials` cannot silently keep a gigabyte of results.
     const inputs = createSimulatorInputs({
       timeline: { ...createDefaultTimeline(), lifeExpectancy: 62 },
       accounts: { 'savings-1': create401kAccount({ id: 'savings-1', balance: 250000 }) },
     });
 
-    const legacy = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, trials: 3 });
-    const modern = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, monteCarlo: { trials: 100 } });
+    const shorthand = simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, trials: 3 });
+    const optedIn = simulate(inputs, {
+      mode: 'monteCarloStochasticReturns',
+      seed: 7,
+      asOf: AS_OF,
+      trials: 3,
+      monteCarlo: { retention: 'full' },
+    });
 
-    expect(legacy.result.simulations).toHaveLength(3);
-    expect(modern.result.simulations).toEqual([]);
+    expect(shorthand.result.summary.trials).toBe(3);
+    expect(shorthand.result.simulations).toEqual([]);
+    expect(optedIn.result.simulations).toHaveLength(3);
     // Retention changes what is kept, never the aggregates.
-    expect(modern.result.summary.trials).toBe(100);
+    expect(optedIn.result.summary).toStrictEqual(shorthand.result.summary);
+  });
+
+  it('bounds the trials shorthand at the maximum trial count', () => {
+    const inputs = createSimulatorInputs({
+      timeline: { ...createDefaultTimeline(), lifeExpectancy: 62 },
+      accounts: { 'savings-1': create401kAccount({ id: 'savings-1', balance: 250000 }) },
+    });
+
+    expect(() =>
+      simulate(inputs, { mode: 'monteCarloStochasticReturns', seed: 7, asOf: AS_OF, trials: MONTE_CARLO_MAX_TRIALS + 1 })
+    ).toThrow(/exceeds the 5000-trial maximum/);
   });
 
   it.each(['fixedReturns', 'stochasticReturns', 'historicalReturns'] as const)(
