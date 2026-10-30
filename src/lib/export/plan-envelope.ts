@@ -5,15 +5,47 @@ import { planDataFields } from '../../../convex/validators/plan_data_fields';
 import { assetValidator } from '../../../convex/validators/asset_validator';
 import { liabilityValidator } from '../../../convex/validators/liability_validator';
 
+import { accountFormSchema } from '@/lib/schemas/inputs/account-form-schema';
+import { contributionFormSchema, baseContributionSchema } from '@/lib/schemas/inputs/contribution-form-schema';
+import { debtFormSchema } from '@/lib/schemas/inputs/debt-form-schema';
+import { expenseFormSchema } from '@/lib/schemas/inputs/expense-form-schema';
+import { glidePathFormSchema } from '@/lib/schemas/inputs/glide-path-form-schema';
+import { incomeFormSchema } from '@/lib/schemas/inputs/income-form-schema';
+import { marketAssumptionsFormSchema } from '@/lib/schemas/inputs/market-assumptions-form-schema';
+import { physicalAssetFormSchema } from '@/lib/schemas/inputs/physical-asset-form-schema';
+import { privacySettingsFormSchema } from '@/lib/schemas/inputs/privacy-settings-form-schema';
+import { simulationSettingsSchema } from '@/lib/schemas/inputs/simulation-settings-form-schema';
+import { taxSettingsFormSchema } from '@/lib/schemas/inputs/tax-settings-form-schema';
+import { timelineBaseSchema } from '@/lib/schemas/inputs/timeline-form-schema';
+import { assetFormSchema } from '@/lib/schemas/finances/asset-form-schema';
+import { liabilityFormSchema } from '@/lib/schemas/finances/liability-form-schema';
+import {
+  accountFromConvex,
+  assetFromConvex,
+  baseContributionFromConvex,
+  contributionFromConvex,
+  debtFromConvex,
+  expenseFromConvex,
+  glidePathFromConvex,
+  incomeFromConvex,
+  liabilityFromConvex,
+  marketAssumptionsFromConvex,
+  physicalAssetFromConvex,
+  privacySettingsFromConvex,
+  simulationSettingsFromConvex,
+  taxSettingsFromConvex,
+  timelineFromConvex,
+} from '@/lib/utils/data-transformers';
+
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 1 (P5-P1).
+ * Export/import envelope, version 2 (P5-P1, bumped by P1-P1).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 1, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 1, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 2, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 2, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -22,12 +54,26 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * `parseEnvelope` keeps rejecting files newer than this build with a clear message
  * instead of half-importing them.
  *
+ * Version history:
+ *   1 — the P5-P1 envelope: plan data plus finances.
+ *   2 — P1-P1 time binding: `everyNYears`/`recurrenceYears` on a time point and
+ *       `amountBasis` on incomes, expenses, debts and physical assets.
+ *
+ * A bump is backward compatible on the reading side but never silently forward: importing
+ * accepts every version from 1 up to this build's, and refuses anything newer until the
+ * operator upgrades. Fields added by a bump are optional in both the validators and the
+ * per-domain schemas, so a v1 file is read with those fields absent, exactly as the plan
+ * read them before the bump.
+ *
  * The payload types are derived from `Doc<'plans'>`/`Doc<'finances'>` and the
  * validation schema is derived from the same Convex validators the database
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 1;
+export const EXPORT_SCHEMA_VERSION = 2;
+
+/** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
+export const MIN_EXPORT_SCHEMA_VERSION = 1;
 
 export const PLAN_EXPORT_KIND = 'ignidash-plan';
 export const PLANS_EXPORT_KIND = 'ignidash-plans';
@@ -38,8 +84,17 @@ export type PlanExport = Omit<Doc<'plans'>, '_id' | '_creationTime' | 'userId'>;
 /** The user-level finances (net-worth tracker) without the owning user id. */
 export type FinancesExport = Pick<Doc<'finances'>, 'assets' | 'liabilities'>;
 
+/**
+ * An envelope, as written or as read.
+ *
+ * `schemaVersion` is the version that wrote THIS file, not necessarily this build's:
+ * `createPlanEnvelope`/`createPlansEnvelope` stamp `EXPORT_SCHEMA_VERSION`, while
+ * `parseEnvelope` accepts anything in `MIN_EXPORT_SCHEMA_VERSION..EXPORT_SCHEMA_VERSION`
+ * and reports the file's own version. A restored v1 file is therefore not relabelled as v2
+ * in memory; re-exporting it writes the current version through the builders.
+ */
 export interface PlanExportEnvelope {
-  schemaVersion: typeof EXPORT_SCHEMA_VERSION;
+  schemaVersion: number;
   kind: typeof PLAN_EXPORT_KIND;
   exportedAt: string;
   plan: PlanExport;
@@ -47,7 +102,7 @@ export interface PlanExportEnvelope {
 }
 
 export interface PlansExportEnvelope {
-  schemaVersion: typeof EXPORT_SCHEMA_VERSION;
+  schemaVersion: number;
   kind: typeof PLANS_EXPORT_KIND;
   exportedAt: string;
   plans: PlanExport[];
@@ -104,8 +159,20 @@ export function planExportKeys(): string[] {
 
 const exportedAtSchema = z.string().regex(ISO_8601_TIMESTAMP, 'Expected an ISO-8601 timestamp such as 2026-10-30T12:00:00.000Z');
 
+/**
+ * The accepted version range, not the current version.
+ *
+ * A literal here would reject every file written by an earlier build the moment the version
+ * is bumped: `checkSchemaVersion` only refuses files NEWER than this build, so a v1 file
+ * passes that gate and would then fail the literal. Backward-compatible import is a standing
+ * rule (§4 of PLAN-parity.md), and `MIN_EXPORT_SCHEMA_VERSION..EXPORT_SCHEMA_VERSION` is the
+ * range the payload schema can actually read: fields a bump adds are optional, so an older
+ * file simply lacks them.
+ */
+const schemaVersionSchema = z.number().int().min(MIN_EXPORT_SCHEMA_VERSION).max(EXPORT_SCHEMA_VERSION);
+
 const planEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
+  schemaVersion: schemaVersionSchema,
   kind: z.literal(PLAN_EXPORT_KIND),
   exportedAt: exportedAtSchema,
   plan: planExportSchema(),
@@ -113,7 +180,7 @@ const planEnvelopeSchema = z.strictObject({
 });
 
 const plansEnvelopeSchema = z.strictObject({
-  schemaVersion: z.literal(EXPORT_SCHEMA_VERSION),
+  schemaVersion: schemaVersionSchema,
   kind: z.literal(PLANS_EXPORT_KIND),
   exportedAt: exportedAtSchema,
   plans: z.array(planExportSchema()),
@@ -240,7 +307,13 @@ export function parseEnvelopeValue(value: unknown): EnvelopeParseResult {
   const parsed = schema.safeParse(value);
   if (!parsed.success) return { ok: false, issues: issuesFromZodError(parsed.error) };
 
-  return { ok: true, envelope: parsed.data as ExportEnvelope };
+  // The structural parse only proves the payload matches what Convex stores. The app's own
+  // rules come next, still before the caller writes anything.
+  const envelope = parsed.data as ExportEnvelope;
+  const appIssues = appRuleIssues(envelope);
+  if (appIssues.length > 0) return { ok: false, issues: appIssues };
+
+  return { ok: true, envelope };
 }
 
 function checkSchemaVersion(value: Record<string, unknown>): ImportIssue | null {
@@ -248,13 +321,16 @@ function checkSchemaVersion(value: Record<string, unknown>): ImportIssue | null 
     return {
       path: 'schemaVersion',
       message:
-        'This file has no schemaVersion, so it is not an Ignidash export (v1 files carry `schemaVersion: 1`). Re-export it from Settings.',
+        'This file has no schemaVersion, so it is not an Ignidash export (v1 files carry `schemaVersion: 1`, v2 files `schemaVersion: 2`). Re-export it from Settings.',
     };
   }
 
   const version = value.schemaVersion;
   if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
-    return { path: 'schemaVersion', message: `Unsupported schemaVersion ${JSON.stringify(version)}; this build reads version 1.` };
+    return {
+      path: 'schemaVersion',
+      message: `Unsupported schemaVersion ${JSON.stringify(version)}; this build reads versions ${MIN_EXPORT_SCHEMA_VERSION} through ${EXPORT_SCHEMA_VERSION}.`,
+    };
   }
 
   if (version > EXPORT_SCHEMA_VERSION) {
@@ -267,18 +343,74 @@ function checkSchemaVersion(value: Record<string, unknown>): ImportIssue | null 
   return null;
 }
 
-function issuesFromZodError(error: z.ZodError): ImportIssue[] {
-  const issues: ImportIssue[] = [];
-  for (const issue of error.issues) {
+/** One issue while its path is still a list of keys, before it is formatted. */
+interface RawIssue {
+  parts: PropertyKey[];
+  message: string;
+}
+
+type ZodIssue = z.ZodError['issues'][number];
+
+/**
+ * Flattens a Zod error tree into one issue per failing field, `prefix` first.
+ *
+ * A union does not fail at its own path: Zod reports `invalid_union` and puts the useful
+ * paths one level down, in `issue.errors` (one list per member). Reporting the union issue
+ * itself would say `plan.timeline :: Invalid input` where the file actually needs
+ * `plan.timeline.retirementStrategy.retirementAge`, so the walk recurses into every member
+ * to whatever depth the unions nest and emits the leaves.
+ *
+ * The `z.null()` member of a union is skipped: `timeline` is `v.union(timelineValidator,
+ * v.null())`, so every failure of the object member would otherwise carry a useless
+ * "expected null" companion. If nothing survives the walk (a union whose members only
+ * objected to the value not being null), the union's own issue is reported instead, so a
+ * failure is never dropped.
+ */
+function issuesFromZodError(error: z.ZodError, prefix: readonly PropertyKey[] = []): ImportIssue[] {
+  const raw: RawIssue[] = [];
+  collectZodIssues(error.issues, prefix, raw, new Set<string>(), false);
+  return raw.map((issue) => ({ path: formatPath(issue.parts) || '(root)', message: issue.message }));
+}
+
+function collectZodIssues(
+  zodIssues: readonly ZodIssue[],
+  prefix: readonly PropertyKey[],
+  out: RawIssue[],
+  seen: Set<string>,
+  skipNullMember: boolean
+): void {
+  for (const issue of zodIssues) {
+    const parts = [...prefix, ...issue.path];
+
     if (issue.code === 'unrecognized_keys') {
-      for (const key of issue.keys) {
-        issues.push({ path: formatPath([...issue.path, key]), message: 'Unrecognized field' });
-      }
+      for (const key of issue.keys) pushIssue(out, seen, [...parts, key], 'Unrecognized field');
       continue;
     }
-    issues.push({ path: formatPath(issue.path) || '(root)', message: issue.message });
+
+    // The null member of a union never explains the failure; the other members do.
+    if (skipNullMember && issue.code === 'invalid_type' && issue.expected === 'null') continue;
+
+    if (issue.code === 'invalid_union') {
+      const branches: RawIssue[] = [];
+      const branchSeen = new Set<string>();
+      for (const branch of issue.errors) collectZodIssues(branch, parts, branches, branchSeen, true);
+      if (branches.length === 0) {
+        pushIssue(out, seen, parts, issue.message);
+        continue;
+      }
+      for (const leaf of branches) pushIssue(out, seen, leaf.parts, leaf.message);
+      continue;
+    }
+
+    pushIssue(out, seen, parts, issue.message);
   }
-  return issues;
+}
+
+function pushIssue(out: RawIssue[], seen: Set<string>, parts: PropertyKey[], message: string): void {
+  const key = `${formatPath(parts)}\u0000${message}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  out.push({ parts, message });
 }
 
 function formatPath(parts: readonly PropertyKey[]): string {
@@ -295,6 +427,140 @@ function formatPath(parts: readonly PropertyKey[]): string {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ---------------------------------------------------------------------------
+// App rules
+// ---------------------------------------------------------------------------
+
+/**
+ * The app's own per-domain rules, applied once the structural parse has passed.
+ *
+ * The derived schema above deliberately enforces Convex STRUCTURE only. The per-domain
+ * schemas carry the rules the app itself relies on, and the gap is reachable: an
+ * `asOfDate` of `"not-a-date"` is a valid `v.string()`, yet `useSimulationClock` passes it
+ * to `fixedClock`, which throws — so one corrupt plan would put its simulator page on the
+ * error boundary with no way to repair it from the UI. `birthMonth: 13`, `name: ""`,
+ * `simulationSeed: 1e9` and `stockYield: 99` are the same class of accepted-but-wrong.
+ *
+ * Each part is checked through the transformer the app already uses to read it
+ * (`xFromConvex`) and the schema the app already validates it with, so a rule added to a
+ * domain schema applies to imports with no change here.
+ *
+ * Not covered, by design:
+ *   - the plan document's own `name`/`isDefault`, which are not plan data and have no
+ *     per-domain schema (`name` is a bare `v.string()` on the document);
+ *   - the clock-dependent timeline rules in `createTimelineFormSchema(now)` (current age,
+ *     life expectancy above current age, retirement age below life expectancy), because an
+ *     import has no "today" to compare against — `timelineBaseSchema` is the clock-free
+ *     part, and this module keeps taking its timestamps as parameters.
+ */
+function appRuleIssues(envelope: ExportEnvelope): ImportIssue[] {
+  const single = envelope.kind === PLAN_EXPORT_KIND;
+  const plans = single ? [envelope.plan] : envelope.plans;
+  const issues: ImportIssue[] = [];
+
+  plans.forEach((plan, index) => {
+    const prefix = single ? ['plan'] : ['plans', index];
+    pushDomainIssues(issues, prefix, () => planDomainChecks(plan, prefix));
+  });
+
+  if (envelope.finances) {
+    const finances = envelope.finances;
+    pushDomainIssues(issues, ['finances'], () => [
+      ...finances.assets.map(
+        (asset, index): DomainCheck => ({ parts: ['finances', 'assets', index], schema: assetFormSchema, value: assetFromConvex(asset) })
+      ),
+      ...finances.liabilities.map(
+        (liability, index): DomainCheck => ({
+          parts: ['finances', 'liabilities', index],
+          schema: liabilityFormSchema,
+          value: liabilityFromConvex(liability),
+        })
+      ),
+    ]);
+  }
+
+  return issues;
+}
+
+interface DomainCheck {
+  /** Path of the checked value in the file, e.g. `['plan', 'incomes', 0]`. */
+  parts: PropertyKey[];
+  schema: z.ZodType;
+  value: unknown;
+}
+
+/** One check per part of a plan that has a per-domain schema. */
+function planDomainChecks(plan: PlanExport, prefix: PropertyKey[]): DomainCheck[] {
+  const checks: DomainCheck[] = [
+    { parts: [...prefix, 'timeline'], schema: timelineBaseSchema.nullable(), value: timelineFromConvex(plan.timeline) },
+    {
+      parts: [...prefix, 'baseContributionRule'],
+      schema: baseContributionSchema,
+      value: baseContributionFromConvex(plan.baseContributionRule),
+    },
+    { parts: [...prefix, 'glidePath'], schema: glidePathFormSchema.optional(), value: glidePathFromConvex(plan.glidePath) },
+    {
+      parts: [...prefix, 'marketAssumptions'],
+      schema: marketAssumptionsFormSchema,
+      value: marketAssumptionsFromConvex(plan.marketAssumptions),
+    },
+    { parts: [...prefix, 'taxSettings'], schema: taxSettingsFormSchema, value: taxSettingsFromConvex(plan.taxSettings) },
+    { parts: [...prefix, 'privacySettings'], schema: privacySettingsFormSchema, value: privacySettingsFromConvex(plan.privacySettings) },
+    {
+      parts: [...prefix, 'simulationSettings'],
+      schema: simulationSettingsSchema,
+      value: simulationSettingsFromConvex(plan.simulationSettings),
+    },
+  ];
+
+  for (const [index, income] of plan.incomes.entries()) {
+    checks.push({ parts: [...prefix, 'incomes', index], schema: incomeFormSchema, value: incomeFromConvex(income) });
+  }
+  for (const [index, expense] of plan.expenses.entries()) {
+    checks.push({ parts: [...prefix, 'expenses', index], schema: expenseFormSchema, value: expenseFromConvex(expense) });
+  }
+  for (const [index, account] of plan.accounts.entries()) {
+    checks.push({ parts: [...prefix, 'accounts', index], schema: accountFormSchema, value: accountFromConvex(account) });
+  }
+  for (const [index, debt] of (plan.debts ?? []).entries()) {
+    checks.push({ parts: [...prefix, 'debts', index], schema: debtFormSchema, value: debtFromConvex(debt) });
+  }
+  for (const [index, physicalAsset] of (plan.physicalAssets ?? []).entries()) {
+    checks.push({
+      parts: [...prefix, 'physicalAssets', index],
+      schema: physicalAssetFormSchema,
+      value: physicalAssetFromConvex(physicalAsset),
+    });
+  }
+  for (const [index, rule] of plan.contributionRules.entries()) {
+    checks.push({ parts: [...prefix, 'contributionRules', index], schema: contributionFormSchema, value: contributionFromConvex(rule) });
+  }
+
+  return checks;
+}
+
+/**
+ * Runs one group of checks and appends the failures as field issues. A transformer that
+ * throws (structurally valid but unreadable data) becomes an issue at the group's path
+ * rather than an exception out of `parseEnvelope`.
+ */
+function pushDomainIssues(issues: ImportIssue[], parts: PropertyKey[], build: () => DomainCheck[]): void {
+  let checks: DomainCheck[];
+  try {
+    checks = build();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    issues.push({ path: formatPath(parts) || '(root)', message: `This export could not be checked against the app's rules: ${detail}` });
+    return;
+  }
+
+  for (const check of checks) {
+    const parsed = check.schema.safeParse(check.value);
+    if (parsed.success) continue;
+    issues.push(...issuesFromZodError(parsed.error, check.parts));
+  }
 }
 
 // ---------------------------------------------------------------------------

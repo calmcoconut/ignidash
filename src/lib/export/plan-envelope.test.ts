@@ -7,6 +7,7 @@ import { earlyRetirementTemplate } from '../../../convex/templates/early_retirem
 
 import {
   EXPORT_SCHEMA_VERSION,
+  MIN_EXPORT_SCHEMA_VERSION,
   PLAN_EXPORT_KIND,
   PLANS_EXPORT_KIND,
   createPlanEnvelope,
@@ -20,6 +21,7 @@ import {
   toFinancesExport,
   toPlanExport,
   type ExportEnvelope,
+  type ImportIssue,
   type PlanExport,
 } from './plan-envelope';
 
@@ -104,6 +106,39 @@ function parseOrThrow(text: string): ExportEnvelope {
   return parsed.envelope;
 }
 
+/**
+ * Parses a mutated export and returns its issues.
+ *
+ * Mutation is by hand on the parsed JSON, so the file — not the fixture builder — is what
+ * the parser sees.
+ */
+function issuesFor(mutate: (envelope: Record<string, unknown>) => void): ImportIssue[] {
+  const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
+  const mutated = structuredClone(envelope) as unknown as Record<string, unknown>;
+  mutate(mutated);
+  const parsed = parseEnvelope(JSON.stringify(mutated));
+  if (parsed.ok) throw new Error('expected the file to be rejected');
+  return parsed.issues;
+}
+
+/**
+ * Fields P1-P1 added in schema version 2. A version 1 file predates all of them, so the v1
+ * fixture is the current export with these keys removed wherever they appear.
+ */
+const VERSION_2_FIELDS = ['everyNYears', 'recurrenceYears', 'amountBasis'];
+
+function stripVersion2Fields(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) stripVersion2Fields(entry);
+    return;
+  }
+  if (typeof value !== 'object' || value === null) return;
+
+  const record = value as Record<string, unknown>;
+  for (const field of VERSION_2_FIELDS) delete record[field];
+  for (const entry of Object.values(record)) stripVersion2Fields(entry);
+}
+
 describe('the export guard is derived from the plans validator', () => {
   it('covers every field the plans validator stores', () => {
     expect(planExportKeys()).toEqual(EXPECTED_PLAN_EXPORT_KEYS);
@@ -182,21 +217,8 @@ describe('round trip', () => {
 });
 
 describe('malformed files report the exact field paths', () => {
-  function issuesFor(mutate: (envelope: PlanExportEnvelopeBuilder) => void) {
-    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
-    const mutated = structuredClone(envelope) as unknown as Record<string, unknown>;
-    mutate({ envelope: mutated });
-    const parsed = parseEnvelope(JSON.stringify(mutated));
-    if (parsed.ok) throw new Error('expected the file to be rejected');
-    return parsed.issues;
-  }
-
-  interface PlanExportEnvelopeBuilder {
-    envelope: Record<string, unknown>;
-  }
-
   it('names a nested field path instead of truncating the message', () => {
-    const issues = issuesFor(({ envelope }) => {
+    const issues = issuesFor((envelope) => {
       const plan = envelope.plan as Record<string, unknown>;
       const incomes = plan.incomes as Record<string, unknown>[];
       incomes[0] = { ...incomes[0], name: 123 };
@@ -209,24 +231,24 @@ describe('malformed files report the exact field paths', () => {
   });
 
   it('names a bad enum, a missing required field and an unknown field', () => {
-    const badEnum = issuesFor(({ envelope }) => {
+    const badEnum = issuesFor((envelope) => {
       (envelope.plan as Record<string, unknown>).taxSettings = { filingStatus: 'bogus' };
     });
     expect(badEnum.map((issue) => issue.path)).toContain('plan.taxSettings.filingStatus');
 
-    const missing = issuesFor(({ envelope }) => {
+    const missing = issuesFor((envelope) => {
       delete (envelope.plan as Record<string, unknown>).timeline;
     });
     expect(missing.map((issue) => issue.path)).toContain('plan.timeline');
 
-    const unknown = issuesFor(({ envelope }) => {
+    const unknown = issuesFor((envelope) => {
       (envelope.plan as Record<string, unknown>).bogusField = true;
     });
     expect(unknown).toContainEqual({ path: 'plan.bogusField', message: 'Unrecognized field' });
   });
 
   it('names the failing finances field', () => {
-    const issues = issuesFor(({ envelope }) => {
+    const issues = issuesFor((envelope) => {
       (envelope.finances as Record<string, unknown>).assets = [{ id: 'a', name: 'Broken' }];
     });
 
@@ -253,14 +275,70 @@ describe('malformed files report the exact field paths', () => {
     const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
 
     const older = parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: 0 }));
-    const newer = parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: 2 }));
+    const newer = parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: EXPORT_SCHEMA_VERSION + 1 }));
 
     expect(older.ok).toBe(false);
     expect(newer.ok).toBe(false);
     if (older.ok || newer.ok) return;
     expect(older.issues[0].path).toBe('schemaVersion');
+    expect(older.issues[0].message).toMatch(/reads versions 1 through 2/);
     expect(newer.issues[0].message).toMatch(/newer Ignidash/i);
     expect(newer.issues[0].message).toMatch(/Upgrade/i);
+  });
+
+  it('accepts every version in the range and stamps the current one', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    expect(envelope.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
+
+    const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
+
+    // Oldest first: a bumped build keeps reading the files the old one wrote.
+    for (let version = MIN_EXPORT_SCHEMA_VERSION; version <= EXPORT_SCHEMA_VERSION; version += 1) {
+      const parsed = at(version);
+      expect(parsed.ok, `schemaVersion ${version} should import: ${!parsed.ok ? JSON.stringify(parsed.issues) : ''}`).toBe(true);
+      if (parsed.ok) expect(parsed.envelope.schemaVersion).toBe(version);
+    }
+
+    // Only the current payload shape can be written, so a non-integer or a string is refused
+    // by the same gate rather than coerced into the range.
+    for (const outside of [MIN_EXPORT_SCHEMA_VERSION - 1, EXPORT_SCHEMA_VERSION + 1, 1.5, '1', null]) {
+      const parsed = at(outside);
+      expect(parsed.ok, `schemaVersion ${JSON.stringify(outside)} should be refused`).toBe(false);
+      if (parsed.ok) continue;
+      expect(parsed.issues).toHaveLength(1);
+      expect(parsed.issues[0].path).toBe('schemaVersion');
+    }
+  });
+
+  it('still imports a version 1 export after the bump to version 2', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
+    const v1 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v1.schemaVersion = 1;
+    // A real v1 file predates P1-P1's time binding: no everyNYears/recurrenceYears/amountBasis.
+    stripVersion2Fields(v1);
+
+    const parsed = parseEnvelope(JSON.stringify(v1));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    // The file keeps its own version; it is not relabelled as this build's.
+    expect(parsed.envelope.schemaVersion).toBe(1);
+    // Nothing was dropped on the way in: the v1 payload is carried through intact.
+    expect(parsed.envelope).toStrictEqual(v1);
+
+    // And it is importable, not merely parseable.
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+    expect(imported.plans).toHaveLength(1);
+    expect(imported.finances).toStrictEqual(toFinancesExport(makeFinancesDoc()));
+    // Re-exporting a restored v1 file writes the current version (contract 3.3).
+    expect(imported.snapshot.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
   });
 
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {
@@ -273,6 +351,148 @@ describe('malformed files report the exact field paths', () => {
     expect(wrongKind.ok).toBe(false);
     if (wrongKind.ok) return;
     expect(wrongKind.issues[0].path).toBe('kind');
+  });
+});
+
+describe("the app's own rules are enforced after the structural parse", () => {
+  it('reports the failing field inside a union instead of degrading to the parent', () => {
+    const issues = issuesFor((envelope) => {
+      const plan = envelope.plan as Record<string, unknown>;
+      const timeline = plan.timeline as Record<string, unknown>;
+      timeline.retirementStrategy = { type: 'fixedAge' };
+    });
+
+    // `timeline` is `v.union(timelineValidator, v.null())`, and the retirement strategy is a
+    // second union inside it. The union issue alone names only `plan.timeline`.
+    expect(issues.map((issue) => issue.path)).toContain('plan.timeline.retirementStrategy.retirementAge');
+    expect(issues.map((issue) => issue.path)).not.toContain('plan.timeline');
+    // The `v.null()` member contributes nothing: it only ever says "expected null".
+    expect(issues.some((issue) => /expected null/i.test(issue.message))).toBe(false);
+  });
+
+  it('refuses an as-of date the clock would throw on', () => {
+    const malformed = issuesFor((envelope) => {
+      (envelope.plan as Record<string, unknown>).simulationSettings = {
+        simulationMode: 'fixedReturns',
+        simulationSeed: 9521,
+        asOfDate: 'not-a-date',
+      };
+    });
+
+    // `useSimulationClock` feeds this straight into `fixedClock`, which throws.
+    expect(malformed).toContainEqual({
+      path: 'plan.simulationSettings.asOfDate',
+      message: 'As-of date must be a valid ISO date (YYYY-MM-DD)',
+    });
+
+    const rolledOver = issuesFor((envelope) => {
+      (envelope.plan as Record<string, unknown>).simulationSettings = {
+        simulationMode: 'fixedReturns',
+        simulationSeed: 9521,
+        asOfDate: '2026-02-30',
+      };
+    });
+    expect(rolledOver.map((issue) => issue.path)).toContain('plan.simulationSettings.asOfDate');
+  });
+
+  it('refuses an out-of-range birth month', () => {
+    const issues = issuesFor((envelope) => {
+      const timeline = (envelope.plan as Record<string, unknown>).timeline as Record<string, unknown>;
+      timeline.birthMonth = 13;
+    });
+
+    expect(issues.map((issue) => issue.path)).toContain('plan.timeline.birthMonth');
+  });
+
+  it('refuses an empty name', () => {
+    const issues = issuesFor((envelope) => {
+      const incomes = (envelope.plan as Record<string, unknown>).incomes as Record<string, unknown>[];
+      incomes[0] = { ...incomes[0], name: '' };
+    });
+
+    expect(issues).toContainEqual({ path: 'plan.incomes[0].name', message: 'Name must be at least 2 characters' });
+  });
+
+  it('refuses seeds and percentages outside the app bounds', () => {
+    const seed = issuesFor((envelope) => {
+      (envelope.plan as Record<string, unknown>).simulationSettings = { simulationMode: 'fixedReturns', simulationSeed: 1e9 };
+    });
+    expect(seed.map((issue) => issue.path)).toContain('plan.simulationSettings.simulationSeed');
+
+    const yieldOffsets = issuesFor((envelope) => {
+      const assumptions = (envelope.plan as Record<string, unknown>).marketAssumptions as Record<string, unknown>;
+      assumptions.stockYield = 99;
+    });
+    expect(yieldOffsets.map((issue) => issue.path)).toContain('plan.marketAssumptions.stockYield');
+  });
+
+  it('applies the same rules to the finances in the file', () => {
+    const issues = issuesFor((envelope) => {
+      const financeAssets = (envelope.finances as Record<string, unknown>).assets as Record<string, unknown>[];
+      financeAssets[0] = { ...financeAssets[0], name: '' };
+    });
+
+    expect(issues).toContainEqual({ path: 'finances.assets[0].name', message: 'Name must be at least 2 characters' });
+  });
+
+  it('reports a bulk plan by its index', () => {
+    const plansEnvelope = createPlansEnvelope({
+      plans: [makePlanDoc(), makePlanDoc({ _id: 'plan-2' })],
+      finances: null,
+      exportedAt: EXPORTED_AT,
+    });
+    const mutated = structuredClone(plansEnvelope) as unknown as Record<string, unknown>;
+    const plans = (mutated.plans as Record<string, unknown>[])[1];
+    (plans.timeline as Record<string, unknown>).birthMonth = 0;
+
+    const parsed = parseEnvelope(JSON.stringify(mutated));
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.issues.map((issue) => issue.path)).toContain('plans[1].timeline.birthMonth');
+  });
+
+  it('still accepts a valid export', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: toFinancesExport(makeFinancesDoc()), exportedAt: EXPORTED_AT });
+    const restored = parseEnvelope(serializeEnvelope(envelope));
+
+    expect(restored.ok, !restored.ok ? JSON.stringify(restored.issues) : '').toBe(true);
+    if (!restored.ok) return;
+    expect(restored.envelope).toStrictEqual(envelope);
+  });
+
+  it('still refuses a newer file as an upgrade problem, not as a field error', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const corrupted = structuredClone(envelope) as unknown as Record<string, unknown>;
+    (corrupted.plan as Record<string, unknown>).simulationSettings = {
+      simulationMode: 'fixedReturns',
+      simulationSeed: 1e9,
+      asOfDate: 'nope',
+    };
+
+    const parsed = parseEnvelope(JSON.stringify({ ...corrupted, schemaVersion: EXPORT_SCHEMA_VERSION + 1 }));
+
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.issues).toHaveLength(1);
+    expect(parsed.issues[0].path).toBe('schemaVersion');
+    expect(parsed.issues[0].message).toMatch(/Upgrade/i);
+  });
+
+  it('still checks the kind before it validates the payload', () => {
+    const envelope = createPlanEnvelope({ plan: makePlanDoc(), finances: null, exportedAt: EXPORTED_AT });
+    const corrupted = structuredClone(envelope) as unknown as Record<string, unknown>;
+    (corrupted.plan as Record<string, unknown>).simulationSettings = {
+      simulationMode: 'fixedReturns',
+      simulationSeed: 1e9,
+      asOfDate: 'nope',
+    };
+
+    const parsed = parseEnvelope(JSON.stringify({ ...corrupted, kind: 'nope' }));
+
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.issues).toHaveLength(1);
+    expect(parsed.issues[0].path).toBe('kind');
   });
 });
 
