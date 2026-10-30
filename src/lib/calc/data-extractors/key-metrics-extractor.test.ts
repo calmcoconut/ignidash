@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 
 import { KeyMetricsExtractor } from './key-metrics-extractor';
+import { ChartDataExtractor } from './chart-data-extractor';
 import type { SimulationResult, SimulationDataPoint, MultiSimulationResult } from '../simulation-engine';
 import type { ReturnsData } from '../returns';
+import { simulate } from '../simulate';
+import { create401kAccount, createDefaultTimeline, createSimulatorInputs } from '../__tests__/test-utils';
 
 // Helper to create minimal ReturnsData
 const createReturnsData = (): ReturnsData => ({
@@ -616,5 +619,91 @@ describe('KeyMetricsExtractor', () => {
 
       expect(metrics.type).toBe('multi');
     });
+  });
+});
+
+// ============================================================================
+// Retirement age and chance of retirement share one definition (P2-P2 follow-up)
+// ============================================================================
+
+describe('retirement age / chance of retirement source', () => {
+  it('reports "never retired" when a fixedAge retirement age sits past life expectancy', () => {
+    const simulation = createSimulationResult({ startAge: 30, years: 20, retirementAge: 73, finalPortfolioValue: 1_500_000 });
+
+    const metrics = KeyMetricsExtractor.extractSingleSimulationMetrics(simulation);
+
+    // The strategy still names 73, but the run ends at 50 without ever entering retirement.
+    expect(simulation.context.retirementStrategy).toEqual({ type: 'fixedAge', retirementAge: 73 });
+    expect(metrics.retirementAge).toBeNull();
+    expect(metrics.yearsToRetirement).toBeNull();
+    expect(metrics.success).toBe(0);
+  });
+
+  it('reproduces the reported contradiction on real simulate() output: retirement age 90, life expectancy 88', () => {
+    const inputs = createSimulatorInputs({
+      timeline: {
+        ...createDefaultTimeline(),
+        lifeExpectancy: 88,
+        retirementStrategy: { type: 'fixedAge', retirementAge: 90 },
+      },
+      accounts: { '401k-1': create401kAccount({ id: '401k-1', balance: 400_000 }) },
+    });
+
+    const outcome = simulate(inputs, { mode: 'fixedReturns', seed: 9521, asOf: '2026-03-15' });
+    if (outcome.mode !== 'fixedReturns') throw new Error('expected a single-run outcome');
+    const result = outcome.result;
+
+    const multi: MultiSimulationResult = { simulations: [[1, result]] };
+    const metrics = KeyMetricsExtractor.extractMultiSimulationMetrics(multi);
+    const single = KeyMetricsExtractor.extractSingleSimulationMetrics(result);
+
+    // Before the fix this run reported success 0 alongside chanceOfRetirement 1, because the
+    // retirement age came from the strategy (90) while success came from the milestones (null).
+    expect(result.context.retirementStrategy).toEqual({ type: 'fixedAge', retirementAge: 90 });
+    expect(result.data[result.data.length - 1].phase?.name).toBe('accumulation');
+    expect(single.retirementAge).toBeNull();
+    expect(metrics.success).toBe(0);
+    expect(metrics.chanceOfRetirement).toBe(0);
+    expect(metrics.retirementAge).toBeNull();
+  });
+
+  it('agrees across key metrics and chart data on a mixed set', () => {
+    const retires = () => createSimulationResult({ startAge: 30, years: 5, retirementAge: 33, finalPortfolioValue: 2_000_000 });
+    const neverRetires = () => createSimulationResult({ startAge: 30, years: 5, retirementAge: 40, finalPortfolioValue: 2_000_000 });
+    const retiresWithShortfall = () =>
+      createSimulationResult({ startAge: 30, years: 5, retirementAge: 33, shortfallYear: 2, finalPortfolioValue: 1_000_000 });
+
+    // The phases extractor walks simulation index against yearly row index, so a fixture has to
+    // supply at least as many runs as the horizon has rows (production runs 500 runs over ~50).
+    const multi: MultiSimulationResult = {
+      simulations: [
+        [1, retires()],
+        [2, retires()],
+        [3, neverRetires()],
+        [4, neverRetires()],
+        [5, retiresWithShortfall()],
+        [6, retiresWithShortfall()],
+      ],
+    };
+
+    const metrics = KeyMetricsExtractor.extractMultiSimulationMetrics(multi);
+    const phases = ChartDataExtractor.extractMultiSimulationPhasesData(multi);
+
+    // Snapshot of the per-simulation retirement ages the chance is derived from.
+    expect(multi.simulations.map(([, sim]) => KeyMetricsExtractor.extractSingleSimulationMetrics(sim).retirementAge)).toEqual([
+      33,
+      33,
+      null,
+      null,
+      33,
+      33,
+    ]);
+
+    expect(metrics.chanceOfRetirement).toBeCloseTo(4 / 6, 10);
+    expect(phases[0].chanceOfRetirement).toBeCloseTo(metrics.chanceOfRetirement, 10);
+    // 2 of 6 also keep their money and never run a shortfall.
+    expect(metrics.success).toBeCloseTo(2 / 6, 10);
+    // Structural invariant: succeeding requires retiring, whatever the strategy says.
+    expect(metrics.success).toBeLessThanOrEqual(metrics.chanceOfRetirement);
   });
 });

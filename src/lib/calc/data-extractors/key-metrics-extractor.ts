@@ -23,47 +23,23 @@ export abstract class KeyMetricsExtractor {
     const { data, context } = simulation;
 
     const startAge = context.startAge; // Not rounded to integer
-    const retirementStrategy = context.retirementStrategy;
 
     const initialPortfolio = data[0].portfolio.totalValue;
     const finalPortfolio = data[data.length - 1].portfolio.totalValue;
 
-    let retirementAge: number | null = null;
-    let yearsToRetirement: number | null = null;
+    // Retirement age, years to retirement and bankruptcy all come from the run's milestones: the
+    // same source `evaluateSuccess` and `ChartDataExtractor` use. A `fixedAge` strategy no longer
+    // echoes its target age, so a plan whose retirement age sits past the horizon reports "never
+    // retired" here and in `chanceOfRetirement` instead of claiming a retirement that never
+    // happened while `success` says it failed.
+    const { retirementAge, yearsToRetirement, bankruptcyAge, yearsToBankruptcy } = SimulationDataExtractor.getMilestonesData(
+      data,
+      startAge
+    );
 
-    const { bankruptcyAge, yearsToBankruptcy } = SimulationDataExtractor.getMilestonesData(data, startAge);
-
-    let portfolioAtRetirement: number | null = null;
-    let progressToRetirement: number | null = null;
-
-    switch (retirementStrategy.type) {
-      case 'fixedAge':
-        retirementAge = retirementStrategy.retirementAge;
-        yearsToRetirement = retirementAge - Math.floor(startAge);
-
-        for (const dp of data) {
-          const phase = dp.phase;
-          if (phase?.name === 'retirement') {
-            portfolioAtRetirement = dp.portfolio.totalValue;
-            break;
-          }
-        }
-
-        break;
-      case 'swrTarget':
-        for (const dp of data) {
-          const phase = dp.phase;
-          if (phase?.name === 'retirement') {
-            ({ retirementAge, yearsToRetirement } = SimulationDataExtractor.getMilestonesData(data, startAge));
-            portfolioAtRetirement = dp.portfolio.totalValue;
-            break;
-          }
-        }
-
-        break;
-    }
-
-    if (portfolioAtRetirement !== null) progressToRetirement = Math.min(initialPortfolio / portfolioAtRetirement, 1);
+    const retirementDataPoint = retirementAge === null ? undefined : data.find((dataPoint) => dataPoint.phase?.name === 'retirement');
+    const portfolioAtRetirement = retirementDataPoint?.portfolio.totalValue ?? null;
+    const progressToRetirement = portfolioAtRetirement === null ? null : Math.min(initialPortfolio / portfolioAtRetirement, 1);
 
     // One definition for every readout: see `evaluateSuccess` in `src/lib/calc/success.ts`.
     const success = Number(evaluateSuccess(simulation));
@@ -100,6 +76,8 @@ export abstract class KeyMetricsExtractor {
 
     const retirementAges = keyMetricsList.map((km) => km.retirementAge).filter((v): v is number => v !== null);
     const bankruptcyAges = keyMetricsList.map((km) => km.bankruptcyAge).filter((v): v is number => v !== null);
+    // Milestone-based, like `ChartDataExtractor.extractMultiSimulationPhasesData`: the two surfaces
+    // show the same "chance of retirement" for the same runs.
     const chanceOfRetirement = retirementAges.length / keyMetricsList.length;
     const chanceOfBankruptcy = bankruptcyAges.length / keyMetricsList.length;
 
