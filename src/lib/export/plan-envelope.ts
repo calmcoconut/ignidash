@@ -37,6 +37,9 @@ import {
   taxSettingsFromConvex,
   timelineFromConvex,
 } from '@/lib/utils/data-transformers';
+import { formatPath, issuesFromZodError, type ImportIssue } from '@/lib/utils/zod-issues';
+
+export type { ImportIssue };
 
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
@@ -150,12 +153,6 @@ export interface PlansExportEnvelope {
 }
 
 export type ExportEnvelope = PlanExportEnvelope | PlansExportEnvelope;
-
-/** One failed field, with the path that failed. Replaces truncating messages. */
-export interface ImportIssue {
-  path: string;
-  message: string;
-}
 
 /**
  * `ok` means the file can be imported. `warnings` lists what the app's forms would prefer
@@ -393,119 +390,9 @@ function checkSchemaVersion(value: Record<string, unknown>): ImportIssue | null 
   return null;
 }
 
-/** One issue while its path is still a list of keys, before it is formatted. */
-interface RawIssue {
-  parts: PropertyKey[];
-  message: string;
-  /**
-   * True when this leaf is a `z.literal`/`z.enum` mismatch (`invalid_value`): the member
-   * expected a different discriminator, so the leaf says "your `type` should be X" rather
-   * than naming a field the file is missing.
-   */
-  mismatchedLiteral: boolean;
-}
-
-type ZodIssue = z.ZodError['issues'][number];
-
-/**
- * Flattens a Zod error tree into one issue per failing field, `prefix` first.
- *
- * A union does not fail at its own path: Zod reports `invalid_union` and puts the useful
- * paths one level down, in `issue.errors` (one list per member). Reporting the union issue
- * itself would say `plan.timeline :: Invalid input` where the file actually needs
- * `plan.timeline.retirementStrategy.retirementAge`, so the walk recurses into every member
- * to whatever depth the unions nest and emits the leaves.
- *
- * Two members' worth of noise is removed while walking:
- *
- * - The `z.null()` member is skipped: `timeline` is `v.union(timelineValidator, v.null())`,
- *   so every failure of the object member would otherwise carry a useless "expected null".
- * - Members that objected to the DISCRIMINATOR are dropped when another member matched.
- *   `{ type: 'fixedAge' }` with no `retirementAge` makes the `swrTarget` member report
- *   `type :: expected "swrTarget"` plus a missing `safeWithdrawalRate`; the file's `type` is
- *   correct, so telling the operator to change it is wrong. If no member matched (the
- *   discriminator really is unknown), only the discriminator complaints are reported.
- *
- * If nothing survives, the union's own issue is reported instead, so a failure is never
- * dropped.
- */
-function issuesFromZodError(error: z.ZodError, prefix: readonly PropertyKey[] = []): ImportIssue[] {
-  const raw: RawIssue[] = [];
-  collectZodIssues(error.issues, prefix, raw, new Set<string>(), false);
-  return raw.map((issue) => ({ path: formatPath(issue.parts) || '(root)', message: issue.message }));
-}
-
-function collectZodIssues(
-  zodIssues: readonly ZodIssue[],
-  prefix: readonly PropertyKey[],
-  out: RawIssue[],
-  seen: Set<string>,
-  skipNullMember: boolean
-): void {
-  for (const issue of zodIssues) {
-    const parts = [...prefix, ...issue.path];
-
-    if (issue.code === 'unrecognized_keys') {
-      for (const key of issue.keys) pushIssue(out, seen, [...parts, key], 'Unrecognized field');
-      continue;
-    }
-
-    // The null member of a union never explains the failure; the other members do.
-    if (skipNullMember && issue.code === 'invalid_type' && issue.expected === 'null') continue;
-
-    if (issue.code === 'invalid_union') {
-      const members = issue.errors.map((branch) => {
-        const leaves: RawIssue[] = [];
-        collectZodIssues(branch, parts, leaves, new Set<string>(), true);
-        return leaves;
-      });
-      for (const leaf of chooseUnionLeaves(members, parts, issue.message))
-        pushIssue(out, seen, leaf.parts, leaf.message, leaf.mismatchedLiteral);
-      continue;
-    }
-
-    pushIssue(out, seen, parts, issue.message, issue.code === 'invalid_value');
-  }
-}
-
-/**
- * Picks which union members' leaves to report.
- *
- * A member that reports a discriminator mismatch was simply not the right shape, so it is
- * dropped as soon as another member matched. When every member mismatched, the
- * discriminator is the real problem and only those complaints survive; when the union is not
- * discriminated at all (no `invalid_value` leaves anywhere, e.g. `object | null` or
- * `cash | loan` payment methods), every member is reported as before.
- */
-function chooseUnionLeaves(members: RawIssue[][], parts: readonly PropertyKey[], unionMessage: string): RawIssue[] {
-  const matched = members.filter((leaves) => !leaves.some((leaf) => leaf.mismatchedLiteral));
-  if (matched.length > 0) return matched.flat();
-
-  const discriminatorOnly = members.flat().filter((leaf) => leaf.mismatchedLiteral);
-  if (discriminatorOnly.length > 0) return discriminatorOnly;
-
-  const all = members.flat();
-  return all.length > 0 ? all : [{ parts: [...parts], message: unionMessage, mismatchedLiteral: false }];
-}
-
-function pushIssue(out: RawIssue[], seen: Set<string>, parts: PropertyKey[], message: string, mismatchedLiteral = false): void {
-  const key = `${formatPath(parts)}\u0000${message}`;
-  if (seen.has(key)) return;
-  seen.add(key);
-  out.push({ parts, message, mismatchedLiteral });
-}
-
-function formatPath(parts: readonly PropertyKey[]): string {
-  let path = '';
-  for (const part of parts) {
-    if (typeof part === 'number') {
-      path += `[${part}]`;
-      continue;
-    }
-    path = path === '' ? String(part) : `${path}.${String(part)}`;
-  }
-  return path;
-}
+// The Zod walker (`issuesFromZodError`, `formatPath`) is shared with the headless CLI:
+// `src/lib/utils/zod-issues.ts`. The import path's union-discriminator behaviour is canonical,
+// so `npm run headless:simulate` reports a malformed union the same way an import does.
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -536,8 +423,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * engine runs fine without: a wage income with no withholding (the engine applies `?? 0`),
  * a self-employment income (the engine path is alive; the form gate is policy — PLAN-parity
  * R8), `stockYield > stockReturn`, a loan whose down payment plus balance is not the
- * purchase price, short names, out-of-policy percentages/seeds/growth limits. Those are
- * reported with their field paths and the operator decides whether to import anyway.
+ * purchase price, short names, out-of-policy percentages/seeds/growth limits, and a plan that
+ * states no state residency (read as California — `stateResidencyWarnings`). Those are reported
+ * with their field paths and the operator decides whether to import anyway.
  *
  * Not covered, by design:
  *   - the plan document's own `name`/`isDefault`, which are not plan data and have no
@@ -572,6 +460,7 @@ function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
 
   plans.forEach((plan, index) => {
     const prefix: PropertyKey[] = single ? ['plan'] : ['plans', index];
+    warnings.push(...stateResidencyWarnings(plan, prefix));
     pushDomainIssues(warnings, prefix, () => planDomainChecks(plan, prefix));
   });
 
@@ -592,6 +481,28 @@ function appRuleFindings(envelope: ExportEnvelope): AppRuleFindings {
   }
 
   return { blocking, warnings: warnings.filter((issue) => !blockedPaths.has(issue.path)) };
+}
+
+/**
+ * A plan that states no state residency is read as California (D2).
+ *
+ * `TaxProcessor` defaults the flag to `'CA'` (`taxes.ts:350`), and `taxSettingsToConvex` stores
+ * only the explicit opt-out (`'none'`), so absent is how a California plan is written — including
+ * every file exported before the field existed. That default is this instance's intended
+ * behaviour and the plan runs correctly under it, so it is a WARNING, not a block: refusing the
+ * file would make a pre-v8 export — or any California plan exported today — unimportable for a
+ * value the engine already answers. It must not be silent, though: the difference is real money
+ * (California income tax, plus SDI that is withheld whatever the flag says).
+ */
+function stateResidencyWarnings(plan: PlanExport, prefix: PropertyKey[]): ImportIssue[] {
+  if (plan.taxSettings.stateResidency !== undefined) return [];
+
+  return [
+    {
+      path: formatPath([...prefix, 'taxSettings', 'stateResidency']),
+      message: 'No state residency is stated, so this plan is read as California. Set it explicitly if it is not.',
+    },
+  ];
 }
 
 /**

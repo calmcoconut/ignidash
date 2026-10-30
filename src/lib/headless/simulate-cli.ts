@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isISODateString } from '@/lib/calc/clock';
 import { DEFAULT_MONTE_CARLO_TRIALS, MONTE_CARLO_MAX_TRIALS, simulate } from '@/lib/calc/simulate';
 import type { ImportIssue } from '@/lib/export/plan-envelope';
+import { issuesFromZodError } from '@/lib/utils/zod-issues';
 import { createTimelineFormSchema } from '@/lib/schemas/inputs/timeline-form-schema';
 import { simulatorSchema, type SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import { simulationSettingsSchema, type SimulationSettingsInputs } from '@/lib/schemas/inputs/simulation-settings-form-schema';
@@ -535,78 +536,10 @@ function isExportEnvelope(value: unknown): boolean {
   return typeof record.schemaVersion === 'number' && typeof record.kind === 'string';
 }
 
-type ZodIssue = z.ZodError['issues'][number];
-
-interface RawIssue {
-  parts: PropertyKey[];
-  message: string;
-}
-
-/**
- * Flattens a Zod error into `{ path, message }` issues.
- *
- * Mirrors the walker behind the import path's issue list (`src/lib/export/plan-envelope.ts`):
- * unions report their leaves (a bad nested field in a union member must not degrade to
- * `timeline: Invalid input`), the null member of a nullable union is skipped, and duplicate
- * path+message pairs are reported once.
- */
-export function issuesFromZodError(error: z.ZodError, prefix: readonly PropertyKey[] = []): ImportIssue[] {
-  const collected: RawIssue[] = [];
-  collectZodIssues(error.issues, prefix, collected, new Set<string>(), false);
-  return collected.map((issue) => ({ path: formatPath(issue.parts) || '(root)', message: issue.message }));
-}
-
-function collectZodIssues(
-  zodIssues: readonly ZodIssue[],
-  prefix: readonly PropertyKey[],
-  out: RawIssue[],
-  seen: Set<string>,
-  skipNullMember: boolean
-): void {
-  for (const issue of zodIssues) {
-    const parts = [...prefix, ...issue.path];
-
-    if (issue.code === 'unrecognized_keys') {
-      for (const key of issue.keys) pushIssue(out, seen, [...parts, key], 'Unrecognized field');
-      continue;
-    }
-
-    // The null member of a nullable union never explains the failure; the other members do.
-    if (skipNullMember && issue.code === 'invalid_type' && issue.expected === 'null') continue;
-
-    if (issue.code === 'invalid_union') {
-      const branches: RawIssue[] = [];
-      for (const branch of issue.errors) collectZodIssues(branch, parts, branches, new Set<string>(), true);
-      if (branches.length === 0) {
-        pushIssue(out, seen, parts, issue.message);
-        continue;
-      }
-      for (const leaf of branches) pushIssue(out, seen, leaf.parts, leaf.message);
-      continue;
-    }
-
-    pushIssue(out, seen, parts, issue.message);
-  }
-}
-
-function pushIssue(out: RawIssue[], seen: Set<string>, parts: PropertyKey[], message: string): void {
-  const key = `${formatPath(parts)}\u0000${message}`;
-  if (seen.has(key)) return;
-  seen.add(key);
-  out.push({ parts, message });
-}
-
-function formatPath(parts: readonly PropertyKey[]): string {
-  let path = '';
-  for (const part of parts) {
-    if (typeof part === 'number') {
-      path += `[${part}]`;
-      continue;
-    }
-    path = path === '' ? String(part) : `${path}.${String(part)}`;
-  }
-  return path;
-}
+// `issuesFromZodError` and the path formatter are shared with the import path
+// (`src/lib/utils/zod-issues.ts`), so a malformed union — say a `retirementStrategy` with a
+// correct `type` and a missing field — reports the same leaves here as it does on import.
+export { issuesFromZodError };
 
 function printIssues(io: HeadlessIo, title: string, issues: readonly ImportIssue[]): void {
   io.writeStderr(`${title}\n`);

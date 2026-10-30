@@ -795,6 +795,42 @@ describe('malformed files report the exact field paths', () => {
     expect(taxSettingsFromConvex(taxSettings as never).stateResidency).toBeUndefined();
   });
 
+  it('warns about a plan that states no state residency, and still imports it', () => {
+    // A pre-v8 file (or any plan written before the flag) carries no `stateResidency`. The tax
+    // layer reads absent as California (`taxes.ts:350`), so the value is not wrong — but the
+    // operator must be told, because the difference is California income tax, not a formatting
+    // preference. `warningsFor` fails the test if the file is refused, so this also pins that the
+    // disclosure stays a warning.
+    const warnings = warningsFor((envelope) => {
+      delete ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency;
+    });
+
+    expect(warnings).toStrictEqual([
+      {
+        path: 'plan.taxSettings.stateResidency',
+        message: 'No state residency is stated, so this plan is read as California. Set it explicitly if it is not.',
+      },
+    ]);
+  });
+
+  it('stays silent when the plan states California explicitly', () => {
+    const warnings = warningsFor((envelope) => {
+      ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency = 'CA';
+    });
+
+    expect(warnings.filter((issue) => issue.path === 'plan.taxSettings.stateResidency')).toStrictEqual([]);
+  });
+
+  it('stays silent when the plan opts out of state tax', () => {
+    // The fixture states `'none'`; assert it explicitly so the case cannot pass by accident of
+    // the fixture changing.
+    const warnings = warningsFor((envelope) => {
+      ((envelope.plan as Record<string, unknown>).taxSettings as Record<string, unknown>).stateResidency = 'none';
+    });
+
+    expect(warnings.filter((issue) => issue.path === 'plan.taxSettings.stateResidency')).toStrictEqual([]);
+  });
+
   it('rejects invalid JSON, non-objects and unknown kinds without throwing', () => {
     expect(parseEnvelope('{ not json').ok).toBe(false);
     expect(parseEnvelope('[]').ok).toBe(false);

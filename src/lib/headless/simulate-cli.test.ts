@@ -112,6 +112,21 @@ describe('headless:simulate', () => {
     expect(run.stderr).not.toMatch(/\n\s+at \S+/);
   });
 
+  it('names the missing field in a discriminated union, not the discriminant that is correct', () => {
+    // The CLI used to carry its own copy of the Zod walker, which reported every union member: a
+    // `retirementStrategy` with the right `type` and no `retirementAge` also complained about
+    // `type`. Both entry points now share `src/lib/utils/zod-issues.ts`, and the import path's
+    // behaviour (leaves only) is canonical.
+    const plan = makePlan();
+    const malformed = { ...plan, timeline: { ...plan.timeline, retirementStrategy: { type: 'fixedAge' } } };
+
+    const run = runCli([PLAN_PATH, '--as-of', AS_OF], planFile(malformed));
+
+    expect(run.code).toBe(HEADLESS_EXIT.invalidPlan);
+    expect(run.stderr).toContain('timeline.retirementStrategy.retirementAge:');
+    expect(run.stderr).not.toContain('timeline.retirementStrategy.type:');
+  });
+
   it('warns about an unknown top-level field instead of silently dropping it', () => {
     const run = runCli([PLAN_PATH, '--as-of', AS_OF], planFile({ ...makePlan(), incomeTypo: {} }));
 
