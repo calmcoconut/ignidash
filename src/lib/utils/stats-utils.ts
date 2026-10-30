@@ -14,11 +14,13 @@ export interface Stats {
 }
 
 export interface Percentiles<T> {
+  p5: T;
   p10: T;
   p25: T;
   p50: T;
   p75: T;
   p90: T;
+  p95: T;
 }
 
 export class StatsUtils {
@@ -70,18 +72,43 @@ export class StatsUtils {
     return sortedValues[sortedValues.length - 1];
   }
 
+  /**
+   * Percentile of a sorted series by linear interpolation between the two neighbouring order
+   * statistics: the "type 7" / `PERCENTILE.INC` definition that Excel and NumPy use by default.
+   *
+   * The previous implementation used `Math.floor(p * n)` as an index, which reads one rank too
+   * high for every percentile (it is biased upward) and jumps instead of interpolating. For
+   * `[1..10]`, p50 was 6 and is now 5.5.
+   *
+   * Numeric series interpolate. Opaque rows (e.g. one whole simulation result keyed by seed)
+   * have no midpoint, so they keep the discrete selection rank `floor(p * n)` — that is a pick,
+   * not an estimate, so interpolation does not apply to it.
+   */
   static calculatePercentile<T>(sortedValues: T[], percentile: number): T {
-    const index = Math.floor((percentile / 100) * sortedValues.length);
-    return sortedValues[Math.min(index, sortedValues.length - 1)];
+    if (typeof sortedValues[0] !== 'number') {
+      const index = Math.floor((percentile / 100) * sortedValues.length);
+      return sortedValues[Math.min(index, sortedValues.length - 1)];
+    }
+
+    const position = ((sortedValues.length - 1) * Math.max(0, Math.min(100, percentile))) / 100;
+    const lowerIndex = Math.floor(position);
+    const upperIndex = Math.ceil(position);
+
+    const lower = sortedValues[lowerIndex] as number;
+    const upper = sortedValues[upperIndex] as number;
+
+    return (lower + (position - lowerIndex) * (upper - lower)) as T;
   }
 
   static calculatePercentilesFromValues<T>(sortedValues: T[]): Percentiles<T> {
     return {
+      p5: this.calculatePercentile(sortedValues, 5),
       p10: this.calculatePercentile(sortedValues, 10),
       p25: this.calculatePercentile(sortedValues, 25),
       p50: this.calculatePercentile(sortedValues, 50),
       p75: this.calculatePercentile(sortedValues, 75),
       p90: this.calculatePercentile(sortedValues, 90),
+      p95: this.calculatePercentile(sortedValues, 95),
     };
   }
 }

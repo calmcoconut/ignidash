@@ -21,6 +21,7 @@ import { sumFlows, sumReturnAmounts, zeroAssetAmounts, type AssetReturnAmounts }
 import type { SimulationResult, MultiSimulationResult } from '../simulation-engine';
 import { SimulationDataExtractor } from './simulation-data-extractor';
 import { getHistoricalYear } from './get-historical-year';
+import { evaluateSuccess } from '../success';
 
 /** Transforms simulation results into table row arrays for data tables */
 export abstract class TableDataExtractor {
@@ -669,7 +670,8 @@ export abstract class TableDataExtractor {
       } = SimulationDataExtractor.getMeanReturnsData(result, retirementAge);
 
       const lastDp = data[data.length - 1];
-      const success = retirementAge !== null && lastDp.portfolio.totalValue > 0.1;
+      // One definition for every readout: see `evaluateSuccess` in `src/lib/calc/success.ts`.
+      const success = evaluateSuccess(result);
       const historicalRanges = context.historicalRanges ?? null;
 
       const finalPhaseName = lastDp.phase?.name ?? null;

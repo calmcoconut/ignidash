@@ -10,6 +10,7 @@ import { SimulationDataExtractor } from '@/lib/calc/data-extractors/simulation-d
 import { StatsUtils } from '@/lib/utils/stats-utils';
 
 import type { SimulationResult, MultiSimulationResult } from '../simulation-engine';
+import { evaluateSuccess } from '../success';
 
 /** Computes summary metrics from single or multi-simulation results */
 export abstract class KeyMetricsExtractor {
@@ -64,9 +65,8 @@ export abstract class KeyMetricsExtractor {
 
     if (portfolioAtRetirement !== null) progressToRetirement = Math.min(initialPortfolio / portfolioAtRetirement, 1);
 
-    const shortfallOccurred = data.some((dp) => dp.portfolio.shortfall > 0);
-    // Success requires: reaching retirement, portfolio above $0.10 at end, and no shortfalls
-    const success = Number(retirementAge !== null && finalPortfolio > 0.1 && !shortfallOccurred);
+    // One definition for every readout: see `evaluateSuccess` in `src/lib/calc/success.ts`.
+    const success = Number(evaluateSuccess(simulation));
 
     const { lifetimeTaxesAndPenalties } = SimulationDataExtractor.getLifetimeTaxesAndPenalties(data);
 

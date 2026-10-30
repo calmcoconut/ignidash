@@ -4,6 +4,7 @@ import type { MonteCarloSortMode } from '@/lib/stores/simulator-store';
 
 import type { MultiSimulationResult, SimulationResult } from '../simulation-engine';
 import { TableDataExtractor } from '../data-extractors/table-data-extractor';
+import { evaluateSuccess } from '../success';
 
 export interface MultiSimulationAnalysis {
   success: number;
@@ -134,10 +135,10 @@ export abstract class MultiSimulationAnalyzer {
       return scoreA - scoreB;
     });
 
+    // One definition for every readout: see `evaluateSuccess` in `src/lib/calc/success.ts`.
     let successCount = 0;
     for (const [, simResult] of simulations) {
-      const finalDp = simResult.data[simResult.data.length - 1];
-      if (finalDp.portfolio.totalValue > 0.1 && finalDp.phase?.name === 'retirement') successCount++;
+      if (evaluateSuccess(simResult)) successCount++;
     }
 
     const results = StatsUtils.calculatePercentilesFromValues(sortedSimulations.map((s) => ({ seed: s[0], result: s[1] })));
