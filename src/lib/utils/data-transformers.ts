@@ -32,6 +32,7 @@ import type { LiabilityInputs } from '@/lib/schemas/finances/liability-form-sche
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
 import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
+import type { SeppScheduleInputs } from '@/lib/schemas/inputs/sepp-form-schema';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 
 // percentBonds is optional in Convex (not applicable to savings), but guaranteed by the
@@ -237,6 +238,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
   // the document to the engine (see `milestonesFromConvex`).
   const milestones = milestonesFromConvex(plan.milestones);
   const conversions = conversionsFromConvex(plan.conversions);
+  const sepp = seppFromConvex(plan.sepp);
 
   return {
     timeline: timelineFromConvex(plan.timeline),
@@ -254,6 +256,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
     simulationSettings: simulationSettingsFromConvex(plan.simulationSettings),
     ...(milestones === undefined ? {} : { milestones }),
     ...(conversions === undefined ? {} : { conversions }),
+    ...(sepp === undefined ? {} : { sepp }),
   };
 }
 
@@ -287,6 +290,13 @@ export function milestonesFromConvex(milestones: Doc<'plans'>['milestones']): Mi
  */
 export function conversionsFromConvex(conversions: Doc<'plans'>['conversions']): ConversionInputs[] | undefined {
   return conversions ? structuredClone(conversions) : undefined;
+}
+
+/**
+ * A plan's SEPP schedules, or `undefined` when the plan has none.
+ */
+export function seppFromConvex(sepp: Doc<'plans'>['sepp']): SeppScheduleInputs[] | undefined {
+  return sepp ? structuredClone(sepp) : undefined;
 }
 
 export function accountToConvex(account: AccountInputs): Doc<'plans'>['accounts'][number] {
@@ -512,6 +522,10 @@ export function milestonesToConvex(milestones: MilestoneInputs[]): NonNullable<D
 
 export function conversionsToConvex(conversions: ConversionInputs[]): NonNullable<Doc<'plans'>['conversions']> {
   return structuredClone(conversions) as NonNullable<Doc<'plans'>['conversions']>;
+}
+
+export function seppToConvex(sepp: SeppScheduleInputs[]): NonNullable<Doc<'plans'>['sepp']> {
+  return structuredClone(sepp) as NonNullable<Doc<'plans'>['sepp']>;
 }
 
 // Flattens multiple chart data extractors (net worth, cash flow, taxes, contributions,

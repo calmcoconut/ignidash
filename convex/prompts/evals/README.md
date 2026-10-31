@@ -57,8 +57,6 @@ prompt tells the agent to quote `jurisdictions.california.reported`, but no case
 state-only lever. Covered California subsidies and California AMT are not modelled, which
 `jurisdictions.california.notModelled` says on every run.
 
-- **SEPP/72(t).** Not
-  modelled as transactions.
 - **ACA premium tax credit and its cliff.** `cliffs.aca` returns `supported: false` with its
   prerequisites, so a fixture could only test the refusal — never quote an ACA number.
 - **Social Security claiming.** Social Security is an income line, not a PIA estimate.
@@ -66,7 +64,7 @@ state-only lever. Covered California subsidies and California AMT are not modell
 Not on this list, because the engine computes them: **itemized deductions** (the four entered lines
 under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), **the §164 SALT cap with
 its MAGI phase-down**, **AMT**, **IRMAA**, **Roth conversions and ladders** (via `conversions` with
-five-year clocks and Form 8606 pro-rata basis recovery), and **pro-rata IRA basis on a withdrawal** — a
+five-year clocks and Form 8606 pro-rata basis recovery), **SEPP/72(t)** (safe-harbor schedules via `sepp`), and **pro-rata IRA basis on a withdrawal** — a
 traditional IRA carries `nondeductibleBasis`, and Form 8606's fraction is what decides the tax-free part.
 An answer that calls any of those unmodelled is wrong,
 and `refused-patches` must not be scored as a pass for one. What the analytics still cannot do is the

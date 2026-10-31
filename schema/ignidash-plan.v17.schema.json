@@ -3610,6 +3610,59 @@
           }
         ]
       }
+    },
+    "sepp": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "rmd",
+              "fixedAmortization",
+              "fixedAnnuitization"
+            ]
+          },
+          "startYear": {
+            "type": "integer",
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "annualAmount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "stopYear": {
+            "type": "integer",
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "disabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "accountId",
+          "method",
+          "startYear"
+        ]
+      }
     }
   },
   "required": [

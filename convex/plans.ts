@@ -23,6 +23,7 @@ import { privacySettingsValidator } from './validators/privacy_settings_validato
 import { simulationSettingsValidator } from './validators/simulation_settings_validator';
 import { milestonesValidator } from './validators/milestone_validator';
 import { conversionsValidator } from './validators/conversion_validator';
+import { seppValidator } from './validators/sepp_validator';
 import { basicTemplate } from './templates/basic';
 import { earlyRetirementTemplate } from './templates/early_retirement';
 
@@ -172,6 +173,7 @@ export const createPlanWithData = mutation({
     simulationSettings: simulationSettingsValidator,
     milestones: v.optional(milestonesValidator),
     conversions: v.optional(conversionsValidator),
+    sepp: v.optional(seppValidator),
   },
   handler: async (ctx, { newPlanName, ...planData }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -217,6 +219,7 @@ export const clonePlan = mutation({
       simulationSettings,
       milestones,
       conversions,
+      sepp,
     } = plan;
     const clonedData = {
       timeline: structuredClone(timeline),
@@ -235,6 +238,7 @@ export const clonePlan = mutation({
       simulationSettings: structuredClone(simulationSettings),
       ...(milestones === undefined ? {} : { milestones: structuredClone(milestones) }),
       ...(conversions === undefined ? {} : { conversions: structuredClone(conversions) }),
+      ...(sepp === undefined ? {} : { sepp: structuredClone(sepp) }),
     };
 
     return await ctx.db.insert('plans', { userId, name: newPlanName, isDefault: false, ...clonedData });

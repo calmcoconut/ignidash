@@ -529,6 +529,17 @@ export class FinancialSimulationEngine {
       if (simulationState.time.age >= simulationContext.rmdAge && simulationState.time.month % 12 === 1)
         portfolioProcessor.processRequiredMinimumDistributions();
 
+      // Process SEPP distributions at month 1 of each year
+      if (simulationState.time.month % 12 === 1 && this.inputs.sepp && this.inputs.sepp.length > 0) {
+        const currentYear = startCalendarDate.year + Math.floor((simulationState.time.month - 1) / 12);
+        const ownerBirthDate = formatISODate({
+          year: timeline.birthYear,
+          month: timeline.birthMonth,
+          day: 1,
+        });
+        portfolioProcessor.processSeppDistributions(this.inputs.sepp, currentYear, simulationState.time.age, ownerBirthDate);
+      }
+
       // Process conversions at month 1 of each year after RMDs
       if (simulationState.time.month % 12 === 1 && this.inputs.conversions && this.inputs.conversions.length > 0) {
         const currentYear = startCalendarDate.year + Math.floor((simulationState.time.month - 1) / 12);

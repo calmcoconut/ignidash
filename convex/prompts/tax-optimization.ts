@@ -185,7 +185,10 @@ with what the tools accept, trust the tools and say the limit has changed.
      unseasoned converted principal within 5 years by individuals under 59.5 incur the 10% §72(t) penalty.
   5. **Basis recovery**: Conversions from a traditional IRA recover after-tax basis pro-rata
      (Form 8606 / IRC §408(d)(2)) across all traditional IRAs, so only the pre-tax portion is taxable.
-- **Retirement-account rules.** No SEPP/72(t). Qualified Charitable Distributions (QCDs)
+- **Retirement-account rules.** Substantially Equal Periodic Payments (SEPP) under IRC §72(t)(2)(A)(iv)
+  and Notice 2022-6 are modelled via \`sepp\`: safe-harbor distributions (RMD, fixed amortization, fixed annuitization)
+  from qualified plans/IRAs before age 59½ are exempt from the 10% penalty (and CA 2.5% penalty under FTB 3805P);
+  modifications before the later of 5 years or age 59½ trigger the §72(t)(4) 10% recapture penalty. Qualified Charitable Distributions (QCDs)
   under IRC §408(d)(8) are modelled for IRA owners aged 70½+ via \`expenses[*].satisfyFromIra\`:
   distributions from traditional IRAs directly to charity are excluded from gross income up to
   the statutory indexed limit ($100,000–$108,000) and satisfy required minimum distributions (RMDs)

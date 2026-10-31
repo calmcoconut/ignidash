@@ -56,7 +56,7 @@ describe('the checked-in plan JSON Schema', () => {
 
     // The optional plan fields: a plan without a glide path, without milestones, or without
     // conversions are complete plans.
-    const optionalPlanFields = ['glidePath', 'milestones', 'conversions'];
+    const optionalPlanFields = ['glidePath', 'milestones', 'conversions', 'sepp'];
     const expectedRequired = Object.keys(simulatorSchema.shape)
       .filter((key) => !optionalPlanFields.includes(key))
       .sort();

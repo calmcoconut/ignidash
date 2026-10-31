@@ -76,6 +76,7 @@ export interface AccountDataWithFlows extends AccountData {
   rmds: number;
   conversions?: number;
   unseasonedConversionsWithdrawn?: number;
+  sepp?: number;
 }
 
 /** Base class for all account types with shared cumulative tracking */

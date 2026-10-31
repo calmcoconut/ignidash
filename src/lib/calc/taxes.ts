@@ -364,6 +364,7 @@ export interface IncomeSourcesData {
     '401kAndIra': number;
     hsa: number;
     unseasonedConversions?: number;
+    seppRecapture?: number;
   };
   hsaData?: {
     totalWithdrawals: number;
@@ -644,6 +645,9 @@ function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesD
       hsa: sum(records.map((record) => record.earlyWithdrawals.hsa)),
       ...(sum(records.map((record) => record.earlyWithdrawals.unseasonedConversions ?? 0)) > 0
         ? { unseasonedConversions: sum(records.map((record) => record.earlyWithdrawals.unseasonedConversions ?? 0)) }
+        : {}),
+      ...(sum(records.map((record) => record.earlyWithdrawals.seppRecapture ?? 0)) > 0
+        ? { seppRecapture: sum(records.map((record) => record.earlyWithdrawals.seppRecapture ?? 0)) }
         : {}),
     },
     ...(records.some((r) => r.hsaData !== undefined) ||
@@ -1887,7 +1891,10 @@ export class TaxProcessor {
           const annualConversions = account.conversions ?? 0;
 
           taxDeferredWithdrawals += annualWithdrawals + annualConversions;
-          if (age < regularQualifiedWithdrawalAge) early401kAndIraWithdrawals += annualWithdrawals;
+          if (age < regularQualifiedWithdrawalAge) {
+            const nonSeppWithdrawals = Math.max(0, annualWithdrawals - (account.sepp ?? 0));
+            early401kAndIraWithdrawals += nonSeppWithdrawals;
+          }
           break;
         }
         case 'ira': {
@@ -1901,8 +1908,9 @@ export class TaxProcessor {
           // the basis is measured against.
           iraYearEndBalance += account.balance;
           if (age < regularQualifiedWithdrawalAge) {
-            early401kAndIraWithdrawals += annualWithdrawals;
-            earlyIraWithdrawals += annualWithdrawals;
+            const nonSeppWithdrawals = Math.max(0, annualWithdrawals - (account.sepp ?? 0));
+            early401kAndIraWithdrawals += nonSeppWithdrawals;
+            earlyIraWithdrawals += nonSeppWithdrawals;
           }
           break;
         }
@@ -2047,6 +2055,9 @@ export class TaxProcessor {
         '401kAndIra': early401kAndIraWithdrawals,
         hsa: earlyHsaWithdrawals,
         ...(earlyUnseasonedConversions > 0 ? { unseasonedConversions: earlyUnseasonedConversions } : {}),
+        ...(annualPortfolioDataBeforeTaxes.seppRecapture && annualPortfolioDataBeforeTaxes.seppRecapture > 0
+          ? { seppRecapture: annualPortfolioDataBeforeTaxes.seppRecapture }
+          : {}),
       },
       ...(totalHsaWithdrawals > 0 || hsaContributions > 0 || hsaEarnings > 0
         ? {
@@ -2167,12 +2178,16 @@ export class TaxProcessor {
     return { netInvestmentIncome, incomeSubjectToNiit, niitAmount, threshold };
   }
 
-  /** Calculates early withdrawal penalties — IRC §72(t): 10% for 401k/IRA/unseasoned Roth conversions; IRC §223(f)(4): 20% for HSA; FTB 3805P: 2.5% for CA */
+  /** Calculates early withdrawal penalties — IRC §72(t): 10% for 401k/IRA/unseasoned Roth conversions/SEPP recapture; IRC §223(f)(4): 20% for HSA; FTB 3805P: 2.5% for CA */
   private processEarlyWithdrawalPenalties(earlyWithdrawalsData: IncomeSourcesData['earlyWithdrawals']): EarlyWithdrawalPenaltyData {
-    const taxDeferredPenaltyAmount = earlyWithdrawalsData['401kAndIra'] * 0.1 + earlyWithdrawalsData.hsa * 0.2;
+    const seppRecaptureFederal = earlyWithdrawalsData.seppRecapture ? earlyWithdrawalsData.seppRecapture * 0.1 : 0;
+    const taxDeferredPenaltyAmount = earlyWithdrawalsData['401kAndIra'] * 0.1 + earlyWithdrawalsData.hsa * 0.2 + seppRecaptureFederal;
     const taxFreePenaltyAmount = (earlyWithdrawalsData.rothEarnings + (earlyWithdrawalsData.unseasonedConversions ?? 0)) * 0.1;
     const nonHsaEarly =
-      earlyWithdrawalsData['401kAndIra'] + earlyWithdrawalsData.rothEarnings + (earlyWithdrawalsData.unseasonedConversions ?? 0);
+      earlyWithdrawalsData['401kAndIra'] +
+      earlyWithdrawalsData.rothEarnings +
+      (earlyWithdrawalsData.unseasonedConversions ?? 0) +
+      (earlyWithdrawalsData.seppRecapture ?? 0);
     const californiaPenaltyAmount = this.stateResidency === 'CA' && nonHsaEarly > 0 ? nonHsaEarly * 0.025 : 0;
 
     return {

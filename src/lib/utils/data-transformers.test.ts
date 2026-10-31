@@ -17,6 +17,8 @@ import {
   simulatorFromConvex,
   milestonesFromConvex,
   milestonesToConvex,
+  seppFromConvex,
+  seppToConvex,
   arrayToRecord,
   recordToArray,
 } from './data-transformers';
@@ -30,10 +32,6 @@ import {
 } from './__tests__/test-utils';
 import type { Doc } from '@/convex/_generated/dataModel';
 import { WITHDRAWAL_STRATEGY_IDS, getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
-
-// ============================================================================
-// Account Roundtrips
-// ============================================================================
 
 describe('Account transforms', () => {
   it('should roundtrip savings account', () => {
@@ -79,10 +77,6 @@ describe('Account transforms', () => {
     }
   });
 });
-
-// ============================================================================
-// Contribution Roundtrips
-// ============================================================================
 
 describe('Contribution transforms', () => {
   it('should roundtrip dollarAmount contribution', () => {
@@ -131,10 +125,6 @@ describe('Contribution transforms', () => {
   });
 });
 
-// ============================================================================
-// Income Roundtrips
-// ============================================================================
-
 describe('Income transforms', () => {
   it('should roundtrip income', () => {
     const doc = createConvexIncome();
@@ -154,10 +144,6 @@ describe('Income transforms', () => {
     expect(zod.disabled).toBe(false);
   });
 });
-
-// ============================================================================
-// Expense Roundtrips
-// ============================================================================
 
 describe('Expense transforms', () => {
   it('should roundtrip expense', () => {
@@ -216,10 +202,6 @@ describe('Expense transforms', () => {
     expect(stored(expenseToConvex({ ...plain, satisfyFromIra: true }))).toHaveProperty('satisfyFromIra', true);
   });
 });
-
-// ============================================================================
-// Ownership Roundtrips (P1-P2)
-// ============================================================================
 
 describe('ownership survives the round trip', () => {
   // `owner` and `propertyRegime` ride inside each entity, so a converter that forgets them
@@ -284,10 +266,6 @@ describe('ownership survives the round trip', () => {
   });
 });
 
-// ============================================================================
-// Debt Roundtrips
-// ============================================================================
-
 describe('Debt transforms', () => {
   it('should roundtrip debt', () => {
     const doc = createConvexDebt();
@@ -307,10 +285,6 @@ describe('Debt transforms', () => {
     expect(zod.disabled).toBe(false);
   });
 });
-
-// ============================================================================
-// Physical Asset Roundtrips
-// ============================================================================
 
 describe('Physical asset transforms', () => {
   it('should default assetType to other when missing', () => {
@@ -454,10 +428,6 @@ describe('Physical asset transforms', () => {
   });
 });
 
-// ============================================================================
-// Simulation Settings (clock injection, parity plan P2-P0)
-// ============================================================================
-
 describe('simulationSettingsFromConvex / simulationSettingsToConvex', () => {
   it('carries a pinned asOfDate to Convex instead of dropping it', () => {
     const convexSettings = simulationSettingsToConvex({
@@ -512,10 +482,6 @@ describe('simulationSettingsFromConvex / simulationSettingsToConvex', () => {
     expect(getWithdrawalStrategy(fromConvex.withdrawalStrategy).id).toBe('ordered');
   });
 });
-
-// ============================================================================
-// Simulator reads
-// ============================================================================
 
 describe('simulatorFromConvex', () => {
   it('should roundtrip a plan with multiple entities', () => {
@@ -590,10 +556,6 @@ describe('simulatorFromConvex', () => {
   });
 });
 
-// ============================================================================
-// Milestone transforms
-// ============================================================================
-
 describe('Milestone transforms', () => {
   const milestone = {
     id: 'milestone-1',
@@ -657,9 +619,32 @@ describe('Milestone transforms', () => {
   });
 });
 
-// ============================================================================
-// Helpers
-// ============================================================================
+describe('sepp roundtrips', () => {
+  const seppSchedule = {
+    id: 'sepp-1',
+    name: 'SEPP Schedule',
+    accountId: 'account-1',
+    method: 'fixedAmortization' as const,
+    startYear: 2030,
+    rate: 0.05,
+    annualAmount: 25000,
+    stopYear: 2036,
+    disabled: false,
+  };
+
+  it('should roundtrip SEPP schedules through both directions', () => {
+    const from = seppFromConvex([seppSchedule])!;
+    expect(from).toStrictEqual([seppSchedule]);
+    const back = seppToConvex(from);
+    expect(back).toStrictEqual([seppSchedule]);
+  });
+
+  it('should preserve absent SEPP schedules', () => {
+    expect(seppFromConvex(undefined)).toBeUndefined();
+    expect(seppFromConvex([])).toStrictEqual([]);
+    expect(seppToConvex([])).toStrictEqual([]);
+  });
+});
 
 describe('arrayToRecord / recordToArray', () => {
   it('should convert array to id-keyed record', () => {

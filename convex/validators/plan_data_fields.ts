@@ -14,6 +14,7 @@ import { privacySettingsValidator } from './privacy_settings_validator';
 import { simulationSettingsValidator } from './simulation_settings_validator';
 import { milestonesValidator } from './milestone_validator';
 import { conversionsValidator } from './conversion_validator';
+import { seppValidator } from './sepp_validator';
 
 /**
  * Plan data fields shared between `plans` and `planSnapshots` tables.
@@ -42,4 +43,6 @@ export const planDataFields = {
   milestones: v.optional(milestonesValidator),
   // Roth conversion schedule (parity plan P3-P5). Optional; absent means no conversions.
   conversions: v.optional(conversionsValidator),
+  // Substantially Equal Periodic Payments schedules (IRC §72(t)(2)(A)(iv)). Optional; absent means no SEPP schedules.
+  sepp: v.optional(seppValidator),
 };

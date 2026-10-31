@@ -14,13 +14,14 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  * Deliberately **not** covered:
  * - **California state-tax planning.** The state return is computed (P3-P8) and reported, but no case
  *   turns on it: there is no state-specific lever, and Covered California subsidies and CA AMT are not modelled.
- * - **SEPP, ACA credits, Social Security claiming.** The skill may be
+ * - **ACA credits, Social Security claiming.** The skill may be
  *   *asked* about these; the correct behaviour is to say the lever is not modelled, which is what the
  *   refused-patch check looks at.
  * - **Not on that list: the levers the engine does model.** Itemized deductions (the four entered
  *   lines under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), the §164 SALT
  *   cap with its MAGI phase-down, AMT, IRMAA, Roth conversions (with fixed amounts or bracket-filling,
- *   five-year clocks, and Form 8606 pro-rata basis recovery through `conversions`), and pro-rata IRA
+ *   five-year clocks, and Form 8606 pro-rata basis recovery through `conversions`), SEPP schedules
+ *   under IRC §72(t)(2)(A)(iv) through `sepp`, and pro-rata IRA
  *   basis on withdrawals through `nondeductibleBasis` are computed and reported, so refusing one of them
  *   is the false answer now. What is still missing about the deductions is the *marginal* effect
  *   (`notComputed` names it), not the deduction; and of the AMT and Medicare machinery only the
@@ -561,7 +562,7 @@ export const TAX_OPTIMIZATION_EVAL_CHECKS: readonly EvalCheck[] = [
   {
     id: 'refused-patches',
     property:
-      'Asking for a lever the engine does not model (for example SEPP or ACA credits) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, Roth conversions through `conversions`, pro-rata IRA basis on a withdrawal through `nondeductibleBasis`, and qualified charitable distributions from IRAs through `expenses[*].satisfyFromIra` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
+      'Asking for a lever the engine does not model (for example ACA credits) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, Roth conversions through `conversions`, SEPP schedules through `sepp`, pro-rata IRA basis on a withdrawal through `nondeductibleBasis`, and qualified charitable distributions from IRAs through `expenses[*].satisfyFromIra` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
   },
   {
     id: 'no-writes',

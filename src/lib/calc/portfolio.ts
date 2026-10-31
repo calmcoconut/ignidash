@@ -9,7 +9,10 @@
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
+import type { SeppScheduleInputs } from '@/lib/schemas/inputs/sepp-form-schema';
 import { addMonths, formatISODate, type ISODateString } from './clock';
+import { seppAnnualAmount, seppAnnualAmountFromTables, seppMustContinueUntil } from './retirement-rules/sepp';
+import { singleLifeExpectancy, type SeppRateMonth } from './retirement-rules/sepp-tables';
 
 import {
   type Account,
@@ -59,6 +62,9 @@ export class PortfolioProcessor {
   private outstandingShortfall: number = 0;
   private currentMonthConversionsByAccount: Record<string, number> = {};
   private currentMonthConversionsTotal = 0;
+  private fixedSeppPaymentByScheduleId: Map<string, number> = new Map();
+  private cumulativeSeppByScheduleId: Map<string, number> = new Map();
+  private seppRecaptureTriggered: Set<string> = new Set();
 
   /** Simulation-year index the current allowance was computed for; see `currentYearWithdrawalAllowance`. */
   private allowanceYearIndex: number | undefined;
@@ -267,6 +273,8 @@ export class PortfolioProcessor {
         shortfallRepaid,
         conversions: annualPortfolioDataBeforeTaxes.conversions,
         ...(unseasonedConversionsWithdrawn > 0 ? { unseasonedConversionsWithdrawn } : {}),
+        sepp: annualPortfolioDataBeforeTaxes.sepp,
+        seppRecapture: annualPortfolioDataBeforeTaxes.seppRecapture,
       },
       perAccountData
     );
@@ -705,6 +713,150 @@ export class PortfolioProcessor {
     }
   }
 
+  /**
+   * Processes Substantially Equal Periodic Payments (SEPP) under IRC §72(t)(2)(A)(iv).
+   *
+   * In month 1 of each year, calculates safe-harbor distributions, executes withdrawals,
+   * deposits proceeds into savings, and assesses §72(t)(4) recapture penalty if stopped early.
+   */
+  processSeppDistributions(
+    schedules: SeppScheduleInputs[],
+    currentYear: number,
+    ownerAge: number,
+    ownerBirthDate: ISODateString
+  ): PortfolioData | undefined {
+    let totalSepp = 0;
+    let totalRecapture = 0;
+    const withdrawalsByAccount: Record<string, AssetFlows> = {};
+    const seppByAccount: Record<string, number> = {};
+    const realizedGainsByAccount: Record<string, number> = {};
+    const earningsWithdrawnByAccount: Record<string, number> = {};
+
+    for (const schedule of schedules) {
+      if (schedule.disabled) continue;
+
+      // Check if the schedule has stopped
+      if (schedule.stopYear !== undefined && currentYear >= schedule.stopYear) {
+        if (!this.seppRecaptureTriggered.has(schedule.id)) {
+          this.seppRecaptureTriggered.add(schedule.id);
+          const startDate = formatISODate({ year: schedule.startYear, month: 1, day: 1 });
+          const mustContinueUntil = seppMustContinueUntil({ startDate, birthDate: ownerBirthDate });
+          const stopDate = formatISODate({ year: schedule.stopYear, month: 1, day: 1 });
+          if (stopDate < mustContinueUntil) {
+            // Stopped prematurely before 5 years or age 59½: recapture 10% penalty on all prior distributions
+            const priorDistributions = this.cumulativeSeppByScheduleId.get(schedule.id) ?? 0;
+            totalRecapture += priorDistributions;
+          }
+        }
+        continue;
+      }
+
+      // Not started yet
+      if (currentYear < schedule.startYear) continue;
+
+      const account = this.simulationState.portfolio.getAccountById(schedule.accountId);
+      if (!account || !(account.getBalance() > 0)) continue;
+
+      let annualAmount: number;
+      if (schedule.annualAmount !== undefined) {
+        annualAmount = schedule.annualAmount;
+      } else if (schedule.method === 'rmd') {
+        const period = singleLifeExpectancy(Math.floor(ownerAge));
+        annualAmount = seppAnnualAmount({
+          method: 'rmd',
+          balance: account.getBalance(),
+          rate: schedule.rate ?? 0,
+          distributionPeriod: period,
+        });
+      } else {
+        // fixedAmortization or fixedAnnuitization: computed once in year 1 and kept fixed
+        if (this.fixedSeppPaymentByScheduleId.has(schedule.id)) {
+          annualAmount = this.fixedSeppPaymentByScheduleId.get(schedule.id)!;
+        } else {
+          const firstMonth = `${schedule.startYear}-01` as SeppRateMonth;
+          const tableResult = seppAnnualAmountFromTables({
+            method: schedule.method,
+            balance: account.getBalance(),
+            age: Math.floor(ownerAge),
+            firstDistributionMonth: firstMonth,
+            rate: schedule.rate,
+          });
+          annualAmount = tableResult.annualAmount;
+          this.fixedSeppPaymentByScheduleId.set(schedule.id, annualAmount);
+        }
+      }
+
+      const withdrawAmount = Math.min(account.getBalance(), annualAmount);
+      if (withdrawAmount > 0) {
+        const withdrawalAllocation = this.getAllocationForWithdrawal(withdrawAmount);
+        const {
+          realizedGains: realizedGainsFromThisAccount,
+          earningsWithdrawn: earningsWithdrawnFromThisAccount,
+          ...withdrawnAssets
+        } = account.applyWithdrawal(withdrawAmount, 'regular', withdrawalAllocation);
+
+        realizedGainsByAccount[account.getAccountID()] = realizedGainsFromThisAccount;
+        earningsWithdrawnByAccount[account.getAccountID()] = earningsWithdrawnFromThisAccount;
+        withdrawalsByAccount[account.getAccountID()] = { ...withdrawnAssets };
+        seppByAccount[account.getAccountID()] = withdrawAmount;
+        totalSepp += withdrawAmount;
+
+        const prior = this.cumulativeSeppByScheduleId.get(schedule.id) ?? 0;
+        this.cumulativeSeppByScheduleId.set(schedule.id, prior + withdrawAmount);
+      }
+    }
+
+    if (totalSepp === 0 && totalRecapture === 0) return undefined;
+
+    const withdrawals = Object.values(withdrawalsByAccount).reduce((acc, curr) => addFlows(acc, curr), zeroFlows());
+
+    const portfolioHasRmdSavingsAccount = this.simulationState.portfolio
+      .getAccounts()
+      .some((acc) => acc.getAccountID() === this.rmdSavingsAccount.getAccountID());
+    if (!portfolioHasRmdSavingsAccount && totalSepp > 0) {
+      this.simulationState.portfolio.addRmdSavingsAccount(this.rmdSavingsAccount);
+    }
+
+    const contributionsByAccount: Record<string, AssetFlows> = {};
+    let contributedAssets: AssetFlows = zeroFlows();
+    if (totalSepp > 0) {
+      const contributionAllocation = this.getAllocationForContribution(totalSepp);
+      contributedAssets = this.rmdSavingsAccount.applyContribution(totalSepp, 'self', contributionAllocation);
+      contributionsByAccount[this.rmdSavingsAccount.getAccountID()] = { ...contributedAssets };
+    }
+
+    const perAccountData = this.buildPerAccountData(
+      {},
+      contributionsByAccount,
+      {},
+      withdrawalsByAccount,
+      realizedGainsByAccount,
+      earningsWithdrawnByAccount,
+      {},
+      {},
+      seppByAccount
+    );
+
+    const portfolioData = this.buildPortfolioData(
+      {
+        withdrawals,
+        employerMatch: 0,
+        contributions: { ...contributedAssets },
+        realizedGains: Object.values(realizedGainsByAccount).reduce((a, b) => a + b, 0),
+        earningsWithdrawn: Object.values(earningsWithdrawnByAccount).reduce((a, b) => a + b, 0),
+        rmds: 0,
+        shortfall: 0,
+        shortfallRepaid: 0,
+        ...(totalSepp > 0 ? { sepp: totalSepp } : {}),
+        ...(totalRecapture > 0 ? { seppRecapture: totalRecapture } : {}),
+      },
+      perAccountData
+    );
+
+    this.monthlyData.push(portfolioData);
+    return portfolioData;
+  }
+
   private buildPerAccountData(
     baseAccountData: Record<string, AccountDataWithFlows>,
     contributionsByAccount: Record<string, AssetFlows>,
@@ -713,7 +865,8 @@ export class PortfolioProcessor {
     realizedGainsByAccount: Record<string, number>,
     earningsWithdrawnByAccount: Record<string, number>,
     rmdsByAccount: Record<string, number>,
-    unseasonedConversionsByAccount: Record<string, number> = {}
+    unseasonedConversionsByAccount: Record<string, number> = {},
+    seppByAccount: Record<string, number> = {}
   ): Record<string, AccountDataWithFlows> {
     const addToBaseNumber = (accountID: string, field: keyof AccountDataWithFlows, value: number) => {
       return ((baseAccountData[accountID]?.[field] as number) ?? 0) + value;
@@ -733,6 +886,7 @@ export class PortfolioProcessor {
           'unseasonedConversionsWithdrawn',
           unseasonedConversionsByAccount[accountID] ?? 0
         );
+        const totalSepp = addToBaseNumber(accountID, 'sepp', seppByAccount[accountID] ?? 0);
 
         return [
           accountID,
@@ -746,6 +900,7 @@ export class PortfolioProcessor {
             rmds: addToBaseNumber(accountID, 'rmds', rmdsByAccount[accountID] ?? 0),
             ...((baseAccountData[accountID]?.conversions as number) > 0 ? { conversions: baseAccountData[accountID]?.conversions } : {}),
             ...(totalUnseasoned > 0 ? { unseasonedConversionsWithdrawn: totalUnseasoned } : {}),
+            ...(totalSepp > 0 ? { sepp: totalSepp } : {}),
           },
         ];
       })
@@ -764,6 +919,8 @@ export class PortfolioProcessor {
       shortfallRepaid: number;
       conversions?: number;
       unseasonedConversionsWithdrawn?: number;
+      sepp?: number;
+      seppRecapture?: number;
     },
     perAccountData: Record<string, AccountDataWithFlows>
   ): PortfolioData {
@@ -778,6 +935,8 @@ export class PortfolioProcessor {
       outstandingShortfall: this.outstandingShortfall,
       ...forPeriodData,
       ...(forPeriodData.conversions && forPeriodData.conversions > 0 ? { conversions: forPeriodData.conversions } : {}),
+      ...(forPeriodData.sepp && forPeriodData.sepp > 0 ? { sepp: forPeriodData.sepp } : {}),
+      ...(forPeriodData.seppRecapture && forPeriodData.seppRecapture > 0 ? { seppRecapture: forPeriodData.seppRecapture } : {}),
       perAccountData,
       assetAllocation: this.simulationState.portfolio.getWeightedAssetAllocation(),
     };
@@ -879,12 +1038,19 @@ export class PortfolioProcessor {
           if (curr.unseasonedConversionsWithdrawn && curr.unseasonedConversionsWithdrawn > 0) {
             acc.unseasonedConversionsWithdrawn = (acc.unseasonedConversionsWithdrawn ?? 0) + curr.unseasonedConversionsWithdrawn;
           }
+          if (curr.sepp && curr.sepp > 0) {
+            acc.sepp = (acc.sepp ?? 0) + curr.sepp;
+          }
+          if (curr.seppRecapture && curr.seppRecapture > 0) {
+            acc.seppRecapture = (acc.seppRecapture ?? 0) + curr.seppRecapture;
+          }
 
           for (const [accountID, accountData] of Object.entries(curr.perAccountData)) {
             const existing = acc.perAccountData[accountID];
             const totalAccountConversions = (existing?.conversions ?? 0) + (accountData.conversions ?? 0);
             const totalAccountUnseasoned =
               (existing?.unseasonedConversionsWithdrawn ?? 0) + (accountData.unseasonedConversionsWithdrawn ?? 0);
+            const totalAccountSepp = (existing?.sepp ?? 0) + (accountData.sepp ?? 0);
             acc.perAccountData[accountID] = {
               ...accountData,
               contributions: addFlows(existing?.contributions ?? zeroFlows(), accountData.contributions),
@@ -895,6 +1061,7 @@ export class PortfolioProcessor {
               rmds: (existing?.rmds ?? 0) + accountData.rmds,
               ...(totalAccountConversions > 0 ? { conversions: totalAccountConversions } : {}),
               ...(totalAccountUnseasoned > 0 ? { unseasonedConversionsWithdrawn: totalAccountUnseasoned } : {}),
+              ...(totalAccountSepp > 0 ? { sepp: totalAccountSepp } : {}),
             };
           }
 
@@ -919,6 +1086,12 @@ export class PortfolioProcessor {
     }
     if (!result.unseasonedConversionsWithdrawn) {
       delete result.unseasonedConversionsWithdrawn;
+    }
+    if (!result.sepp) {
+      delete result.sepp;
+    }
+    if (!result.seppRecapture) {
+      delete result.seppRecapture;
     }
 
     return result;
@@ -1084,6 +1257,8 @@ interface PortfolioFlowData {
   shortfallRepaid: number;
   conversions?: number;
   unseasonedConversionsWithdrawn?: number;
+  sepp?: number;
+  seppRecapture?: number;
   perAccountData: Record<string, AccountDataWithFlows>;
 }
 

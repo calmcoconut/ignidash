@@ -236,6 +236,16 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v15 file is made by deleting the key. The upgrade test in `plan-envelope.test.ts` asserts
  *        the key is stripped.
  *
+ *   17 — R7 SEPP schedules: optional plan-level `sepp`, a list of
+ *        `{ id, name, accountId, method, startYear, rate, annualAmount, stopYear, disabled }`.
+ *        A version 16 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `sepp` means **no SEPP schedules**: early distributions from qualified plans and IRAs
+ *        follow the standard 10% penalty rules under IRC §72(t)(1) without exception under §72(t)(2)(A)(iv).
+ *
+ *        A v16 file is made by deleting the key. The upgrade test in `plan-envelope.test.ts` asserts
+ *        the key is stripped.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -247,7 +257,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 16;
+export const EXPORT_SCHEMA_VERSION = 17;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

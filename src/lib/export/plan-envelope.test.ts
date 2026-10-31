@@ -378,6 +378,16 @@ describe('the export guard is derived from the plans validator', () => {
             amount: 10000,
           },
         ],
+        sepp: [
+          {
+            id: 'sepp-1',
+            name: 'SEPP schedule',
+            accountId: 'account-1',
+            method: 'fixedAmortization',
+            startYear: 2030,
+            annualAmount: 25000,
+          },
+        ],
       })
     );
 
@@ -530,7 +540,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1142,8 +1152,8 @@ describe('malformed files report the exact field paths', () => {
 
     // The field really is carried by the newest build: reverting the constant below 13 makes this
     // line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(16);
-    expect(EXPORT_SCHEMA_VERSION).toBe(16);
+    expect(envelope.schemaVersion).toBe(17);
+    expect(EXPORT_SCHEMA_VERSION).toBe(17);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1220,8 +1230,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion13Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(16);
-    expect(EXPORT_SCHEMA_VERSION).toBe(16);
+    expect(envelope.schemaVersion).toBe(17);
+    expect(EXPORT_SCHEMA_VERSION).toBe(17);
     expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1303,8 +1313,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion14Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(16);
-    expect(EXPORT_SCHEMA_VERSION).toBe(16);
+    expect(envelope.schemaVersion).toBe(17);
+    expect(EXPORT_SCHEMA_VERSION).toBe(17);
     expect(countFields(envelope, VERSION_14_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1380,8 +1390,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion15Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(16);
-    expect(EXPORT_SCHEMA_VERSION).toBe(16);
+    expect(envelope.schemaVersion).toBe(17);
+    expect(EXPORT_SCHEMA_VERSION).toBe(17);
     expect(countFields(envelope, VERSION_15_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1443,8 +1453,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion16Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(16);
-    expect(EXPORT_SCHEMA_VERSION).toBe(16);
+    expect(envelope.schemaVersion).toBe(17);
+    expect(EXPORT_SCHEMA_VERSION).toBe(17);
     expect(countFields(envelope, VERSION_16_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1484,6 +1494,76 @@ describe('malformed files report the exact field paths', () => {
     const importedPlan = imported.plans[0];
     expect(importedPlan.expenses[0]).not.toHaveProperty('satisfyFromIra');
     expect(expenseFromConvex(importedPlan.expenses[0]).satisfyFromIra).toBe(false);
+  });
+
+  /**
+   * What the v17 bump (R7) added: `sepp` on plans.
+   *
+   * A plan-level list of SEPP schedules under IRC §72(t)(2)(A)(iv), absent on all prior versions.
+   * Its absence means **no SEPP schedules** (standard 10% early withdrawal rules apply).
+   */
+  const VERSION_17_FIELDS = ['sepp'];
+
+  const makeVersion17Plan = () => {
+    const base = makeVersion16Plan();
+    return {
+      ...base,
+      sepp: [
+        {
+          id: 'sepp-1',
+          name: 'SEPP schedule',
+          accountId: 'account-1',
+          method: 'fixedAmortization' as const,
+          startYear: 2030,
+          annualAmount: 25000,
+        },
+      ],
+    };
+  };
+
+  it('roundtrips a version 17 plan with sepp through export and import', () => {
+    const plan = makeVersion17Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(17);
+    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(countFields(envelope, VERSION_17_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.sepp).toBeDefined();
+    expect(restored.plan.sepp?.[0]).toHaveProperty('method', 'fixedAmortization');
+  });
+
+  it('imports a version 16 plan as having sepp absent, and keeps the field absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion17Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v16 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v16.schemaVersion = 16;
+
+    expect(countFields(v16, VERSION_17_FIELDS)).toBe(1);
+    stripFields(v16, VERSION_17_FIELDS);
+    expect(countFields(v16, VERSION_17_FIELDS)).toBe(0);
+    // The v16 satisfyFromIra field is still there.
+    expect(countFields(v16, VERSION_16_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v16));
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(16);
+    expect(parsed.envelope).toStrictEqual(v16);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan).not.toHaveProperty('sepp');
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

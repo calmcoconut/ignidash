@@ -22,6 +22,7 @@ import { privacySettingsFormSchema } from './privacy-settings-form-schema';
 import { simulationSettingsSchema } from './simulation-settings-form-schema';
 import { milestonesSchema } from './milestone-form-schema';
 import { conversionsSchema } from './conversion-form-schema';
+import { seppScheduleSchema } from './sepp-form-schema';
 
 export const simulatorSchema = z.object({
   // Shape-only timeline rules: the "as of today" cross-field rules need an explicit date,
@@ -45,6 +46,8 @@ export const simulatorSchema = z.object({
   milestones: milestonesSchema.optional(),
   // Roth conversion schedule (parity plan P3-P5). Optional; absent means no conversions.
   conversions: conversionsSchema.optional(),
+  // Substantially Equal Periodic Payments schedules (IRC §72(t)(2)(A)(iv)). Optional; absent means no SEPP schedules.
+  sepp: z.array(seppScheduleSchema).optional(),
 });
 
 export type SimulatorInputs = z.infer<typeof simulatorSchema>;
