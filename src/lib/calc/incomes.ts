@@ -390,10 +390,18 @@ export interface IncomeData {
  *
  * A couple whose members were born in different years is the one case this cannot resolve: the
  * incomes layer is handed the plan-level start, not `timeline.household`, so a partner's Social
- * Security income is adjusted against the plan's (the primary's) birth year. Every cohort from 1960
- * on has a full retirement age of 67, so the exposure is a partner born in 1938–1959; resolving it
- * per member means threading member birth years through `simulation-engine.ts`, which this item does
- * not own. It is recorded as a limitation rather than guessed at.
+ * Security income is adjusted against the plan's (the primary's) birth year.
+ *
+ * The exposure is not a month of precision — it is a whole FRA step, and it does not wash out. Two
+ * members on different rows of `FULL_RETIREMENT_AGE_TABLE` are up to two years apart in claiming
+ * distance: FRA 65 at a birth year of 1938 or earlier, FRA 67 at 1960 or later, with 22 of those 24
+ * months inside the range the table's month-steps actually cover (65y2m from 1938 through 67y0m).
+ * Claiming at the same age, the wrong FRA moves the claim-age factor by up to about 14% of the
+ * benefit — a partner claiming at 64 receives 0.80 of the PIA where their own FRA gives 0.9333, and
+ * at 62 the widest pair is 0.70 against 0.80 — and it persists for every year of the run rather
+ * than averaging out. Resolving it per member means threading member birth years through
+ * `simulation-engine.ts`, which this item does not own, so it is recorded as a limitation rather
+ * than guessed at.
  */
 function planBirthYear(context: TimeBindingContext): number {
   const monthsSinceBirth = Math.round(context.startAge * 12);
@@ -594,8 +602,9 @@ export class Income {
    *
    * `year` is the engine's years-since-plan-start axis, so the growth is measured from the plan's
    * own start: `realColaGrowthRate` already carries `(1 + COLA) / (1 + inflation) - 1`, which is 0
-   * when the COLA matches the plan's inflation assumption. Growth is stepped once per year, like
-   * every other income, so a year's twelve payments all carry the same benefit.
+   * when the COLA matches the plan's inflation assumption. An income that omits `colaRate` is paid
+   * with the plan's inflation rate as its COLA (`social-security.ts`), so it is 0 too rather than the
+   * erosion the old zero default implied. Growth is stepped once per year, like every other income.
    */
   private annualSocialSecurityBenefit(year: number): number {
     const estimate = this.socialSecurityEstimate;

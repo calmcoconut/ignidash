@@ -934,6 +934,21 @@ describe('Social Security: the estimate decides the paid benefit (P1-P8)', () =>
     // COLA 3% against inflation 3% → real growth 0, so year five pays exactly year zero's benefit.
     expect(income.processMonthlyAmount(5).income).toBeCloseTo(2311.08, 10);
   });
+
+  it('holds the benefit flat in real terms when the income omits the COLA', () => {
+    const context: TimeBindingContext = {
+      ...TEST_TIME_BINDING_CONTEXT,
+      marketAssumptions: { ...TEST_TIME_BINDING_CONTEXT.marketAssumptions, inflationRate: 3 },
+    };
+    // `colaRate` unset. The decision on review of `746e1ca0` is that this means "keeps up with
+    // inflation", so the real benefit is flat — not eroded by the plan's 3% a year, which would have
+    // left 0.97^30 = 41% of it by year thirty.
+    const income = new Income(createSocialSecurityIncome({ socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67 } }), context);
+
+    expect(income.getSocialSecurityEstimate()?.colaRate).toBe(3);
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(2311.08, 10);
+    expect(income.processMonthlyAmount(30).income).toBeCloseTo(2311.08, 10);
+  });
 });
 
 describe('Social Security: which figure wins when an amount is also stored (P1-P8)', () => {
@@ -1001,15 +1016,16 @@ describe('Social Security: which figure wins when an amount is also stored (P1-P
 });
 
 describe('Social Security: the estimated benefit is taxed as Social Security, not as ordinary income', () => {
-  it('routes the paid benefit through provisional income (§86)', () => {
+  it('grows the paid benefit by the COLA, then routes it through provisional income (§86)', () => {
     const plan = createSimulatorInputs({
-      // Born 1960: FRA 67. The plan starts 2026-10-01, at age 66.75.
+      // Born 1960-01 with the clock at 2027-01-01: the earner is exactly 67 at the plan's first
+      // month, so a claim at the full retirement age pays from the first cheque with no part year.
       timeline: { lifeExpectancy: 90, birthMonth: 1, birthYear: 1960, retirementStrategy: { type: 'fixedAge', retirementAge: 65 } },
       accounts: { 'savings-1': createSavingsAccount({ balance: 0 }) },
       incomes: {
         'ss-1': createSocialSecurityIncome({
           id: 'ss-1',
-          timeframe: { start: { type: 'customAge', age: 67 }, end: undefined },
+          timeframe: { start: { type: 'now' }, end: undefined },
           socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67, colaRate: 3 },
         }),
         // Ordinary income alongside the benefit, so provisional income reaches §86's top tier.
@@ -1018,44 +1034,64 @@ describe('Social Security: the estimated benefit is taxed as Social Security, no
           name: 'Pension',
           amount: 40000,
           frequency: 'yearly',
-          timeframe: { start: { type: 'customAge', age: 67 }, end: undefined },
+          timeframe: { start: { type: 'now' }, end: undefined },
           taxes: { incomeType: 'pension' },
           disabled: false,
         },
       },
       // No returns at all, so the only income is the two streams above and the §86 arithmetic below
-      // is exactly what the return sees.
-      marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 3 },
+      // is exactly what the return sees. Zero *plan inflation* against a 3% COLA, so the COLA is
+      // entirely real growth: the benefit must compound once per **engine** year, measured from the
+      // plan's own start. This is what makes the growth assertions below able to fail — had
+      // `processMonthlyAmount` been handed the calendar year instead of the engine's year axis, the
+      // exponent would be 2027 rather than 1, and the figures would be unrecognisable.
+      marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 0 },
     });
 
-    const run = simulate(plan, { mode: 'fixedReturns', seed: 1, asOf: '2026-10-01' });
-    const withBenefits = run.result.data.filter((point) => (point.incomes?.totalSocialSecurityIncome ?? 0) > 0);
-    expect(withBenefits.length).toBeGreaterThan(0);
+    const run = simulate(plan, { mode: 'fixedReturns', seed: 1, asOf: '2027-01-01' });
 
-    // The largest year's benefit is a complete year: 12 × 2,311.08 = 27,732.96 (COLA 3% against 3%
-    // inflation, so no real growth). The stored amount is $1/month, so this also fails loudly if the
-    // estimate ever stops being paid.
-    const fullYear = withBenefits.reduce((best, point) =>
-      (point.incomes?.totalSocialSecurityIncome ?? 0) > (best.incomes?.totalSocialSecurityIncome ?? 0) ? point : best
-    );
-    expect(fullYear.incomes?.totalSocialSecurityIncome).toBeCloseTo(27732.96, 6);
-    expect(fullYear.incomes?.totalIncome).toBeCloseTo(40000 + 27732.96, 6);
+    // `data[0]` is the starting point; `data[n + 1]` closes the plan's n-th 12-month block, i.e.
+    // engine year n. The yearly growth step lands on that block's twelfth month — the cadence every
+    // grown income in the engine uses, because the clock advances a month before the month is
+    // processed — so a twelve-month block is eleven months at 2,311.08 × 1.03^n plus one at
+    // 2,311.08 × 1.03^(n+1):
+    //   block n = 2,311.08 × (11 + 1.03) × 1.03^n
+    // The exponent is the *engine* year, measured from the plan's own start, not the calendar year:
+    // a calendar exponent would pay 2,311.08 × 1.03^2027, a figure of an entirely different order.
+    const benefitForBlock = (n: number) => 2311.08 * (11 + 1.03) * 1.03 ** n;
+    for (const block of [0, 1, 2]) {
+      expect(run.result.data[block + 1].incomes?.totalSocialSecurityIncome, `block ${block}`).toBeCloseTo(benefitForBlock(block), 6);
+    }
+    // One engine year later is exactly the COLA more, in real terms: 1.03.
+    expect(
+      (run.result.data[2].incomes?.totalSocialSecurityIncome ?? 0) / (run.result.data[1].incomes?.totalSocialSecurityIncome ?? 1)
+    ).toBeCloseTo(1.03, 10);
+    // The stored `amount` on this fixture is $1/month, so a benefit near $27,802 is the estimate and
+    // cannot be the amount.
+    expect(run.result.data[1].incomes?.totalSocialSecurityIncome).toBeGreaterThan(1000);
 
-    const taxes = fullYear.taxes;
+    // The §86 audit runs on the first block, whose benefit the loop above pins at
+    // 2,311.08 × 12.03 = 27,802.2924. That is the figure the return must see, and the figure the
+    // hand-work below starts from.
+    const firstYear = run.result.data[1];
+    expect(firstYear.incomes?.totalIncome).toBeCloseTo(40000 + 27802.2924, 6);
+
+    const taxes = firstYear.taxes;
     expect(taxes).not.toBeNull();
     // The benefit reaches the return as Social Security income …
-    expect(taxes?.incomeSources.socialSecurityIncome).toBeCloseTo(27732.96, 6);
+    expect(taxes?.incomeSources.socialSecurityIncome).toBeCloseTo(27802.2924, 6);
     // … and *not* as earned (ordinary) income: that bucket holds the pension alone.
     expect(taxes?.incomeSources.earnedIncome).toBeCloseTo(40000, 6);
 
-    // §86 on a single return, 2026 base amounts $25,000 / $34,000:
-    //   provisional income = 40,000 + 50% × 27,732.96          = 53,866.48
-    //   tier-1 amount      = min(9,000 × 50%, 50% × 27,732.96)  = 4,500
-    //   taxable            = min(4,500 + 85% × 19,866.48, 85% × 27,732.96) = 21,386.508
-    expect(taxes?.socialSecurityTaxes.provisionalIncome).toBeCloseTo(53866.48, 6);
-    expect(taxes?.socialSecurityTaxes.taxableSocialSecurityIncome).toBeCloseTo(21386.508, 6);
+    // §86 on a single return, base amounts $25,000 / $34,000 (§86 is fixed by statute, so the
+    // settlement year's ruleset carries the same tiers):
+    //   provisional income = 40,000 + 50% × 27,802.2924            = 53,901.1462
+    //   tier-1 amount      = min(9,000 × 50%, 50% × 27,802.2924)   = 4,500
+    //   taxable            = min(4,500 + 85% × 19,901.1462, 85% × 27,802.2924) = 21,415.97427
+    expect(taxes?.socialSecurityTaxes.provisionalIncome).toBeCloseTo(53901.1462, 6);
+    expect(taxes?.socialSecurityTaxes.taxableSocialSecurityIncome).toBeCloseTo(21415.97427, 6);
     expect(taxes?.socialSecurityTaxes.maxTaxablePercentage).toBe(0.85);
-    // 21,386.508 / 27,732.96 = 77.1% — computed from provisional income, not a flat 85% inclusion.
-    expect(taxes?.socialSecurityTaxes.actualTaxablePercentage).toBeCloseTo(0.771158505979888, 8);
+    // 21,415.97427 / 27,802.2924 = 77.03% — computed from provisional income, not a flat 85%.
+    expect(taxes?.socialSecurityTaxes.actualTaxablePercentage).toBeCloseTo(0.7702952678103624, 8);
   });
 });

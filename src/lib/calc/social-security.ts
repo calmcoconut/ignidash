@@ -12,6 +12,16 @@
  *      the real benefit grows by `(1 + COLA) / (1 + inflation) - 1`. A COLA equal to the plan's
  *      inflation assumption therefore leaves the real benefit exactly unchanged.
  *
+ * ## An omitted COLA means a flat real benefit (decided on review of `746e1ca0`)
+ *
+ * `colaRate` is optional on the income, and its absence is read as **the benefit holding its real
+ * value**: the COLA defaults to the plan's inflation assumption, not to zero. Zero would mean a
+ * benefit frozen in nominal dollars, which the plan's own inflation then erodes — at a 3%
+ * assumption, `1 / 1.03 - 1 ≈ -2.91%` a year, about `0.41×` the benefit after thirty years. An
+ * optional field left unset must not quietly delete most of a retirement benefit, and nobody reads
+ * a blank field as "hold this cheque flat while prices rise"; an operator who means that types 0.
+ * Without an inflation assumption there is no real basis to hold flat, and the COLA is then 0.
+ *
  * ## Rounding
  *
  * SSA rounds the PIA down to the next lower dime and the payable monthly benefit down to the next
@@ -124,7 +134,10 @@ export interface SocialSecurityEstimate {
   /** Monthly benefit after the claiming adjustment. */
   readonly monthlyBenefit: number;
   readonly annualBenefit: number;
-  /** The COLA the plan assumes, as a percentage; 0 when it did not set one. */
+  /**
+   * The COLA the plan assumes, as a percentage: the income's own rate, or the plan's inflation rate
+   * when the income omitted it (0 when the plan has no inflation assumption at all).
+   */
   readonly colaRate: number;
   /** Real growth implied by `colaRate` against the plan's inflation; absent without inflation. */
   readonly realColaGrowthRate: number | undefined;
@@ -135,7 +148,10 @@ export interface SocialSecurityEstimateInput {
   readonly socialSecurity: SocialSecurityInputs;
   /** The plan member's birth year, from the timeline — the FRA depends on it and nothing else. */
   readonly birthYear: number;
-  /** The plan's inflation assumption, as a percentage, so the COLA can be read in real terms. */
+  /**
+   * The plan's inflation assumption, as a percentage, so the COLA can be read in real terms. It is
+   * also the COLA an income that left `colaRate` unset is paid by.
+   */
   readonly inflationRate?: number;
   /** The PIA bend-point table to use; defaults to the vendored 2025 table. */
   readonly bendPoints?: PiaBendPoints;
@@ -158,7 +174,12 @@ export function estimateSocialSecurityBenefit(input: SocialSecurityEstimateInput
   const fra = fullRetirementAge(birthYear);
   const claiming = claimingAdjustment(socialSecurity.claimAge, fra);
   const monthlyBenefit = pia * claiming.factor;
-  const colaRate = socialSecurity.colaRate ?? 0;
+  // An omitted COLA holds the real benefit flat (see the module doc): it takes the plan's inflation
+  // assumption, so `realBenefitGrowthRate` is exactly 0. Defaulting to 0 instead would erode the
+  // benefit by the plan's whole inflation rate every year — about 0.41× its value after thirty
+  // years at 3% — which is a decision nobody made by leaving a field blank. With no inflation
+  // assumption there is no real basis, and 0 is the only honest reading.
+  const colaRate = socialSecurity.colaRate ?? inflationRate ?? 0;
 
   return {
     pia,

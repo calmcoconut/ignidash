@@ -224,16 +224,44 @@ describe('estimateSocialSecurityBenefit', () => {
     expect(estimate.realColaGrowthRate).toBe(0);
   });
 
-  it('reports no COLA growth when the income sets no COLA', () => {
+  it('defaults an omitted COLA to the plan’s inflation, so the real benefit is flat', () => {
+    // The decision on review of `746e1ca0`: a blank COLA means "keeps up with inflation", not
+    // "erodes by inflation". 2,000 × 1.00 at 67, unchanged in real terms for thirty years.
     const estimate = estimateSocialSecurityBenefit({
       socialSecurity: socialSecurity({ mode: 'manual', pia: 2000, claimAge: 67, colaRate: undefined }),
       birthYear: 1990,
       inflationRate: 3,
     });
 
-    // A benefit frozen in nominal terms loses (1 / 1.03) − 1 ≈ −2.91% of real value a year.
+    expect(estimate.colaRate).toBe(3);
+    expect(estimate.realColaGrowthRate).toBe(0);
+    expect(projectRealAnnualBenefit(estimate.annualBenefit, 30, estimate.colaRate, 3)).toBe(estimate.annualBenefit);
+
+    // What the old default would have done, stated so the difference is on the record:
+    // 0.97^30 = 0.412, i.e. the plan would have paid 41% of the benefit it promised.
+    expect(projectRealAnnualBenefit(estimate.annualBenefit, 30, 0, 3) / estimate.annualBenefit).toBeCloseTo(0.412, 3);
+  });
+
+  it('still treats an explicit zero COLA as nominal erosion', () => {
+    // An operator who types 0 means it: the cheque does not move while prices do.
+    const estimate = estimateSocialSecurityBenefit({
+      socialSecurity: socialSecurity({ mode: 'manual', pia: 2000, claimAge: 67, colaRate: 0 }),
+      birthYear: 1990,
+      inflationRate: 3,
+    });
+
     expect(estimate.colaRate).toBe(0);
     expect(estimate.realColaGrowthRate).toBeCloseTo(1 / 1.03 - 1, 12);
+  });
+
+  it('reports no real growth when there is neither a COLA nor an inflation assumption', () => {
+    const estimate = estimateSocialSecurityBenefit({
+      socialSecurity: socialSecurity({ mode: 'manual', pia: 2000, claimAge: 67, colaRate: undefined }),
+      birthYear: 1990,
+    });
+
+    expect(estimate.colaRate).toBe(0);
+    expect(estimate.realColaGrowthRate).toBeUndefined();
   });
 
   it('refuses to guess when the block is missing the amount its mode needs', () => {
