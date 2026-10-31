@@ -100,7 +100,7 @@ const ACCOUNT_COLOR_MAP: Record<TaxCategory, string> = {
   taxDeferred: 'bg-[var(--chart-2)]',
   taxFree: 'bg-[var(--chart-3)]',
   cashSavings: 'bg-[var(--chart-4)]',
-} as const;
+};
 
 interface NetWorthSectionProps {
   toggleDisclosure: (newDisclosure: DisclosureState) => void;

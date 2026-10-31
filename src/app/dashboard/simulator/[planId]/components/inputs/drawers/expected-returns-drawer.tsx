@@ -62,13 +62,13 @@ export default function ExpectedReturnsDrawer({ setOpen, marketAssumptions }: Ex
     if (marketAssumptions) reset(marketAssumptions);
   }, [marketAssumptions, reset]);
 
-  const m = useMutation(api.market_assumptions.update);
+  const updateMarketAssumptions = useMutation(api.market_assumptions.update);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: MarketAssumptionsInputs) => {
     try {
       setSaveError(null);
-      await m({ marketAssumptions: marketAssumptionsToConvex(data), planId });
+      await updateMarketAssumptions({ marketAssumptions: marketAssumptionsToConvex(data), planId });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save expected returns.');

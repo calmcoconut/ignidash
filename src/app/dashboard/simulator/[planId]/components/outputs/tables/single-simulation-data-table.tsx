@@ -114,20 +114,18 @@ interface SingleSimulationDataTableProps {
 export default function SingleSimulationDataTable({ simulation }: SingleSimulationDataTableProps) {
   const resultsCategory = useSingleSimulationCategory();
 
-  const props: TableCategoryProps = { simulation };
-
   switch (resultsCategory) {
     case SingleSimulationCategory.NetWorth:
-      return <NetWorthTable {...props} />;
+      return <NetWorthTable simulation={simulation} />;
     case SingleSimulationCategory.CashFlow:
-      return <CashFlowTable {...props} />;
+      return <CashFlowTable simulation={simulation} />;
     case SingleSimulationCategory.Taxes:
-      return <TaxesTable {...props} />;
+      return <TaxesTable simulation={simulation} />;
     case SingleSimulationCategory.Returns:
-      return <ReturnsTable {...props} />;
+      return <ReturnsTable simulation={simulation} />;
     case SingleSimulationCategory.Contributions:
-      return <ContributionsTable {...props} />;
+      return <ContributionsTable simulation={simulation} />;
     case SingleSimulationCategory.Withdrawals:
-      return <WithdrawalsTable {...props} />;
+      return <WithdrawalsTable simulation={simulation} />;
   }
 }

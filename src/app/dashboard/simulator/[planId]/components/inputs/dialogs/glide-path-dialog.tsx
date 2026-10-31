@@ -83,14 +83,14 @@ export default function GlidePathDialog({ onClose, glidePath: _glidePath, accoun
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.glide_path.update);
+  const updateGlidePath = useMutation(api.glide_path.update);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: GlidePathInputs) => {
     const glidePathId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ glidePath: glidePathToConvex({ ...data, id: glidePathId }), planId });
+      await updateGlidePath({ glidePath: glidePathToConvex({ ...data, id: glidePathId }), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save glide path.');
@@ -114,11 +114,7 @@ export default function GlidePathDialog({ onClose, glidePath: _glidePath, accoun
     }
   }, [endType, unregister]);
 
-  const getEndColSpan = () => {
-    if (endType === 'customDate') return 'col-span-2';
-    if (endType === 'customAge') return 'col-span-1';
-    return 'col-span-2';
-  };
+  const getEndColSpan = () => (endType === 'customAge' ? 'col-span-1' : 'col-span-2');
 
   const months = [
     { value: 1, name: 'January' },

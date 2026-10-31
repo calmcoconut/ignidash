@@ -47,7 +47,7 @@ export default function MultiSimulationPhasesBarChart({ age, rawChartData }: Mul
           <ChartGrid />
           <BarChartXAxis tick={tick} />
           <BarChartYAxis formatter={formatter} />
-          <StandardBar data={chartData} formatValue={(v: number) => v.toFixed(0)} />
+          <StandardBar data={chartData} formatValue={formatter} />
         </BarChart>
       </ResponsiveContainer>
     </BarChartContainer>

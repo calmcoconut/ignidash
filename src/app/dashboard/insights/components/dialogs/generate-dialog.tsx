@@ -53,13 +53,18 @@ export default function GenerateDialog({
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.insights.generate);
+  const generateInsightsMutation = useMutation(api.insights.generate);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: GenerateInsightsInputs) => {
     try {
       setSaveError(null);
-      await m({ planId, keyMetrics, simulationResult: simulationResultToConvex(simulationResult), userPrompt: data.userPrompt });
+      await generateInsightsMutation({
+        planId,
+        keyMetrics,
+        simulationResult: simulationResultToConvex(simulationResult),
+        userPrompt: data.userPrompt,
+      });
       onGenerate();
       onClose();
     } catch (error) {

@@ -109,5 +109,4 @@ function MultiSimulationDataListSection({ chartData, selectedAge }: MultiSimulat
   }
 }
 
-// Memoize the entire section to prevent re-renders when props haven't changed
 export default memo(MultiSimulationDataListSection);

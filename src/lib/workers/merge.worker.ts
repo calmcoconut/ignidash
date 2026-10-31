@@ -1,8 +1,8 @@
 /**
  * Result aggregation and derived data extraction Web Worker.
  *
- * Collects partial MultiSimulationResults from simulation workers, merges them into a
- * single result set, and computes derived analysis data (charts, tables, key metrics).
+ * Collects partial results from simulation workers, merges them into a single result set,
+ * and computes derived analysis data (charts, tables, key metrics).
  * Uses a UUID-keyed cache so the main thread can request derived data without re-merging.
  */
 

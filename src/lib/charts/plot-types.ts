@@ -59,7 +59,7 @@ export interface MetricSeriesDefinition {
   readonly derive?: (point: MetricDataPoint, index: number) => number;
 }
 
-/** A column of a metric's table equivalent (rendered by a later item, P4-P2). */
+/** A column of a metric's table equivalent. */
 export interface MetricTableColumn {
   readonly key: string;
   readonly label: string;
@@ -149,23 +149,22 @@ export function seriesValues(points: readonly MetricDataPoint[], series: Resolve
 }
 
 /**
- * Returns copies of the data points with signed series values written back under their
- * own keys, matching what the existing charts do inline (e.g. `expenses: -expenses`).
- * Keys that no resolved series mentions are preserved untouched.
+ * Returns the data points with signed series values written back under their own keys,
+ * matching what the existing charts do inline (e.g. `expenses: -expenses`). Points are
+ * copied only when some series declares `sign: -1`; keys that no resolved series mentions
+ * are preserved untouched.
  */
 export function applySeriesSigns<T extends MetricDataPoint>(points: readonly T[], series: readonly ResolvedSeries[]): T[] {
-  const signed = new Map<string, 1 | -1>();
+  const negativeKeys = new Set<string>();
   for (const entry of series) {
-    if (entry.sign === -1) signed.set(entry.key, -1);
-    else if (!signed.has(entry.key)) signed.set(entry.key, 1);
+    if (entry.sign === -1) negativeKeys.add(entry.key);
   }
 
-  if (![...signed.values()].includes(-1)) return points.slice();
+  if (negativeKeys.size === 0) return points.slice();
 
   return points.map((point) => {
     const next = { ...point } as unknown as Record<string, unknown>;
-    for (const [key, sign] of signed) {
-      if (sign !== -1) continue;
+    for (const key of negativeKeys) {
       const value = Number(next[key]);
       if (Number.isFinite(value)) next[key] = -value;
     }

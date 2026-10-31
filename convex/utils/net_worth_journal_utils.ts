@@ -21,7 +21,7 @@ export async function getJournalEntryForCurrentUserOrThrow(ctx: QueryCtx, entryI
 }
 
 async function getAllJournalEntriesForPlan(ctx: QueryCtx, planId: Id<'plans'>): Promise<Doc<'netWorthJournal'>[]> {
-  return await ctx.db
+  return ctx.db
     .query('netWorthJournal')
     .withIndex('by_planId', (q) => q.eq('planId', planId))
     .collect();

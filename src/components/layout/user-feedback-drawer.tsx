@@ -38,13 +38,13 @@ export default function UserFeedbackDrawer({ setOpen }: UserFeedbackDrawerProps)
     defaultValues: { feedback: '' },
   });
 
-  const m = useMutation(api.user_feedback.send);
+  const sendFeedback = useMutation(api.user_feedback.send);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: UserFeedbackInputs) => {
     try {
       setSaveError(null);
-      await m({ feedback: { planId, pathname, feedback: data.feedback } });
+      await sendFeedback({ feedback: { planId, pathname, feedback: data.feedback } });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to send user feedback.');

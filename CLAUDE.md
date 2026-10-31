@@ -72,11 +72,15 @@ Husky runs `lint-staged` on commit, which auto-runs `eslint --fix` + `prettier -
 ### Routing (Next.js App Router)
 
 - `src/app/(auth)/` — Sign in/up, password reset (public)
-- `src/app/(marketing)/` — Home, pricing, about (public)
-- `src/app/(legal)/` — Privacy, terms (public)
+- `src/app/help/` — In-app help and feedback
+- `src/app/settings/` — Account and data settings (profile, password, export/import)
 - `src/app/dashboard/` — Protected area: simulator, insights, compare
-- `src/app/dashboard/simulator/[planId]/` — Main simulator view per plan
+- `src/app/dashboard/simulator/[planId]/` — Main simulator view per plan (inputs, outputs, report)
 - `src/app/api/auth/` — Better-Auth API endpoints
+
+The `(marketing)` and `(legal)` route groups named by earlier versions of this file **do not
+exist in this fork** — they went with the billing and marketing surfaces. Verify with
+`ls -d src/app/\(*\)` before trusting any route claim here.
 
 ### Convex Backend (`convex/`)
 
@@ -85,6 +89,7 @@ All server functions (queries, mutations, actions) live here. Key files:
 - `plans.ts`, `account.ts`, `income.ts`, `expense.ts`, `debt.ts` — CRUD for financial entities
 - `messages.ts`, `conversations.ts` — AI chat
 - `insights.ts` — AI-generated insights
+- `ai_chat.ts` — The streaming chat/insights action (renamed from `use_openai.ts`, which named a vendor this fork no longer targets). Provider-agnostic: `OPENAI_BASE_URL` points the `openai` SDK at any OpenAI-compatible server (Ollama, vLLM, llama.cpp), which is what replaced Azure OpenAI. Not dead code — do not delete it as vendor residue.
 - `http.ts` — Convex HTTP router (no Stripe webhooks: billing was removed from this fork)
 - `utils/auth_utils.ts` — `getUserIdOrThrow(ctx)` for auth in every query/mutation
 - `utils/sys_prompt_utils.ts` — Dynamic AI system prompt from plan data

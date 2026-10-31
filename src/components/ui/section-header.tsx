@@ -11,7 +11,7 @@ interface SectionHeaderProps {
 }
 
 export default function SectionHeader({ className, title, desc, status }: SectionHeaderProps) {
-  let badgeColor: BadgeColor, badgeText;
+  let badgeColor: BadgeColor, badgeText: string;
   switch (status) {
     case 'complete':
       badgeColor = 'green';

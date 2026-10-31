@@ -26,7 +26,6 @@ export const debtFormSchema = z
   })
   .refine(
     (data) => {
-      // Compounding frequency required only for compound interest
       if (data.interestType === 'compound') {
         return data.compoundingFrequency !== undefined;
       }

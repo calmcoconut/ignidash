@@ -82,14 +82,14 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.income.upsertIncome);
+  const upsertIncome = useMutation(api.income.upsertIncome);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: IncomeInputs) => {
     const incomeId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ income: incomeToConvex(ownershipForStorage({ ...data, id: incomeId })), planId });
+      await upsertIncome({ income: incomeToConvex(ownershipForStorage({ ...data, id: incomeId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save income.');
@@ -175,22 +175,11 @@ export default function IncomeDialog({ onClose, selectedIncome: _selectedIncome,
     }
   }, [incomeType, setValue, selectedIncome]);
 
-  const getStartColSpan = () => {
-    if (startType === 'customDate') return 'col-span-2';
-    if (startType === 'customAge') return 'col-span-1';
-    return 'col-span-2';
-  };
+  const getStartColSpan = () => (startType === 'customAge' ? 'col-span-1' : 'col-span-2');
 
-  const getEndColSpan = () => {
-    if (endType === 'customDate') return 'col-span-2';
-    if (endType === 'customAge') return 'col-span-1';
-    return 'col-span-2';
-  };
+  const getEndColSpan = () => (endType === 'customAge' ? 'col-span-1' : 'col-span-2');
 
-  const getIncomeTypeColSpan = () => {
-    if (supportsWithholding(incomeType)) return 'col-span-1';
-    return 'col-span-1 sm:col-span-2';
-  };
+  const getIncomeTypeColSpan = () => (supportsWithholding(incomeType) ? 'col-span-1' : 'col-span-1 sm:col-span-2');
 
   const months = [
     { value: 1, name: 'January' },

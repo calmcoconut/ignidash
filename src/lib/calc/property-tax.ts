@@ -32,7 +32,7 @@
  * The expense grows at a single **real** annual rate, because `ExpensesProcessor` works in real
  * dollars (contract 3.1). Getting that rate right is the whole point:
  *
- * - **California (Absent residency counts as California, exactly as `taxes.ts` reads it.)**
+ * - **California** (absent residency counts as California, exactly as `taxes.ts` reads it).
  *   Prop 13 caps the *nominal* growth of the assessed value at 2% a year, so the nominal growth is
  *   `min(nominal appreciation, 2%)`, floored at zero (a falling market does not cut the assessment
  *   below the base-year value — `prop13AssessedValue` floors it there). That nominal growth is

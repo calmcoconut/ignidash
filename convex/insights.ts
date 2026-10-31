@@ -59,9 +59,9 @@ export const generate = mutation({
   handler: async (ctx, { planId, keyMetrics, simulationResult, userPrompt }) => {
     if (userPrompt && userPrompt.length > 250) throw new ConvexError('Supplemental prompt cannot be longer than 250 characters.');
 
-    const [{ userId }, { canUseAIFeatures: canUseInsights }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
+    const [{ userId }, { canUseAIFeatures: aiInsightsEnabled }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
 
-    if (!canUseInsights) throw new ConvexError('AI insights are not available on this deployment.');
+    if (!aiInsightsEnabled) throw new ConvexError('AI insights are not available on this deployment.');
 
     const [loadingInsight, plan] = await Promise.all([
       ctx.db
@@ -77,7 +77,7 @@ export const generate = mutation({
     const systemPrompt = getInsightsSystemPrompt(plan, keyMetrics, simulationResult, userPrompt);
 
     const insightId = await ctx.db.insert('insights', { userId, planId, systemPrompt, content: '', updatedAt, isLoading: true });
-    await ctx.scheduler.runAfter(0, internal.use_openai.streamInsights, {
+    await ctx.scheduler.runAfter(0, internal.ai_chat.streamInsights, {
       userId,
       insightId,
       systemPrompt,

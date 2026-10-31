@@ -82,7 +82,7 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.account.upsertAccount);
+  const upsertAccount = useMutation(api.account.upsertAccount);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: AccountInputs) => {
@@ -101,7 +101,7 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
     const accountId = processedData.id === '' ? uuidv4() : processedData.id;
     try {
       setSaveError(null);
-      await m({ account: accountToConvex(ownershipForStorage({ ...processedData, id: accountId })), planId });
+      await upsertAccount({ account: accountToConvex(ownershipForStorage({ ...processedData, id: accountId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save account.');

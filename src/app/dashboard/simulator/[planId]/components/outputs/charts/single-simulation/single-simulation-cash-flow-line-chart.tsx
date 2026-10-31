@@ -171,14 +171,12 @@ export default function SingleSimulationCashFlowLineChart({
     () => setClickedOutsideChart(false)
   );
 
-  const chartSlice = useChartDataSlice(rawChartData, 'single');
-
   let chartData:
     | SingleSimulationCashFlowChartDataPoint[]
     | Array<{ age: number } & IncomeData>
     | Array<{ age: number } & ExpenseData>
     | Array<{ age: number } & PhysicalAssetData>
-    | Array<{ age: number } & DebtData> = chartSlice;
+    | Array<{ age: number } & DebtData> = useChartDataSlice(rawChartData, 'single');
 
   // Ported views render from the metric registry. `custom` is deliberately not a
   // registry metric: it derives its series from per-entity data, so that escape hatch

@@ -109,13 +109,13 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
     if (timeline) reset(timeline);
   }, [timeline, reset]);
 
-  const m = useMutation(api.timeline.update);
+  const updateTimeline = useMutation(api.timeline.update);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: TimelineInputs) => {
     try {
       setSaveError(null);
-      await m({ timeline: timelineToConvex(data)!, planId });
+      await updateTimeline({ timeline: timelineToConvex(data)!, planId });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save timeline.');

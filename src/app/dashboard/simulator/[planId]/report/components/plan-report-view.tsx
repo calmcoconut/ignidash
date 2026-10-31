@@ -96,7 +96,7 @@ interface PlanReportViewProps {
  * Everything on this page is derived by `buildPlanReport` from the same simulation and the
  * same extractors the on-screen results use, so paper and screen cannot disagree. The layout
  * is deliberately report-shaped: key results, assumptions, milestones, then three
- * year-by-year tables, each starting on its own page.
+ * year-by-year tables, the last two starting on their own page.
  */
 export default function PlanReportView({ inputs, planName }: PlanReportViewProps) {
   const planId = useSelectedPlanId();

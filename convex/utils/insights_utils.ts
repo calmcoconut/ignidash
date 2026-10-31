@@ -16,7 +16,7 @@ export async function getInsightForCurrentUserOrThrow(ctx: QueryCtx, insightId: 
 }
 
 async function getAllInsightsForPlan(ctx: QueryCtx, planId: Id<'plans'>): Promise<Doc<'insights'>[]> {
-  return await ctx.db
+  return ctx.db
     .query('insights')
     .withIndex('by_planId_updatedAt', (q) => q.eq('planId', planId))
     .collect();
@@ -24,7 +24,7 @@ async function getAllInsightsForPlan(ctx: QueryCtx, planId: Id<'plans'>): Promis
 
 export async function deleteAllInsightsForPlan(ctx: MutationCtx, planId: Id<'plans'>): Promise<void> {
   const insights = await getAllInsightsForPlan(ctx, planId);
-  await Promise.all([...insights.map((insight) => ctx.db.delete(insight._id))]);
+  await Promise.all(insights.map((insight) => ctx.db.delete(insight._id)));
 }
 
 export async function deleteAllInsightsForUser(ctx: MutationCtx, userId: string): Promise<void> {

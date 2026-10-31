@@ -26,8 +26,8 @@ import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema
 export type TaxYear = number;
 
 /**
- * Jurisdictions the engine can model. Only `'federal'` has a ruleset today; `'CA'` is the
- * shape P3-P8 fills in. Resolving a jurisdiction without a registry throws.
+ * Jurisdictions the engine can model. `'federal'` and `'CA'` both have a registered ruleset in
+ * `./index`. Resolving a jurisdiction without a registry throws.
  */
 export type Jurisdiction = 'federal' | 'CA';
 

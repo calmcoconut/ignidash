@@ -11,8 +11,7 @@ const DEFAULT_REDIRECT = '/dashboard';
 
 /** Returns the redirect path if it matches an allowed route, otherwise falls back to /dashboard. */
 export function getSafeRedirect(redirectParam: string | null): string {
-  if (!redirectParam) return DEFAULT_REDIRECT;
-  if (!redirectParam.startsWith('/')) return DEFAULT_REDIRECT;
+  if (!redirectParam || !redirectParam.startsWith('/')) return DEFAULT_REDIRECT;
   if (ALLOWED_REDIRECTS.includes(redirectParam)) return redirectParam;
 
   if (ALLOWED_REDIRECT_PREFIXES.some((prefix) => redirectParam.startsWith(prefix))) {

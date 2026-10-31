@@ -52,8 +52,8 @@ export interface SeppInputs {
  * The highest rate Notice 2022-6 allows for a given federal mid-term rate:
  * `max(5 %, 120 % of the mid-term rate)`. The 5 % floor is why a low-rate month still permits 5 %.
  */
-export function maximumSeppInterestRate(federalMidTermRate: number): number {
-  return Math.max(0.05, 1.2 * Math.max(0, federalMidTermRate));
+export function maximumSeppInterestRate(midTermRate: number): number {
+  return Math.max(0.05, 1.2 * Math.max(0, midTermRate));
 }
 
 /** Guarantees the period is a positive number of years; a zero or negative period has no meaning. */

@@ -264,16 +264,13 @@ export default function SingleSimulationNetWorthAreaChart({
               const balance = account.balance;
 
               const assetAllocation = account.assetAllocation ?? zeroAssetAmounts<AssetAllocation>();
-              const stocksAllocation = assetAllocation.stocks;
-              const bondsAllocation = assetAllocation.bonds;
-              const cashAllocation = assetAllocation.cash;
 
               return {
                 age,
                 ...account,
-                stockHoldings: balance * stocksAllocation,
-                bondHoldings: balance * bondsAllocation,
-                cashHoldings: balance * cashAllocation,
+                stockHoldings: balance * assetAllocation.stocks,
+                bondHoldings: balance * assetAllocation.bonds,
+                cashHoldings: balance * assetAllocation.cash,
               };
             })
         );

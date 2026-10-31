@@ -76,14 +76,14 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.expense.upsertExpense);
+  const upsertExpense = useMutation(api.expense.upsertExpense);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: ExpenseInputs) => {
     const expenseId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ expense: expenseToConvex(ownershipForStorage({ ...data, id: expenseId })), planId });
+      await upsertExpense({ expense: expenseToConvex(ownershipForStorage({ ...data, id: expenseId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save expense.');
@@ -145,17 +145,9 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
     }
   }, [frequency, startType, endType, unregister, setValue]);
 
-  const getStartColSpan = () => {
-    if (startType === 'customDate') return 'col-span-2';
-    if (startType === 'customAge') return 'col-span-1';
-    return 'col-span-2';
-  };
+  const getStartColSpan = () => (startType === 'customAge' ? 'col-span-1' : 'col-span-2');
 
-  const getEndColSpan = () => {
-    if (endType === 'customDate') return 'col-span-2';
-    if (endType === 'customAge') return 'col-span-1';
-    return 'col-span-2';
-  };
+  const getEndColSpan = () => (endType === 'customAge' ? 'col-span-1' : 'col-span-2');
 
   const months = [
     { value: 1, name: 'January' },

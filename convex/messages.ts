@@ -61,9 +61,9 @@ export const send = mutation({
   handler: async (ctx, { conversationId: currConvId, planId, content, keyMetrics, simulationResult, includeSimData, taxOptimization }) => {
     if (content.length > 4000) throw new ConvexError('Message cannot be longer than 4,000 characters.');
 
-    const [{ userId }, { canUseAIFeatures: canUseChat }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
+    const [{ userId }, { canUseAIFeatures: aiChatEnabled }] = await Promise.all([getUserIdOrThrow(ctx), getCanUseAIFeatures(ctx)]);
 
-    if (!canUseChat) throw new ConvexError('AI chat is not available on this deployment.');
+    if (!aiChatEnabled) throw new ConvexError('AI chat is not available on this deployment.');
 
     const [loadingMessage, plan] = await Promise.all([
       ctx.db
@@ -123,7 +123,7 @@ export const send = mutation({
       .take(NUM_MESSAGES_AS_CONTEXT);
     messages.reverse();
 
-    await ctx.scheduler.runAfter(0, internal.use_openai.streamChat, {
+    await ctx.scheduler.runAfter(0, internal.ai_chat.streamChat, {
       userId,
       messages,
       assistantMessageId,

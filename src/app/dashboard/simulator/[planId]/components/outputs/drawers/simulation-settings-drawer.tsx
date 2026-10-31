@@ -3,7 +3,7 @@
 import { ConvexError } from 'convex/values';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 
@@ -61,16 +61,17 @@ const withStrategyDefault = (settings: SimulationSettingsInputs): SimulationSett
   withdrawalStrategy: settings.withdrawalStrategy ?? 'ordered',
 });
 
+/** What a plan that has never saved simulation settings starts from. */
+const DEFAULT_SIMULATION_SETTINGS = {
+  simulationSeed: 9521,
+  simulationMode: 'fixedReturns',
+  withdrawalStrategy: 'ordered',
+} as const satisfies SimulationSettingsInputs;
+
 export default function SimulationSettingsDrawer({ setOpen, simulationSettings }: SimulationSettingsDrawerProps) {
   const planId = useSelectedPlanId();
 
-  const simulationSettingsDefaultValues = useMemo(
-    () =>
-      ({ simulationSeed: 9521, simulationMode: 'fixedReturns', withdrawalStrategy: 'ordered' }) as const satisfies SimulationSettingsInputs,
-    []
-  );
-
-  const defaultValues = withStrategyDefault(simulationSettings || simulationSettingsDefaultValues);
+  const defaultValues = withStrategyDefault(simulationSettings || DEFAULT_SIMULATION_SETTINGS);
 
   const {
     control,
@@ -88,13 +89,13 @@ export default function SimulationSettingsDrawer({ setOpen, simulationSettings }
     if (simulationSettings) reset(withStrategyDefault(simulationSettings));
   }, [simulationSettings, reset]);
 
-  const m = useMutation(api.simulation_settings.update);
+  const updateSimulationSettings = useMutation(api.simulation_settings.update);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: SimulationSettingsInputs) => {
     try {
       setSaveError(null);
-      await m({ simulationSettings: simulationSettingsToConvex(data), planId });
+      await updateSimulationSettings({ simulationSettings: simulationSettingsToConvex(data), planId });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save simulation settings.');

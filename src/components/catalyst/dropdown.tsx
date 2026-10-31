@@ -138,7 +138,7 @@ export function DropdownDivider({ className, ...props }: { className?: string } 
 }
 
 export function DropdownLabel({ className, ...props }: React.ComponentPropsWithoutRef<'div'>) {
-  return <div {...props} data-slot="label" className={cn(className, 'col-start-2 row-start-1')} {...props} />;
+  return <div {...props} data-slot="label" className={cn(className, 'col-start-2 row-start-1')} />;
 }
 
 export function DropdownDescription({ className, ...props }: { className?: string } & Omit<DescriptionProps, 'as' | 'className'>) {

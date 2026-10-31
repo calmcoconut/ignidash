@@ -14,7 +14,7 @@ import SingleSimulationResultsContent from './single-simulation-results-content'
 interface SingleSimulationResultsProps {
   inputs: SimulatorInputs;
   simulationMode: 'fixedReturns' | 'stochasticReturns' | 'historicalReturns';
-  /** Manual actuals for the net-worth overlay (P4-P7); empty until P5.1b supplies the journal. */
+  /** Manual actuals for the net-worth overlay (P4-P7). Defaults to an empty journal, which the overlay renders as nothing. */
   journalEntries?: NetWorthJournalEntry[];
 }
 

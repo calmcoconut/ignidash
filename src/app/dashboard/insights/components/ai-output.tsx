@@ -89,7 +89,7 @@ export default function AIOutput() {
                   {selectedPlan?.name}
                 </Link>
               </Heading>
-              {numInsights && numInsights > 0 ? (
+              {(numInsights ?? 0) > 0 ? (
                 <nav className="flex shrink-0 items-center">
                   <button
                     onClick={handlePrevious}

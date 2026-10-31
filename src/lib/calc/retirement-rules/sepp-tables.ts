@@ -359,7 +359,7 @@ export function singleLifeExpectancy(age: number): number {
   }
 
   const attainedAge = Math.floor(age);
-  if (attainedAge >= SINGLE_LIFE_TABLE_TERMINAL_AGE) return SINGLE_LIFE_TABLE[SINGLE_LIFE_TABLE_TERMINAL_AGE] as number;
+  if (attainedAge >= SINGLE_LIFE_TABLE_TERMINAL_AGE) return SINGLE_LIFE_TABLE[SINGLE_LIFE_TABLE_TERMINAL_AGE];
 
   const factor = SINGLE_LIFE_TABLE[attainedAge];
   if (factor === undefined) {

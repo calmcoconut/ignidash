@@ -14,7 +14,7 @@
  *    exactly as the simulation data table on the same page shows it. The chart's downward
  *    bar and negative tooltip value are a plotting convention, not a different number. A
  *    value that is genuinely negative in the data (e.g. `netCashFlow`) stays negative.
- * 2. A missing value stays `null` so the cell renders as an em dash instead of a
+ * 2. A missing value stays `null` so the cell renders as an en dash instead of a
  *    misleading zero (e.g. `savingsRate` is null when there is no income to save from).
  *
  * The accessors are pure and read the points without touching them, so switching a card
@@ -34,7 +34,7 @@ export type MetricTableRow = { age: number } & Record<string, number | null>;
 /**
  * A cell as the accessor hands it to a formatter: a number, or absent. `undefined` is part
  * of the type because a row can lack a key entirely (e.g. a data point without the field),
- * and the formatter must render that as an em dash rather than `NaN`.
+ * and the formatter must render that as an en dash rather than `NaN`.
  */
 export type MetricTableCell = number | null | undefined;
 
@@ -69,7 +69,7 @@ export function formatMetricTableValue(value: MetricTableCell, format: MetricTab
 /**
  * Reads a raw cell value from a data point.
  *
- * `null` / `undefined` / non-numeric values become `null` (rendered as an em dash) rather
+ * `null` / `undefined` / non-numeric values become `null` (rendered as an en dash) rather
  * than `0`, which would claim the year had a real zero.
  */
 function readCell(point: MetricDataPoint, key: string): number | null {

@@ -35,20 +35,6 @@ const DEFAULT_VOLATILITY: MarketVolatility = {
 };
 
 /**
- * Full-period correlation matrix for asset classes and inflation
- * Computed from NYU Stern/Shiller historical data (1928-2024)
- */
-const _CORRELATION_MATRIX = [
-  // StockReturn, BondReturn, CashReturn, Inflation, BondYield, StockYield
-  [1.0, 0.02, -0.03, 0.01, 0.02, -0.29], // StockReturn
-  [0.02, 1.0, 0.27, -0.11, 0.2, -0.06], // BondReturn
-  [-0.03, 0.27, 1.0, 0.38, 0.93, -0.01], // CashReturn
-  [0.01, -0.11, 0.38, 1.0, 0.39, -0.02], // Inflation
-  [0.02, 0.2, 0.93, 0.39, 1.0, 0.01], // BondYield
-  [-0.29, -0.06, -0.01, -0.02, 0.01, 1.0], // StockYield
-];
-
-/**
  * Modern-era correlation matrix for asset classes and inflation
  * Computed from NYU Stern/Shiller historical data (1990-2024)
  */
@@ -62,10 +48,6 @@ const MODERN_CORRELATION_MATRIX = [
   [-0.27, 0.23, 0.14, 0.01, 0.36, 1.0], // StockYield
 ];
 
-/**
- * Cholesky decomposition of correlation matrix
- * Pre-computed for performance
- */
 function computeCholeskyDecomposition(matrix: number[][]): number[][] {
   const n = matrix.length;
   const L = Array(n)

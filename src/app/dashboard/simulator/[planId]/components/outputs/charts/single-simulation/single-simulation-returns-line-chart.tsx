@@ -119,6 +119,9 @@ CustomTooltip.displayName = 'CustomTooltip';
 
 const LINE_COLOR = 'var(--foreground)';
 
+// Rate views plot percentages around zero, where a zero line would be noise.
+const NO_ZERO_LINE_VIEWS: ReadonlySet<string> = new Set(['rates', 'cagr']);
+
 interface SingleSimulationReturnsLineChartProps {
   rawChartData: SingleSimulationReturnsChartDataPoint[];
   keyMetrics: KeyMetrics;
@@ -183,9 +186,6 @@ export default function SingleSimulationReturnsLineChart({
   const resolution = resolveDataView('returns', dataView);
   const metric = resolution.status === 'registry' ? resolution.metric : undefined;
   const resolvedSeries = metric ? resolveSeries(metric, 'line') : [];
-
-  // Rate views plot percentages around zero, where a zero line would be noise.
-  const NO_ZERO_LINE_VIEWS: ReadonlySet<string> = new Set(['rates', 'cagr']);
 
   if (metric) {
     const lineProps = toLineSeriesProps(resolvedSeries);

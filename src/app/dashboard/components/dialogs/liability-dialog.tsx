@@ -56,14 +56,14 @@ export default function LiabilityDialog({ onClose, selectedLiability: _selectedL
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.finances.upsertLiability);
+  const upsertLiability = useMutation(api.finances.upsertLiability);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: LiabilityInputs) => {
     const liabilityId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ liability: liabilityToConvex({ ...data, id: liabilityId }) });
+      await upsertLiability({ liability: liabilityToConvex({ ...data, id: liabilityId }) });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save liability.');

@@ -36,8 +36,12 @@ export function useAccountsList() {
           setAccounts(data);
         }
       })
-      .catch((err) => mounted && setError(err))
-      .finally(() => mounted && setIsLoading(false));
+      .catch((err) => {
+        if (mounted) setError(err);
+      })
+      .finally(() => {
+        if (mounted) setIsLoading(false);
+      });
 
     return () => {
       mounted = false;

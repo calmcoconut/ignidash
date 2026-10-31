@@ -111,5 +111,4 @@ function MultiSimulationChartsSection({
   );
 }
 
-// Memoize the entire section to prevent re-renders when props haven't changed
 export default memo(MultiSimulationChartsSection);

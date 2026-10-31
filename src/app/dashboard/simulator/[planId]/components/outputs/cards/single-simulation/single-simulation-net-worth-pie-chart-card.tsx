@@ -40,7 +40,6 @@ export default function SingleSimulationNetWorthPieChartCard({
 
   let nameForTotalValue = 'Total Value';
   let totalValue = 0;
-  let totalAbsoluteValue = 0;
 
   // P4-P6: the pie slices come from the registry; the four change views still delegate to the
   // single-age bar chart (which is itself registry-driven), and `custom` keeps its own
@@ -108,7 +107,6 @@ export default function SingleSimulationNetWorthPieChartCard({
 
           nameForTotalValue = 'Account Value';
           totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-          totalAbsoluteValue = totalValue;
           break;
         }
 
@@ -125,7 +123,6 @@ export default function SingleSimulationNetWorthPieChartCard({
 
           nameForTotalValue = 'Market Value';
           totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-          totalAbsoluteValue = totalValue;
           break;
         }
 
@@ -139,7 +136,6 @@ export default function SingleSimulationNetWorthPieChartCard({
 
           nameForTotalValue = 'Debt Balance';
           totalValue = chartData.reduce((sum, item) => sum + item.value, 0);
-          totalAbsoluteValue = totalValue;
           break;
         }
 
@@ -149,7 +145,7 @@ export default function SingleSimulationNetWorthPieChartCard({
 
   // Magnitudes size the slices and the legend's percentages, so a liability slice still draws.
   const sliceData = chartData.map(({ name, value }) => ({ name, value: Math.abs(value) }));
-  totalAbsoluteValue = sliceData.reduce((sum, slice) => sum + slice.value, 0);
+  const totalAbsoluteValue = sliceData.reduce((sum, slice) => sum + slice.value, 0);
 
   let chart = null;
   switch (chartType) {

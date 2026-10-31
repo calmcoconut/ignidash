@@ -26,8 +26,7 @@ export const update = mutation({
       .withIndex('by_userId', (q) => q.eq('userId', userId))
       .first();
 
-    const updateData = { onboardingDialogCompleted: true };
-    if (onboarding) await ctx.db.patch(onboarding._id, updateData);
-    else await ctx.db.insert('onboarding', { userId, ...updateData });
+    if (onboarding) await ctx.db.patch(onboarding._id, { onboardingDialogCompleted: true });
+    else await ctx.db.insert('onboarding', { userId, onboardingDialogCompleted: true });
   },
 });

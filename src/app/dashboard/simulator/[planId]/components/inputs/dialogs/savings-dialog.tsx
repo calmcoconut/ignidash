@@ -89,14 +89,14 @@ export default function SavingsDialog({ onClose, selectedAccount: _selectedAccou
     setValue('name', asset.name);
   };
 
-  const m = useMutation(api.account.upsertAccount);
+  const upsertAccount = useMutation(api.account.upsertAccount);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: AccountInputs) => {
     const accountId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ account: accountToConvex(ownershipForStorage({ ...data, id: accountId })), planId });
+      await upsertAccount({ account: accountToConvex(ownershipForStorage({ ...data, id: accountId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save account.');

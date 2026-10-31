@@ -78,14 +78,14 @@ export default function ContributionRuleDialog({
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.contribution_rule.upsertContributionRule);
+  const upsertContributionRule = useMutation(api.contribution_rule.upsertContributionRule);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: ContributionInputs) => {
     const contributionRuleId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ contributionRule: contributionToConvex({ ...data, id: contributionRuleId }), planId });
+      await upsertContributionRule({ contributionRule: contributionToConvex({ ...data, id: contributionRuleId }), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save contribution rule.');
@@ -118,11 +118,11 @@ export default function ContributionRuleDialog({
   const incomeOptions = Object.entries(incomes).map(([id, income]) => ({ id, name: income.name }));
 
   useEffect(() => {
-    if (!(contributionType === 'dollarAmount')) {
+    if (contributionType !== 'dollarAmount') {
       unregister('dollarAmount');
     }
 
-    if (!(contributionType === 'percentRemaining')) {
+    if (contributionType !== 'percentRemaining') {
       unregister('percentRemaining');
     }
 

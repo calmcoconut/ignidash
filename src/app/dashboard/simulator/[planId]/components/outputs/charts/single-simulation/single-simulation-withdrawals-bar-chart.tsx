@@ -71,7 +71,7 @@ export default function SingleSimulationWithdrawalsBarChart({
     }
   }
 
-  transformedChartData = transformedChartData.sort((a, b) => b.amount - a.amount);
+  transformedChartData.sort((a, b) => b.amount - a.amount);
   if (transformedChartData.length === 0) {
     return <ChartEmptyState />;
   }

@@ -30,8 +30,7 @@ export const getAccount = query({
   handler: async (ctx, { planId, accountId }) => {
     const plan = await getPlanForCurrentUserOrThrow(ctx, planId);
 
-    const account = plan.accounts.find((acc) => acc.id === accountId);
-    return account ?? null;
+    return plan.accounts.find((acc) => acc.id === accountId) ?? null;
   },
 });
 
@@ -40,8 +39,7 @@ export const getSavingsAccount = query({
   handler: async (ctx, { planId, accountId }) => {
     const plan = await getPlanForCurrentUserOrThrow(ctx, planId);
 
-    const account = plan.accounts.find((acc) => acc.id === accountId && acc.type === 'savings');
-    return account ?? null;
+    return plan.accounts.find((acc) => acc.id === accountId && acc.type === 'savings') ?? null;
   },
 });
 
@@ -50,8 +48,7 @@ export const getInvestmentAccount = query({
   handler: async (ctx, { planId, accountId }) => {
     const plan = await getPlanForCurrentUserOrThrow(ctx, planId);
 
-    const account = plan.accounts.find((acc) => acc.id === accountId && acc.type !== 'savings');
-    return account ?? null;
+    return plan.accounts.find((acc) => acc.id === accountId && acc.type !== 'savings') ?? null;
   },
 });
 
@@ -63,14 +60,11 @@ export const upsertAccount = mutation({
   handler: async (ctx, { planId, account }) => {
     const plan = await getPlanForCurrentUserOrThrow(ctx, planId);
 
-    const updatedContributionRules = plan.contributionRules;
-
     const existingIndex = plan.accounts.findIndex((acc) => acc.id === account.id);
     if (existingIndex === -1) {
       if (plan.accounts.length >= 15) throw new ConvexError('Maximum of 15 accounts reached.');
 
-      // Add a default contribution rule for the new account
-      updatedContributionRules.push({
+      plan.contributionRules.push({
         id: uuidv4(),
         accountId: account.id,
         rank: plan.contributionRules.length + 1,
@@ -82,7 +76,7 @@ export const upsertAccount = mutation({
     const updatedAccounts =
       existingIndex !== -1 ? plan.accounts.map((acc, index) => (index === existingIndex ? account : acc)) : [...plan.accounts, account];
 
-    await patchPlanWithSnapshot(ctx, planId, { accounts: updatedAccounts, contributionRules: updatedContributionRules });
+    await patchPlanWithSnapshot(ctx, planId, { accounts: updatedAccounts, contributionRules: plan.contributionRules });
   },
 });
 

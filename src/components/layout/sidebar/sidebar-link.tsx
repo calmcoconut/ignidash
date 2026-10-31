@@ -33,7 +33,7 @@ export default function SidebarLink({ href, current, disabled = false, children,
   );
 
   const isSidebarCollapsed = useSidebarCollapsed();
-  if (!(tooltipLabel && isSidebarCollapsed)) return linkComponent;
+  if (!tooltipLabel || !isSidebarCollapsed) return linkComponent;
 
   return (
     <Tooltip>

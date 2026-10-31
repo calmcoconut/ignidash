@@ -54,26 +54,28 @@ export const upsertAsset = mutation({
   args: {
     asset: assetValidator,
   },
-  handler: async (ctx, { asset: _asset }) => {
+  handler: async (ctx, { asset }) => {
     const { userId } = await getUserIdOrThrow(ctx);
 
-    validateUrl(_asset.url);
+    validateUrl(asset.url);
 
     const finances = await getFinancesForUser(ctx, userId);
 
-    const asset = { ..._asset, updatedAt: Date.now() };
+    const updatedAsset = { ...asset, updatedAt: Date.now() };
     if (!finances) {
-      await ctx.db.insert('finances', { userId, assets: [asset], liabilities: [] });
+      await ctx.db.insert('finances', { userId, assets: [updatedAsset], liabilities: [] });
       return;
     }
 
-    const existingIndex = finances.assets.findIndex((a) => a.id === asset.id);
+    const existingIndex = finances.assets.findIndex((a) => a.id === updatedAsset.id);
     if (existingIndex === -1 && finances.assets.length >= 25) throw new ConvexError('Maximum of 25 assets reached.');
 
     const updatedAssets =
-      existingIndex !== -1 ? finances.assets.map((a, index) => (index === existingIndex ? asset : a)) : [...finances.assets, asset];
+      existingIndex !== -1
+        ? finances.assets.map((a, index) => (index === existingIndex ? updatedAsset : a))
+        : [...finances.assets, updatedAsset];
 
-    await Promise.all([ctx.db.patch(finances._id, { assets: updatedAssets }), syncAssetToPlans(ctx, userId, asset)]);
+    await Promise.all([ctx.db.patch(finances._id, { assets: updatedAssets }), syncAssetToPlans(ctx, userId, updatedAsset)]);
   },
 });
 
@@ -81,28 +83,31 @@ export const upsertLiability = mutation({
   args: {
     liability: liabilityValidator,
   },
-  handler: async (ctx, { liability: _liability }) => {
+  handler: async (ctx, { liability }) => {
     const { userId } = await getUserIdOrThrow(ctx);
 
-    validateUrl(_liability.url);
+    validateUrl(liability.url);
 
     const finances = await getFinancesForUser(ctx, userId);
 
-    const liability = { ..._liability, updatedAt: Date.now() };
+    const updatedLiability = { ...liability, updatedAt: Date.now() };
     if (!finances) {
-      await ctx.db.insert('finances', { userId, assets: [], liabilities: [liability] });
+      await ctx.db.insert('finances', { userId, assets: [], liabilities: [updatedLiability] });
       return;
     }
 
-    const existingIndex = finances.liabilities.findIndex((l) => l.id === liability.id);
+    const existingIndex = finances.liabilities.findIndex((l) => l.id === updatedLiability.id);
     if (existingIndex === -1 && finances.liabilities.length >= 25) throw new ConvexError('Maximum of 25 liabilities reached.');
 
     const updatedLiabilities =
       existingIndex !== -1
-        ? finances.liabilities.map((l, index) => (index === existingIndex ? liability : l))
-        : [...finances.liabilities, liability];
+        ? finances.liabilities.map((l, index) => (index === existingIndex ? updatedLiability : l))
+        : [...finances.liabilities, updatedLiability];
 
-    await Promise.all([ctx.db.patch(finances._id, { liabilities: updatedLiabilities }), syncLiabilityToPlans(ctx, userId, liability)]);
+    await Promise.all([
+      ctx.db.patch(finances._id, { liabilities: updatedLiabilities }),
+      syncLiabilityToPlans(ctx, userId, updatedLiability),
+    ]);
   },
 });
 

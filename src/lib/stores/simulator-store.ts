@@ -208,7 +208,7 @@ export const defaultState: Omit<SimulatorState, 'actions'> = {
 export const useSimulatorStore = create<SimulatorState>()(
   devtools(
     persist(
-      immer((set, get) => ({
+      immer((set) => ({
         ...defaultState,
         actions: {
           updateHasOpenedTaxSettings: (planId, value) =>
@@ -301,11 +301,7 @@ export const useSimulatorStore = create<SimulatorState>()(
         name: 'quick-plan-storage',
         version: 14,
         migrate: () => ({ ...defaultState }),
-        partialize: (state) => {
-          const baseResult = { preferences: state.preferences, nux: state.nux };
-
-          return baseResult;
-        },
+        partialize: (state) => ({ preferences: state.preferences, nux: state.nux }),
       }
     ),
     {

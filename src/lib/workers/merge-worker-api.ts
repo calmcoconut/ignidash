@@ -12,13 +12,13 @@ let mergeWorker: Worker | null = null;
 let mergeWorkerAPI: Comlink.Remote<MergeWorkerAPI> | null = null;
 
 export function getMergeWorker(): Comlink.Remote<MergeWorkerAPI> {
-  if (!mergeWorker) {
+  if (!mergeWorkerAPI) {
     mergeWorker = new Worker(new URL('./merge.worker.ts', import.meta.url), {
       type: 'module',
     });
     mergeWorkerAPI = Comlink.wrap<MergeWorkerAPI>(mergeWorker);
   }
-  return mergeWorkerAPI!;
+  return mergeWorkerAPI;
 }
 
 export function releaseMergeWorker(): void {

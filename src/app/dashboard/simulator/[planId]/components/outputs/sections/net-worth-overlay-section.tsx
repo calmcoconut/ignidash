@@ -14,7 +14,7 @@ import QuietNotice from '../quiet-notice';
 interface NetWorthOverlaySectionProps {
   /** The projection the journal is compared against. */
   data: readonly SimulationDataPoint[];
-  /** Manual actuals (P4-P7). Empty until P5.1b passes the persisted journal in. */
+  /** Manual actuals for the net-worth overlay (P4-P7). Defaults to an empty journal, which the overlay renders as nothing. */
   entries?: readonly NetWorthJournalEntry[];
 }
 

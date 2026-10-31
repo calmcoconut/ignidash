@@ -134,7 +134,6 @@ export function rothWithdrawalTreatment(inputs: {
 
   const conversions = inputs.events
     .filter((event) => event.kind === 'conversion')
-    .slice()
     .sort((left, right) => (left.date < right.date ? -1 : left.date > right.date ? 1 : 0));
 
   for (const conversion of conversions) {

@@ -88,7 +88,7 @@ export default function MilestonesDialog({ onClose, milestones, accounts }: Mile
     )
   );
 
-  const m = useMutation(api.milestones.update);
+  const updateMilestones = useMutation(api.milestones.update);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -179,7 +179,7 @@ export default function MilestonesDialog({ onClose, milestones, accounts }: Mile
     try {
       setSaveError(null);
       setIsSubmitting(true);
-      await m({ planId, milestones: milestonesToConvex(parsed.data) });
+      await updateMilestones({ planId, milestones: milestonesToConvex(parsed.data) });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save milestones.');
@@ -211,7 +211,7 @@ export default function MilestonesDialog({ onClose, milestones, accounts }: Mile
 
               {draft.map((milestone, index) => {
                 const group = asEditableGroup(milestone.condition);
-                const others = draft.filter((candidate, position) => position !== index);
+                const others = draft.filter((_, position) => position !== index);
 
                 return (
                   <div key={milestone.id} className="rounded-lg border border-stone-200 p-4 dark:border-stone-700">

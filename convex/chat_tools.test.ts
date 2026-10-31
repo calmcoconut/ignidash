@@ -226,7 +226,7 @@ describe('chat tools', () => {
   it('is reachable from the Convex runtime the messenger uses', async () => {
     // The action module is what `messages.send` schedules; importing it here proves the tool
     // module graph loads inside the Convex function runtime (no browser or worker globals).
-    const chatAction = await import('./use_openai');
+    const chatAction = await import('./ai_chat');
     expect(typeof chatAction.streamChat).toBe('function');
 
     // The gate query exists on the chat surface (it needs auth to answer, so it is not called

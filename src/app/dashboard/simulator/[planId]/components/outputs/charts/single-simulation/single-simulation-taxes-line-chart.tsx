@@ -72,6 +72,8 @@ const CustomTooltip = memo(({ active, payload, label, startAge, disabled, dataVi
     case 'marginalRates':
     case 'effectiveRates':
     case 'socialSecurityTaxablePercentage':
+    case 'earlyWithdrawalPenalties':
+    case 'socialSecurityIncome':
       filterZeroValues = false;
       break;
     case 'annualAmounts':
@@ -123,12 +125,6 @@ const CustomTooltip = memo(({ active, payload, label, startAge, disabled, dataVi
           <span className="ml-1 font-semibold">{formatValue(lineEntry.value)}</span>
         </p>
       );
-      break;
-    case 'earlyWithdrawalPenalties':
-      filterZeroValues = false;
-      break;
-    case 'socialSecurityIncome':
-      filterZeroValues = false;
       break;
   }
 
@@ -203,15 +199,15 @@ export default function SingleSimulationTaxesLineChart({
   const lineProps = toLineSeriesProps(resolvedSeries);
   const barProps = toBarSeriesProps(resolvedSeries);
 
-  const lineDataKeys: string[] = [...lineProps.dataKeys];
-  const strokeColors: string[] = [...lineProps.strokeColors];
+  const lineDataKeys = lineProps.dataKeys;
+  const strokeColors = lineProps.strokeColors;
 
-  const barDataKeys: string[] = [...barProps.dataKeys];
-  const barColors: string[] = [...barProps.barColors];
-  const stackId: string | undefined = barProps.stackId;
+  const barDataKeys = barProps.dataKeys;
+  const barColors = barProps.barColors;
+  const stackId = barProps.stackId;
 
   const formatter = getMetricValueFormatter(metric?.format);
-  const stackOffset: 'sign' | undefined = metric?.stackOffset;
+  const stackOffset = metric?.stackOffset;
 
   if (metric) chartData = applySeriesSigns(chartData, resolvedSeries);
 

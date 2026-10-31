@@ -237,8 +237,6 @@ export default function ContributionOrderSection(props: ContributionOrderSection
                 onDragEnd={handleDragEnd}
                 modifiers={[restrictToParentElement]}
               >
-                {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                {/* @ts-ignore - React 19 type compatibility */}
                 <SortableContext items={sortedRules} strategy={verticalListSortingStrategy}>
                   <ul role="list" className="mb-6 grid grid-cols-1 gap-3">
                     {sortedRules.map(({ id, ...contributionRule }, index) => (
@@ -258,8 +256,6 @@ export default function ContributionOrderSection(props: ContributionOrderSection
                     ))}
                   </ul>
                 </SortableContext>
-                {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
-                {/* @ts-ignore - React 19 type compatibility */}
                 <DragOverlay>
                   {activeId && activeContributionRule ? (
                     <ContributionItem

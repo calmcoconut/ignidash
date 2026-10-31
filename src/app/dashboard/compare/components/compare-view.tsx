@@ -42,10 +42,9 @@ function formatDelta(metric: CompareMetric): string {
   if (metric.delta === null) return '—';
   if (metric.format === 'flag') return metric.delta === 0 ? 'Same' : 'Differs';
 
-  const prefix = metric.delta > 0 ? '+' : '';
-  const formatted = formatMetric(Math.abs(metric.delta), metric.format);
+  const sign = metric.delta === 0 ? '' : metric.delta > 0 ? '+' : '-';
 
-  return `${metric.delta === 0 ? '' : prefix}${metric.delta < 0 ? '-' : ''}${formatted}`;
+  return `${sign}${formatMetric(Math.abs(metric.delta), metric.format)}`;
 }
 
 const deltaClassName = (metric: CompareMetric): string => {

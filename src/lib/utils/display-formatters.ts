@@ -40,11 +40,9 @@ export const timeFrameForDisplay = (startTimePoint: TimePoint, endTimePoint?: Ti
       case 'atLifeExpectancy':
         return 'Life Expectancy';
       case 'customDate': {
-        const month = tp.month;
-        const year = tp.year;
-        if (month !== undefined && year !== undefined) {
+        if (tp.month !== undefined && tp.year !== undefined) {
           const formatter = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' });
-          return formatter.format(new Date(year, month - 1));
+          return formatter.format(new Date(tp.year, tp.month - 1));
         }
         return 'Custom Date';
       }
@@ -71,11 +69,9 @@ export const physicalAssetTimeFrameForDisplay = (startTimePoint: TimePoint, endT
       case 'atLifeExpectancy':
         return 'Never Sold';
       case 'customDate': {
-        const month = tp.month;
-        const year = tp.year;
-        if (month !== undefined && year !== undefined) {
+        if (tp.month !== undefined && tp.year !== undefined) {
           const formatter = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' });
-          return formatter.format(new Date(year, month - 1));
+          return formatter.format(new Date(tp.year, tp.month - 1));
         }
         return 'Custom Date';
       }
@@ -161,9 +157,9 @@ export const keyMetricsForDisplay = (keyMetrics: KeyMetrics) => {
     yearsToRetirement: (v: number | null) => (v !== null ? v.toFixed(0) : '∞'),
     bankruptcyAge: (v: number | null) => (v !== null ? v.toFixed(0) : '∞'),
     yearsToBankruptcy: (v: number | null) => (v !== null ? v.toFixed(0) : '∞'),
-    portfolioAtRetirement: (v: number | null) => (v !== null ? `${formatCompactCurrency(v, 2)}` : 'N/A'),
-    lifetimeTaxesAndPenalties: (v: number) => `${formatCompactCurrency(v, 2)}`,
-    finalPortfolio: (v: number) => `${formatCompactCurrency(v, 2)}`,
+    portfolioAtRetirement: (v: number | null) => (v !== null ? formatCompactCurrency(v, 2) : 'N/A'),
+    lifetimeTaxesAndPenalties: (v: number) => formatCompactCurrency(v, 2),
+    finalPortfolio: (v: number) => formatCompactCurrency(v, 2),
     progressToRetirement: (v: number | null) => (v !== null ? formatPercentage(v) : 'N/A'),
   };
 

@@ -190,11 +190,11 @@ export const streamChat = internalAction({
       if (error instanceof OpenAI.APIError) {
         console.error(error);
 
-        const body = `An unexpected error occurred: ${error.message}.`;
-        await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body, isLoading: false });
+        const errorBody = `An unexpected error occurred: ${error.message}.`;
+        await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body: errorBody, isLoading: false });
       } else {
-        const body = 'An unexpected error occurred. Please try again later.';
-        await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body, isLoading: false });
+        const errorBody = 'An unexpected error occurred. Please try again later.';
+        await ctx.runMutation(internal.messages.setBody, { messageId: assistantMessageId, body: errorBody, isLoading: false });
 
         throw error;
       }
@@ -264,11 +264,11 @@ export const streamInsights = internalAction({
       if (error instanceof OpenAI.APIError) {
         console.error(error);
 
-        const content = `An unexpected error occurred: ${error.message}.`;
-        await ctx.runMutation(internal.insights.setContent, { insightId, content, isLoading: false });
+        const errorContent = `An unexpected error occurred: ${error.message}.`;
+        await ctx.runMutation(internal.insights.setContent, { insightId, content: errorContent, isLoading: false });
       } else {
-        const content = 'An unexpected error occurred. Please try again later.';
-        await ctx.runMutation(internal.insights.setContent, { insightId, content, isLoading: false });
+        const errorContent = 'An unexpected error occurred. Please try again later.';
+        await ctx.runMutation(internal.insights.setContent, { insightId, content: errorContent, isLoading: false });
 
         throw error;
       }

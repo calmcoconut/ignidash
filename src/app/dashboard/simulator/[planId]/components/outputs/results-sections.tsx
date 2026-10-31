@@ -101,7 +101,8 @@ export default function ResultsSections() {
 
   const nwAssets = useAssetData();
 
-  if (!(timelineIsReady && accountsAreReady && incomesAreReady && expensesAreReady)) {
+  const isSetupComplete = timelineIsReady && accountsAreReady && incomesAreReady && expensesAreReady;
+  if (!isSetupComplete) {
     const timelineTitleComponent = (
       <div className="flex items-center gap-2">
         <HourglassIcon className="text-primary size-6 shrink-0" aria-hidden="true" />

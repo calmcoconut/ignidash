@@ -122,9 +122,7 @@ interface DataListCardProps {
 }
 
 function NetWorthDataListCard({ dp, selectedAge }: DataListCardProps) {
-  const returnsData = dp.returns;
-
-  const { stocks: stockAmount, bonds: bondAmount, cash: cashAmount } = returnsData?.returnAmounts ?? zeroAssetAmounts<AssetReturnAmounts>();
+  const { stocks: stockAmount, bonds: bondAmount, cash: cashAmount } = dp.returns?.returnAmounts ?? zeroAssetAmounts<AssetReturnAmounts>();
 
   const portfolioData = dp.portfolio;
 
@@ -361,7 +359,7 @@ interface SingleSimulationDataListSectionProps {
 function SingleSimulationDataListSection({ simulation, selectedAge }: SingleSimulationDataListSectionProps) {
   const resultsCategory = useSingleSimulationCategory();
 
-  const dp = useMemo(() => simulation.data.find((dp) => Math.floor(dp.age) === selectedAge), [simulation, selectedAge]);
+  const dp = useMemo(() => simulation.data.find((point) => Math.floor(point.age) === selectedAge), [simulation, selectedAge]);
 
   if (!dp) return null;
 
@@ -412,5 +410,4 @@ function SingleSimulationDataListSection({ simulation, selectedAge }: SingleSimu
   }
 }
 
-// Memoize the entire section to prevent re-renders when props haven't changed
 export default memo(SingleSimulationDataListSection);

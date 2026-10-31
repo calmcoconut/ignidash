@@ -30,6 +30,9 @@ import {
   AgeReferenceLines,
 } from '../chart-primitives';
 
+// Views whose tooltip keeps rows with a zero value: there the zero is the answer, not noise.
+const VIEWS_WITHOUT_ZERO_FILTER = ['realizedGains', 'requiredMinimumDistributions', 'earlyWithdrawals', 'shortfall', 'withdrawalRate'];
+
 interface CustomTooltipProps {
   active?: boolean;
   payload?: Array<{
@@ -92,9 +95,7 @@ const CustomTooltip = memo(({ active, payload, label, startAge, disabled, dataVi
       break;
   }
 
-  const filterZeroValues = !['realizedGains', 'requiredMinimumDistributions', 'earlyWithdrawals', 'shortfall', 'withdrawalRate'].includes(
-    dataView
-  );
+  const filterZeroValues = !VIEWS_WITHOUT_ZERO_FILTER.includes(dataView);
 
   return (
     <TooltipContainer label={label!} startAge={startAge} footer={footer}>

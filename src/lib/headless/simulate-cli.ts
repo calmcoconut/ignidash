@@ -99,7 +99,7 @@ export function parseHeadlessArgs(argv: string[]): HeadlessArgParse {
     }
 
     const separator = token.indexOf('=');
-    const name = (separator === -1 ? token.slice(2) : token.slice(2, separator)) as ValueOption | string;
+    const name = separator === -1 ? token.slice(2) : token.slice(2, separator);
     if (!(VALUE_OPTIONS as readonly string[]).includes(name)) {
       issues.push({ path: `--${name}`, message: 'Unknown option.' });
       continue;

@@ -109,9 +109,6 @@ export default function SimulationCategorySelector({
   const resultsCategory = availableCategories.mode === 'single' ? singleSimulationCategory : multiSimulationCategory;
 
   const withScrollPreservation = useScrollPreservation();
-  const handleCategorySelect = (category: SingleSimulationCategory | MultiSimulationCategory) => {
-    updateResultsCategory(category);
-  };
 
   return (
     <div className="flex flex-col">
@@ -120,11 +117,11 @@ export default function SimulationCategorySelector({
           {availableCategories.categories.map((category) => (
             <button
               key={category}
-              onPointerUp={withScrollPreservation(() => handleCategorySelect(category))}
+              onPointerUp={withScrollPreservation(() => updateResultsCategory(category))}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  withScrollPreservation(() => handleCategorySelect(category))();
+                  withScrollPreservation(() => updateResultsCategory(category))();
                 }
               }}
               type="button"

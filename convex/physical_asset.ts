@@ -28,8 +28,7 @@ export const getPhysicalAsset = query({
   handler: async (ctx, { planId, physicalAssetId }) => {
     const plan = await getPlanForCurrentUserOrThrow(ctx, planId);
 
-    const physicalAsset = (plan.physicalAssets ?? []).find((pa) => pa.id === physicalAssetId);
-    return physicalAsset ?? null;
+    return (plan.physicalAssets ?? []).find((pa) => pa.id === physicalAssetId) ?? null;
   },
 });
 
@@ -43,12 +42,12 @@ export const upsertPhysicalAsset = mutation({
     const physicalAssets = plan.physicalAssets ?? [];
 
     const existingIndex = physicalAssets.findIndex((pa) => pa.id === physicalAsset.id);
-    if (existingIndex === -1 && physicalAssets.length >= 10) throw new ConvexError('Maximum of 10 physical assets reached.');
+    const isNewAsset = existingIndex === -1;
+    if (isNewAsset && physicalAssets.length >= 10) throw new ConvexError('Maximum of 10 physical assets reached.');
 
-    const updatedPhysicalAssets =
-      existingIndex !== -1
-        ? physicalAssets.map((pa, index) => (index === existingIndex ? physicalAsset : pa))
-        : [...physicalAssets, physicalAsset];
+    const updatedPhysicalAssets = isNewAsset
+      ? [...physicalAssets, physicalAsset]
+      : physicalAssets.map((pa, index) => (index === existingIndex ? physicalAsset : pa));
 
     await patchPlanWithSnapshot(ctx, planId, { physicalAssets: updatedPhysicalAssets });
   },

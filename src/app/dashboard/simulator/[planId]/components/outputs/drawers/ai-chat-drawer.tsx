@@ -202,7 +202,6 @@ function ConversationListItem({
 
   return (
     <li
-      key={conversation._id}
       className={cn('relative flex items-center space-x-4 px-2 py-4 hover:bg-stone-100 dark:hover:bg-black/15', {
         'bg-stone-100 dark:bg-black/15': conversation._id === selectedConversationId,
       })}
@@ -319,14 +318,14 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
     prevIsLoadingRef.current = isLoading;
   }, [isLoading]);
 
-  const m = useMutation(api.messages.send);
+  const sendMessage = useMutation(api.messages.send);
   const handleSendMessage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (disabled) return;
 
     try {
       updateChatState({ errorMessage: '' });
-      const { conversationId } = await m({
+      const { conversationId } = await sendMessage({
         conversationId: selectedConversationId,
         planId,
         content: chatMessage,
@@ -345,7 +344,7 @@ export default function AIChatDrawer({ setOpen }: AIChatDrawerProps) {
   const handleStartTaxOptimization = async () => {
     try {
       updateChatState({ errorMessage: '' });
-      const { conversationId } = await m({
+      const { conversationId } = await sendMessage({
         planId,
         content: TAX_OPTIMIZATION_OPENER,
         keyMetrics,

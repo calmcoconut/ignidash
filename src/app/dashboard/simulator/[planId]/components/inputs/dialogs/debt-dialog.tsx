@@ -103,14 +103,14 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
     setValue('name', liability.name);
   };
 
-  const m = useMutation(api.debt.upsertDebt);
+  const upsertDebt = useMutation(api.debt.upsertDebt);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: DebtInputs) => {
     const debtId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ debt: debtToConvex(ownershipForStorage({ ...data, id: debtId })), planId });
+      await upsertDebt({ debt: debtToConvex(ownershipForStorage({ ...data, id: debtId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save debt.');

@@ -60,7 +60,7 @@ export const useIncomesData = () => {
 export const useCountOfIncomes = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.income.getCountOfIncomes, { planId });
-  return useMemo(() => (q ? q : 0), [q]);
+  return useMemo(() => q ?? 0, [q]);
 };
 
 export const useIncomeData = (incomeId: string | null) => {
@@ -82,7 +82,7 @@ export const useExpensesData = () => {
 export const useCountOfExpenses = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.expense.getCountOfExpenses, { planId });
-  return useMemo(() => (q ? q : 0), [q]);
+  return useMemo(() => q ?? 0, [q]);
 };
 
 export const useExpenseData = (expenseId: string | null) => {
@@ -104,7 +104,7 @@ export const useDebtsData = () => {
 export const useCountOfDebts = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.debt.getCountOfDebts, { planId });
-  return useMemo(() => (q ? q : 0), [q]);
+  return useMemo(() => q ?? 0, [q]);
 };
 
 export const useDebtData = (debtId: string | null) => {
@@ -126,7 +126,7 @@ export const usePhysicalAssetsData = () => {
 export const useCountOfPhysicalAssets = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.physical_asset.getCountOfPhysicalAssets, { planId });
-  return useMemo(() => (q ? q : 0), [q]);
+  return useMemo(() => q ?? 0, [q]);
 };
 
 export const usePhysicalAssetData = (physicalAssetId: string | null) => {
@@ -148,7 +148,7 @@ export const useAccountsData = () => {
 export const useCountOfAccounts = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.account.getCountOfAccounts, { planId });
-  return useMemo(() => (q ? q : 0), [q]);
+  return useMemo(() => q ?? 0, [q]);
 };
 
 export const useAccountData = (accountId: string | null) => {
@@ -203,7 +203,7 @@ export const useContributionRulesData = () => {
 export const useCountOfContributionRules = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.contribution_rule.getCountOfContributionRules, { planId });
-  return useMemo(() => (q ? q : 0), [q]);
+  return useMemo(() => q ?? 0, [q]);
 };
 
 export const useContributionRuleData = (ruleId: string | null) => {
@@ -222,30 +222,30 @@ export const useBaseContributionRuleData = () => {
 export const useTaxSettingsData = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.tax_settings.get, { planId });
-  return useMemo(() => (q ? q : null), [q]);
+  return useMemo(() => q ?? null, [q]);
 };
 
 // Privacy Settings
 export const usePrivacySettingsData = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.privacy_settings.get, { planId });
-  return useMemo(() => (q ? q : null), [q]);
+  return useMemo(() => q ?? null, [q]);
 };
 
 // Simulation Settings
 export const useSimulationSettingsData = () => {
   const planId = useSelectedPlanId();
   const q = useQuery(api.simulation_settings.get, { planId });
-  return useMemo(() => (q ? q : null), [q]);
+  return useMemo(() => q ?? null, [q]);
 };
 
 // Finances
 export const useAssetData = () => {
   const q = useQuery(api.finances.getAssets);
-  return useMemo(() => (q ? q : null), [q]);
+  return useMemo(() => q ?? null, [q]);
 };
 
 export const useLiabilityData = () => {
   const q = useQuery(api.finances.getLiabilities);
-  return useMemo(() => (q ? q : null), [q]);
+  return useMemo(() => q ?? null, [q]);
 };

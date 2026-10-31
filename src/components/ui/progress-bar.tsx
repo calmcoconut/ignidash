@@ -18,11 +18,11 @@ export default function ProgressBar({ progressPercent }: ProgressBarProps) {
   const getStepStatus = (stepPercent: number) => {
     if (progressPercent >= stepPercent) {
       return 'complete';
-    } else if (progressPercent >= stepPercent - 20 && progressPercent < stepPercent) {
-      return 'current';
-    } else {
-      return 'upcoming';
     }
+    if (progressPercent >= stepPercent - 20) {
+      return 'current';
+    }
+    return 'upcoming';
   };
 
   return (

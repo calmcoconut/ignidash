@@ -14,14 +14,14 @@ export const getErrorMessages = (errors: FieldErrors): string[] => {
 
     for (const key of Object.keys(obj)) {
       const value = obj[key];
+      if (!value || typeof value !== 'object') continue;
 
-      if (value && typeof value === 'object') {
-        if ('message' in value && typeof value.message === 'string') {
-          messages.push(value.message);
-        } else {
-          extractErrors(value as FieldErrors);
-        }
+      if ('message' in value && typeof value.message === 'string') {
+        messages.push(value.message);
+        continue;
       }
+
+      extractErrors(value as FieldErrors);
     }
   };
 

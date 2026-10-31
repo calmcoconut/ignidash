@@ -183,7 +183,7 @@ function applyPatch(baseline: SimulatorInputs, patch: unknown): { inputs: Simula
     };
   }
 
-  return { inputs: parsed.data as SimulatorInputs };
+  return { inputs: parsed.data };
 }
 
 /**
@@ -268,7 +268,7 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
   const error = (message: string, extra: Json = {}): string => JSON.stringify({ error: message, ...extra });
 
   /** The baseline projection's rows, computed at most once per turn: the analytics tool reads them. */
-  let baselineRowsCache: ReturnType<typeof projectFixed>['data'] | null = null;
+  let baselineRowsCache: SimulationResult['data'] | null = null;
   const baselineRows = () => (baselineRowsCache ??= projectFixed(baseline, asOf, seed).data);
 
   const getPlanSummary = (): string => {

@@ -10,16 +10,8 @@ export function useLinkSharing() {
     setTimeout(() => setIsLinkCopied(false), 2500);
   }, []);
 
-  let icon;
-  let label;
-
-  if (isLinkCopied) {
-    icon = CheckIcon;
-    label = 'Link copied';
-  } else {
-    icon = LinkIcon;
-    label = 'Link sharing';
-  }
+  const icon = isLinkCopied ? CheckIcon : LinkIcon;
+  const label = isLinkCopied ? 'Link copied' : 'Link sharing';
 
   return {
     icon,

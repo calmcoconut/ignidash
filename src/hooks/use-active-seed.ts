@@ -15,11 +15,11 @@ export function useActiveSeed() {
   return useMemo(() => {
     if (selectedSeedFromTable !== null) {
       return { activeSeed: selectedSeedFromTable, activeSeedType: 'table' as const };
-    } else if (selectedSeedFromQuickPercentile !== null) {
-      return { activeSeed: selectedSeedFromQuickPercentile, activeSeedType: 'percentile' as const };
-    } else {
-      return { activeSeed: undefined };
     }
+    if (selectedSeedFromQuickPercentile !== null) {
+      return { activeSeed: selectedSeedFromQuickPercentile, activeSeedType: 'percentile' as const };
+    }
+    return { activeSeed: undefined };
   }, [selectedSeedFromTable, selectedSeedFromQuickPercentile]);
 }
 

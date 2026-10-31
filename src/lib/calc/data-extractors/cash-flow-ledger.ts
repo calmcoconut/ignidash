@@ -145,10 +145,9 @@ export function extractAnnualCashFlowLedger(data: readonly SimulationDataPoint[]
 
     const { totalTaxesAndPenalties } = SimulationDataExtractor.getTaxAmountsByType(dataPoint);
 
-    const employerMatch = portfolio.employerMatch;
     const inflows: CashFlowLedgerInflows = {
       income: incomes?.totalIncome ?? 0,
-      employerMatch,
+      employerMatch: portfolio.employerMatch,
       portfolioWithdrawals: sumFlows(portfolio.withdrawals),
       assetSaleProceeds: physicalAssets?.totalSaleProceeds ?? 0,
       unfundedSpending: portfolio.shortfall,

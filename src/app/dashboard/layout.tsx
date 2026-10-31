@@ -36,10 +36,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (!onboardingDialogCompleted) setOnboardingDialogOpen(true);
   }, [onboardingDialogCompleted]);
 
-  const m = useMutation(api.onboarding.update);
+  const updateOnboarding = useMutation(api.onboarding.update);
   const handleOnboardingDialogClose = async () => {
     try {
-      await m();
+      await updateOnboarding();
     } catch (error) {
       console.error('Error updating onboarding dialog: ', error);
     } finally {

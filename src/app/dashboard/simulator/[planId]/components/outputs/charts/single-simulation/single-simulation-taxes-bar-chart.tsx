@@ -132,25 +132,19 @@ export default function SingleSimulationTaxesBarChart({
   const niitThreshold = getNiitThreshold(chartData);
   const taxableIncome = Math.max(...chartData.map((item) => item.taxableIncome));
 
-  let formatter = undefined;
-  let transformedChartData: BarChartData[] = [];
-
-  let filterZeroValues = true;
-  let stackId: string | undefined = undefined;
-
   // Every taxes view comes from the metric registry (P4-P6): keys, colours, segment grouping,
   // the zero filter and the formatter are frozen by the registry tests. Taxes has no `custom`
   // view, so the per-view switch is gone. The bracket reference lines below are chart furniture
   // and stay untouched.
   const definition = resolveBarChart('taxes', dataView);
   const point = chartData[0];
-  transformedChartData = definition && point ? toCategoricalBars(point, definition, { isSmallScreen }) : [];
-  formatter = getMetricValueFormatter(definition?.format);
-  filterZeroValues = definition?.filterZeroValues !== false;
-  stackId = definition?.segments?.some((size) => size > 1) ? 'barStack' : undefined;
+
+  const formatter = getMetricValueFormatter(definition?.format);
+  const filterZeroValues = definition?.filterZeroValues !== false;
+  const stackId = definition?.segments?.some((size) => size > 1) ? 'barStack' : undefined;
 
   const getTotalAmount = (item: BarChartData) => item.segments.reduce((acc, s) => acc + s.amount, 0);
-  transformedChartData = transformedChartData
+  const transformedChartData = (definition && point ? toCategoricalBars(point, definition, { isSmallScreen }) : [])
     .filter((item) => (filterZeroValues ? getTotalAmount(item) !== 0 : true))
     .sort((a, b) => getTotalAmount(b) - getTotalAmount(a));
   if (transformedChartData.length === 0) {

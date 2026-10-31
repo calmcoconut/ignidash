@@ -440,7 +440,6 @@ export abstract class TableDataExtractor {
       stockProduct *= 1 + returnsData.annualReturnRates.stocks;
       bondProduct *= 1 + returnsData.annualReturnRates.bonds;
       cashProduct *= 1 + returnsData.annualReturnRates.cash;
-      const n = idx;
 
       return {
         year: idx,
@@ -454,17 +453,17 @@ export abstract class TableDataExtractor {
         cashSavingsGains,
         stockReturnRate: returnsData?.annualReturnRates.stocks ?? null,
         cumulativeStockGain: returnsData?.cumulativeReturnAmounts.stocks ?? null,
-        stockCagr: Math.pow(stockProduct, 1 / n) - 1,
+        stockCagr: Math.pow(stockProduct, 1 / idx) - 1,
         annualStockGain: returnsData?.returnAmounts.stocks ?? null,
         stockHoldings,
         bondReturnRate: returnsData?.annualReturnRates.bonds ?? null,
         cumulativeBondGain: returnsData?.cumulativeReturnAmounts.bonds ?? null,
-        bondCagr: Math.pow(bondProduct, 1 / n) - 1,
+        bondCagr: Math.pow(bondProduct, 1 / idx) - 1,
         annualBondGain: returnsData?.returnAmounts.bonds ?? null,
         bondHoldings,
         cashReturnRate: returnsData?.annualReturnRates.cash ?? null,
         cumulativeCashGain: returnsData?.cumulativeReturnAmounts.cash ?? null,
-        cashCagr: Math.pow(cashProduct, 1 / n) - 1,
+        cashCagr: Math.pow(cashProduct, 1 / idx) - 1,
         annualCashGain: returnsData?.returnAmounts.cash ?? null,
         cashHoldings,
         inflationRate: returnsData?.annualInflationRate ?? null,

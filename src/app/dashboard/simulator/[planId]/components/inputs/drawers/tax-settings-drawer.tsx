@@ -63,13 +63,13 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
     reset(withDeductionDefaults(taxSettings));
   }, [taxSettings, reset, withDeductionDefaults]);
 
-  const m = useMutation(api.tax_settings.update);
+  const updateTaxSettings = useMutation(api.tax_settings.update);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: TaxSettingsInputs) => {
     try {
       setSaveError(null);
-      await m({ taxSettings: taxSettingsToConvex(data), planId });
+      await updateTaxSettings({ taxSettings: taxSettingsToConvex(data), planId });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save tax settings.');

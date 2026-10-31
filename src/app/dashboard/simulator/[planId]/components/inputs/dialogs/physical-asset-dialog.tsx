@@ -104,7 +104,7 @@ export default function PhysicalAssetDialog({
   const { error: propertyTaxRateError } = getFieldState('propertyTax.ratePercent');
   const { error: propertyTaxAmountError } = getFieldState('propertyTax.annualAmount');
 
-  const m = useMutation(api.physical_asset.upsertPhysicalAsset);
+  const upsertPhysicalAsset = useMutation(api.physical_asset.upsertPhysicalAsset);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: PhysicalAssetInputs) => {
@@ -114,7 +114,7 @@ export default function PhysicalAssetDialog({
     const assetId = processedData.id === '' ? uuidv4() : processedData.id;
     try {
       setSaveError(null);
-      await m({ physicalAsset: physicalAssetToConvex(ownershipForStorage({ ...processedData, id: assetId })), planId });
+      await upsertPhysicalAsset({ physicalAsset: physicalAssetToConvex(ownershipForStorage({ ...processedData, id: assetId })), planId });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save physical asset.');

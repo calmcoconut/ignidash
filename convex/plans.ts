@@ -252,13 +252,12 @@ export const deletePlan = mutation({
   args: { planId: v.id('plans') },
   handler: async (ctx, { planId }) => {
     const { userId } = await getUserIdOrThrow(ctx);
-    await getPlanForCurrentUserOrThrow(ctx, planId);
+    const planToDelete = await getPlanForCurrentUserOrThrow(ctx, planId);
 
     const plans = await getAllPlansForUser(ctx, userId);
     if (plans.length <= 1) throw new ConvexError('You cannot delete your only plan.');
 
-    const planToDelete = plans.find((plan) => plan._id === planId);
-    if (planToDelete?.isDefault) throw new ConvexError('You cannot delete your default plan.');
+    if (planToDelete.isDefault) throw new ConvexError('You cannot delete your default plan.');
 
     await Promise.all([
       deleteAllConversationsForPlan(ctx, planId),

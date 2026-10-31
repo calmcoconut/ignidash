@@ -12,12 +12,7 @@ export function useLinkableFinances<T extends FinanceItem>(
   typeFilter: string[]
 ): T[] {
   return useMemo(
-    () =>
-      items?.filter((item) => {
-        if (alreadySyncedIds.has(item.id)) return false;
-        if (!typeFilter.includes(item.type)) return false;
-        return true;
-      }) ?? [],
+    () => items?.filter((item) => !alreadySyncedIds.has(item.id) && typeFilter.includes(item.type)) ?? [],
     [items, alreadySyncedIds, typeFilter]
   );
 }

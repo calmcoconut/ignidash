@@ -524,9 +524,9 @@ export class Income {
 
     const income = Math.max((annualAmount / timesToApplyPerYear) * timesToApplyPerMonth, 0);
 
-    let amountWithheld: number = 0;
-    let taxFreeIncome: number = 0;
-    let socialSecurityIncome: number = 0;
+    let amountWithheld = 0;
+    let taxFreeIncome = 0;
+    let socialSecurityIncome = 0;
     switch (this.incomeType) {
       case 'wage':
         amountWithheld = income * (this.withholdingRate / 100);

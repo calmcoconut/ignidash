@@ -1,12 +1,12 @@
 /**
- * The application's single wall-clock read.
+ * The single source of the simulation's `asOf` date.
  *
  * Everything under `src/lib/calc` and `src/lib/schemas` is forbidden from reading the
  * wall clock (enforced by the `no-restricted-syntax` rule in `eslint.config.mjs`).
  * Callers resolve a `Clock` here — at the store/UI boundary — and pass the resulting
- * `asOf` date into the engine explicitly. Because this is the only read, it is also the
- * only place where "today" depends on the host: it uses the user's local calendar date,
- * which is what a projection should start from.
+ * `asOf` date into the engine explicitly, so a projection starts from the user's local
+ * calendar date rather than a date the engine read for itself. Other UI code may read
+ * the clock for its own defaults; this is the only read an `asOf` may come from.
  */
 
 import { fixedClock, type Clock, type ISODateString } from '@/lib/calc/clock';

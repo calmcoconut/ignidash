@@ -15,7 +15,7 @@ import { createEmailAndPasswordOptions, createSignUpLockHook, isSignUpAllowed } 
 
 const baseURL = process.env.SITE_URL ?? 'http://localhost:3000';
 /** Where `/reset-password` lives: the break-glass link the operator copies out of the logs. */
-const appUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+const appUrl = baseURL;
 
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
   local: {
@@ -123,7 +123,7 @@ export const getCanUseAIFeatures = query({
     isAdmin: v.boolean(),
     isActiveSubscription: v.boolean(),
   }),
-  handler: async (ctx): Promise<{ canUseAIFeatures: boolean; isAdmin: boolean; isActiveSubscription: boolean }> => {
+  handler: async (ctx) => {
     const user = await ctx.runQuery(components.betterAuth.auth_data.getCurrentUserSafe, {});
     const isAdmin = user?.role === 'admin';
 

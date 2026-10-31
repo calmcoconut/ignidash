@@ -28,7 +28,7 @@ export const getContributionRule = query({
   handler: async (ctx, { planId, ruleId }) => {
     const plan = await getPlanForCurrentUserOrThrow(ctx, planId);
 
-    const rule = plan.contributionRules.find((rule) => rule.id === ruleId);
+    const rule = plan.contributionRules.find((cr) => cr.id === ruleId);
     return rule ?? null;
   },
 });

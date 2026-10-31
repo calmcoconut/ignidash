@@ -56,14 +56,14 @@ export default function AssetDialog({ onClose, selectedAsset: _selectedAsset, nu
 
   const hasFormErrors = Object.keys(errors).length > 0;
 
-  const m = useMutation(api.finances.upsertAsset);
+  const upsertAsset = useMutation(api.finances.upsertAsset);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSubmit = async (data: AssetInputs) => {
     const assetId = data.id === '' ? uuidv4() : data.id;
     try {
       setSaveError(null);
-      await m({ asset: assetToConvex({ ...data, id: assetId }) });
+      await upsertAsset({ asset: assetToConvex({ ...data, id: assetId }) });
       onClose();
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save asset.');
