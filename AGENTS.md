@@ -20,7 +20,7 @@ Then, before touching anything:
 
 ```bash
 npm run typecheck                       # expect clean
-npm run test:once                       # expect ~128 files, ~2621 tests, all passing
+npm run test:once                       # expect ~128 files, ~2627 tests, all passing
 shasum -a 256 src/lib/calc/__tests__/golden/corpus.json | cut -c1-16
                                         # expect a946a8dc86555c66
 ```
@@ -123,7 +123,7 @@ If a change moves a golden-corpus fixture, add a per-fixture explanation to
 
 ### Add a chart
 
-Use the metric registry (`P4-P1`/`P4-P4`) rather than wiring a chart ad hoc: a series
+Use the metric registry (`P4-P1`/`P4-P2`) rather than wiring a chart ad hoc: a series
 resolves through `resolveSeries`, and the frozen key/colour fingerprints will fail loudly if
 you collide. Add the table view at the same time — `resolveChartCardBody` gates it, and
 charts without one are an accessibility regression.
@@ -140,8 +140,8 @@ It is currently **12**. Its history:
 | 1   | export/import envelope                   |
 | 2   | time binding                             |
 | 3   | couples                                  |
-| 4   | Monte Carlo                              |
-| 5   | skill prompt                             |
+| 4   | historical backtest mode                 |
+| 5   | Social Security                          |
 | 6   | household member ages                    |
 | 7   | itemized deductions                      |
 | 8   | California residency                     |
@@ -181,8 +181,8 @@ this repo were landed only after doing exactly that, and it is now the expected 
   ```ts
   // @vitest-environment jsdom
   ```
-  Do **not** flip the global environment — 128 files depend on the node default, and
-  Convex tests use an `edge-runtime` docblock. There is no global setup file, so call
+  Do **not** flip the global environment — 104 of the 128 test files run on the node default;
+  14 opt into an `edge-runtime` docblock and 10 into `jsdom`. There is no global setup file, so call
   `afterEach(cleanup)` yourself.
 - **Convex tests** use the real `convex-test` harness. Mock the module boundary, not the
   behaviour.

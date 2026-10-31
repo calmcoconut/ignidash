@@ -37,7 +37,7 @@ npm run typecheck        # TypeScript check (tsc --noEmit)
 # Testing
 npm run test             # Vitest watch mode
 npm run test:once        # Vitest single run
-npm run test:once -- src/lib/calc/__tests__/taxes.test.ts  # Run single test file
+npm run test:once -- src/lib/calc/taxes.test.ts  # Run single test file
 npm run test:coverage    # Coverage report
 npm run test:e2e         # Playwright e2e tests
 npm run bench            # Engine benchmarks
@@ -95,10 +95,10 @@ All server functions (queries, mutations, actions) live here. Key files:
 - `insights.ts` — AI-generated insights
 - `ai_chat.ts` — The streaming chat/insights action (renamed from `use_openai.ts`, which named a vendor this fork no longer targets). Provider-agnostic: `OPENAI_BASE_URL` points the `openai` SDK at any OpenAI-compatible server (Ollama, vLLM, llama.cpp); `OPENAI_ENDPOINT` still selects the `AzureOpenAI` client for deployments that keep Azure. Not dead code — do not delete it as vendor residue.
 - `http.ts` — Convex HTTP router (no Stripe webhooks: billing was removed from this fork)
-- `utils/auth_utils.ts` — `getUserIdOrThrow(ctx)` for auth in every query/mutation
+- `utils/auth_utils.ts` — `getUserIdOrThrow(ctx)` for top-level queries; `utils/plan_utils.ts` — `getPlanForCurrentUserOrThrow(ctx, planId)` for every per-plan query/mutation
 - `utils/sys_prompt_utils.ts` — Dynamic AI system prompt from plan data
 - `validators/` — Input validators for Convex functions
-- `_generated/` — Auto-generated types and API (do not edit)
+- `_generated/` — Codegen'd types and API. Treat `api.d.ts` as hand-maintained: a new Convex module needs its two entries added by hand (see `AGENTS.md` §8.1)
 - `betterAuth/_generated/` — Auto-generated auth types (do not edit)
 
 ### Simulation Engine (`src/lib/calc/`)
@@ -109,7 +109,7 @@ The core financial simulator runs month-by-month loops producing yearly `Simulat
 - `portfolio.ts`, `account.ts`, `incomes.ts`, `expenses.ts`, `taxes.ts`, `debts.ts` — Per-domain calculation modules
 - `returns-providers/` — Strategy pattern: `FixedReturnsProvider`, `StochasticReturnsProvider`, `LcgHistoricalBacktestReturnsProvider`
 - `data-extractors/` — Extract chart data, table data, key metrics from simulation results
-- `__tests__/` — Unit tests for the engine
+- `__tests__/` — Golden corpus and cross-cutting engine tests; per-module tests sit beside their module (`*.test.ts`)
 - `tax-data/` — Year-keyed tax rulesets with citations (`years/`, `states/CA/`, `salt-cap.ts`, `aca.ts`). Never invent a figure: the convention is to `throw` rather than borrow a neighbouring year.
 - `retirement-rules/` — Pro-rata §408(d)(2), the three SEPP methods, both Roth clocks, QCDs, with vendored §1.401(a)(9)-9 tables
 - `withdrawal-strategies/` — Ordered, VPW, fixed percentage, Guyton-Klinger behind `getOrder` / `getAnnualCap`
@@ -159,7 +159,7 @@ fails if you remove it. History and rules: `AGENTS.md` §4.
 
 ### Hooks (`src/hooks/`)
 
-~25 custom hooks. Key ones:
+~28 hook modules (about 60 `use*` exports). Key ones:
 
 - `use-convex-data.ts` — All Convex query hooks (`usePlanData`, `useIncomesData`, etc.)
 - `use-results-state.ts` — Simulation results state
