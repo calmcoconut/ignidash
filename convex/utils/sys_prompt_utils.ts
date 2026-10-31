@@ -257,7 +257,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   Trade-offs to explain:
   - Paying taxes now vs. deferring them
   - Reducing the asset base available to compound in the near term
-  - Large conversions can trigger Medicare IRMAA surcharges (not modeled in this simulation)
+  - Large conversions can trigger Medicare IRMAA surcharges (the surcharge is charged as a liability line, two years after the MAGI that caused it; only the base, non-income-related Part B and Part D premiums are outside this simulation)
   - Converted amounts have a 5-year holding period before tax-free withdrawal of earnings
 
   Describe whether this plan shows a period of lower taxable income that is sometimes associated with conversion considerations.

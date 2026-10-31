@@ -25,9 +25,12 @@
  *   by the engine and `jurisdictions.california` reports it verbatim, with the questions the state
  *   return still cannot answer (Covered California subsidies, California AMT, the HSA
  *   non-conformity) named separately in `jurisdictions.california.notModelled`.
- * - **ACA premium tax credit** — P3-P7b. The cliff depends on the SLCSP premium for the coverage
- *   year, the federal poverty line for a household size, and the applicable-percentage table;
- *   none of the three is in the result. It is reported as a prerequisite, never approximated.
+ * - **ACA premium tax credit** — P3-P7b. The tables and the arithmetic shipped
+ *   (`tax-data/aca` vendors the federal poverty line and the applicable-percentage schedule for
+ *   2024–2025; `aca-premium-tax-credit` computes the credit and the cliff over them), but no credit
+ *   is in the result: no SLCSP premium input exists, `SimulationResult` carries no household size,
+ *   there is no `TaxesData` line, and `getAcaTable(2026)` refuses the current tax year. It is
+ *   reported as a prerequisite, never approximated.
  * - **AMT credit machinery beyond the simplified §53 limit** — the engine charges the AMT top-up and
  *   applies a credit against it, but the deferral-item refinement of Form 8801 Part III is not
  *   modelled (Plan 3: "no full AMT credit machinery").
@@ -704,7 +707,7 @@ function headroomTargets(taxable: number, brackets: readonly ProgressiveBracket[
 
 /** The clause that keeps a consumer from claiming more than this module can support. */
 const NOT_COMPUTED = [
-  'ACA premium tax credit and its cliff — P3-P7b. Needs the SLCSP premium, the federal poverty line for the household size and the applicable-percentage table; none is in the result.',
+  'ACA premium tax credit and its cliff — P3-P7b. The tables and the arithmetic shipped: `tax-data/aca` vendors the federal poverty line and the applicable-percentage schedule, and `aca-premium-tax-credit` computes the credit and the cliff over them. What is missing is the wiring — no SLCSP premium input exists anywhere, the result carries no household size, there is no `TaxesData` line, and `getAcaTable(2026)` throws, so a 2026 return cannot be priced at all.',
   'The AMT credit beyond the simplified §53 limit — the deferral-item refinement of Form 8801 Part III is not modelled (P3-P7a).',
   'The non-income-related Medicare Part B and Part D premiums — only the IRMAA surcharge is a liability line.',
   'The marginal effect of an itemized deduction — the engine applies the four entered itemized lines (with the §164 SALT cap and its MAGI phase-down and the §213 7.5%-of-AGI medical floor) and takes the larger of the two deductions, but this analysis reads the deduction the settled return took and never re-derives it: a dollar that would move the SALT phase-down or the medical floor is priced against a fixed deduction. The entered lines also carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap — they are taken as entered.',
@@ -906,7 +909,7 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
         prerequisites: [
           'the marketplace second-lowest-cost silver premium (SLCSP) for the coverage year — a plan input that does not exist yet',
           'the federal poverty line for the household size — the simulation result carries no household size',
-          'the applicable-percentage table for the coverage year — P3-P7b adds it to the ruleset',
+          'the applicable-percentage table for the coverage year — no 2026 schedule is vendored, so `getAcaTable` refuses the year',
           'whether the enhanced subsidies are in force, which decides whether the 400% FPL cliff exists at all',
         ],
       },

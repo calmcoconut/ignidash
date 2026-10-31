@@ -14,10 +14,11 @@
  * amortization method take their distribution period from one of three tables: the Uniform Lifetime
  * Table (Appendix A to the notice), the Single Life Table in §1.401(a)(9)-9(b), or the Joint and
  * Last Survivor Table in §1.401(a)(9)-9(d). This module vendors the Single Life Table, because it is
- * the only one of the three that needs no second person's age: the engine's SEPP inputs are one
- * owner, one balance, one date. A caller who has a designated beneficiary's age can still pass an
- * explicit `distributionPeriod` to `seppAnnualAmount`, which is the parameterised path the tests
- * already exercise.
+ * the only one of the three that needs no second person's age: this module's own inputs
+ * (`SeppTableInputs` in `sepp.ts`) name one balance, one age attained in the first distribution year
+ * and one starting month — never a second person's age. A caller who has a designated beneficiary's
+ * age can still pass an explicit `distributionPeriod` to `seppAnnualAmount`, which is the
+ * parameterised path the tests already exercise.
  *
  * The third method, fixed annuitization, is defined by the notice as an annuity factor built from
  * the §1.401(a)(9)-9(e) mortality **rates**, not from a life-expectancy table. The committed

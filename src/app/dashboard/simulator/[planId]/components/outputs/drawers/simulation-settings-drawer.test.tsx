@@ -54,6 +54,26 @@ describe('the withdrawal strategy select', () => {
     expect(strategySelect().value).toBe('ordered');
   });
 
+  it('saves `ordered` for a legacy plan the user never touches', async () => {
+    // The select is uncontrolled and `ordered` is its first option, so the DOM shows `ordered`
+    // whether or not the component supplies it: only the payload can tell the two apart. A plan
+    // saved before the setting existed must still submit the strategy the engine runs it with, or
+    // the untouched save drops the fallback it was given on load.
+    render(<SimulationSettingsDrawer setOpen={setOpen} simulationSettings={legacySettings} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings).toHaveBeenCalledWith({
+      simulationSettings: expect.objectContaining({
+        withdrawalStrategy: 'ordered',
+        simulationMode: 'monteCarloStochasticReturns',
+        simulationSeed: 5000,
+      }),
+      planId: 'plan-1',
+    });
+  });
+
   it('submits the chosen strategy id to the save mutation', async () => {
     render(<SimulationSettingsDrawer setOpen={setOpen} simulationSettings={legacySettings} />);
 

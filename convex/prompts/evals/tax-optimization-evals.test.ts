@@ -190,7 +190,69 @@ const omissionBullets = ((): string[] => {
 
 const omittedBullets = omissionBullets.join('\n');
 
-/** A modelled lever named in those bullets would make the refusal the passing answer again. */
+/**
+ * The levers the engine computes, as the words that name them. California's AMT is a different tax
+ * (it is not computed) and is removed from a sentence before these are matched, so the state
+ * question cannot stand in for the federal one.
+ */
+const MODELLED_LEVER_PATTERNS = [/itemized deduction/i, /\bSALT\b/, /\bAMT\b/, /\bIRMAA\b/] as const;
+
+const withoutCaliforniaAmt = (text: string): string => text.replace(/California'?s?\s+AMT/gi, 'STATE-MINIMUM-TAX');
+
+/**
+ * Every list-shaped line of the section: a bullet, a numbered item or a markdown table row.
+ *
+ * `omissionBullets` above reads one list syntax only, and that is the hole: a rewrite that keeps the
+ * ACA bullet and moves the modelled levers into a table row inside the same section passes those
+ * pins while the section still says the levers are omitted. Being a list item under "What the set
+ * deliberately omits" *is* the denial, so the shape is what this check reads.
+ */
+const omissionListLines = ((): string[] => {
+  const lines = omissionsSection.split('\n').filter((line) => /^ {0,3}(?:[-*+]|\d+\.)\s/.test(line) || line.trimStart().startsWith('|'));
+
+  return lines.map(withoutCaliforniaAmt);
+})();
+
+/**
+ * The words that deny a lever is computed. Deliberately narrow: the section's own prose says the
+ * levers are "**not on this list**", which is the opposite claim and must not trip this.
+ */
+const LEVER_DENIAL = /\bnot\s+(?:modell?ed|computed|supported|available)\b|\bunmodell?ed\b|\bcannot\s+compute\b|\bomits?\b|\bomitted\b/i;
+
+/**
+ * The section's claims, one per block: a list item, a table row, or a sentence of prose. Wrapped
+ * prose lines are joined first, so a denial cannot hide by breaking across a line.
+ */
+const omissionClaims = ((): string[] => {
+  const blocks: string[] = [];
+  let prose: string[] = [];
+
+  const flushProse = () => {
+    if (prose.length > 0) blocks.push(prose.join(' '));
+    prose = [];
+  };
+
+  for (const rawLine of omissionsSection.split('\n')) {
+    const line = rawLine.trim();
+
+    if (line === '') {
+      flushProse();
+    } else if (/^(?:[-*+]|\d+\.)\s/.test(line) || line.startsWith('|')) {
+      flushProse();
+      blocks.push(line);
+    } else {
+      prose.push(line);
+    }
+  }
+  flushProse();
+
+  return blocks
+    .flatMap((block) => block.split(/(?<=[.!?])\s+/))
+    .map((claim) => withoutCaliforniaAmt(claim.replace(/\s+/g, ' ').trim()))
+    .filter((claim) => claim.length > 0);
+})();
+
+/** A modelled lever named in that section would make the refusal the passing answer again. */
 describe('tax-optimization eval set: what it says the engine cannot compute', () => {
   it('keeps the modelled deductions, the SALT cap, AMT and IRMAA off the omitted list', () => {
     // The deduction (P3-P3), the SALT cap, AMT and IRMAA (P3-P7a) are computed and reported. A
@@ -211,6 +273,26 @@ describe('tax-optimization eval set: what it says the engine cannot compute', ()
     expect(omissionsSection).toContain('**IRMAA**');
     // The one thing the section must not do is let a reviewer score the refusal as a pass.
     expect(omissionsSection).toContain('`refused-patches` must not be scored as a pass');
+  });
+
+  it('names no modelled lever in any list item or table row of the section', () => {
+    // A paragraph may say a lever is computed; a *list item* under this heading says it is omitted —
+    // whichever words it uses and whichever list syntax carries it.
+    expect(omissionListLines.length).toBeGreaterThan(0);
+
+    const named = omissionListLines.filter((line) => MODELLED_LEVER_PATTERNS.some((pattern) => pattern.test(line)));
+
+    expect(named).toEqual([]);
+  });
+
+  it('never denies a modelled lever in the section prose', () => {
+    // The table above catches a list-shaped omission; this catches a sentence that says so in
+    // passing. A lever named in prose is fine — the section names them to say they *are* modelled.
+    const denials = omissionClaims.filter(
+      (claim) => LEVER_DENIAL.test(claim) && MODELLED_LEVER_PATTERNS.some((pattern) => pattern.test(claim))
+    );
+
+    expect(denials).toEqual([]);
   });
 
   it('keeps ACA on the omitted list, where the tool really cannot answer', () => {

@@ -110,8 +110,6 @@ describe('the entry it submits', () => {
     await waitFor(() => expect(createEntry).toHaveBeenCalledTimes(1));
     const { entry } = createEntry.mock.calls[0][0];
     expect(entry.date).toBe('2026-12-31');
-    // `2026` and `2026-12-31` never travel together.
-    expect(JSON.stringify(entry)).not.toContain('"date":"2026-12-31","date"');
   });
 
   it('omits an account left blank and keeps the one note it was given', async () => {
