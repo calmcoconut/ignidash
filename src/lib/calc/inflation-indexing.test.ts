@@ -12,7 +12,9 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { ChartDataExtractor } from './data-extractors/chart-data-extractor';
 import { computeWagePayrollTaxes } from './payroll-taxes';
+import { simulate } from './simulate';
 import { Portfolio } from './portfolio';
 import { analyzeTaxYear } from './tax-analytics';
 import { getRules } from './tax-data';
@@ -24,6 +26,7 @@ import { TaxProcessor } from './taxes';
 import type { SimulationState } from './simulation-engine';
 import { cumulativeInflationIndex } from './time-binding';
 import {
+  createSimulatorInputs,
   createEmptyIncomesData,
   createEmptyPhysicalAssetsData,
   createEmptyPortfolioData,
@@ -47,6 +50,41 @@ const createState = (): SimulationState => ({
 
 const processYear = ({ taxYear, inflationRatePercent }: { taxYear: number; inflationRatePercent: number }) =>
   new TaxProcessor(createState(), 'single', taxYear, undefined, { inflationRatePercent });
+
+describe('the chart reference line the UI draws', () => {
+  /**
+   * The chart's only threshold reference line, pinned on the path it actually draws from.
+   *
+   * `AGI_REFERENCE_LINE_MODES` is exactly `'niitThreshold' | 'hideReferenceLines'`, so §86 and the
+   * Additional Medicare threshold have no line to draw — their consequence is pinned above, at the
+   * return. This one goes through the extractor the component reads, because a deflated threshold in
+   * the engine and a constant in the chart would be a bug no engine test could see.
+   *
+   * The component filters the chart data by `age` *before* it reads brackets and the threshold, so
+   * the row below is the one a 2057 view renders.
+   */
+  it('a year-30 NIIT line sits at the deflated base, not at the 2026 constant', () => {
+    const run = simulate(createSimulatorInputs(), { mode: 'fixedReturns', seed: 20260315, asOf: '2026-03-15' });
+    const points = run.result.data;
+    const chart = ChartDataExtractor.extractSingleSimulationTaxesData(run.result);
+
+    const index = points.findIndex((point) => point.date.startsWith(String(SIM_YEAR)));
+    expect(index).toBeGreaterThan(0);
+    // The extractor drops the opening data point (`data.slice(1)` — the year before the projection
+    // starts carries no tax), so the row for a point is one place earlier. Asserting the age keeps a
+    // future change to that offset from silently moving which year this pin measures.
+    const row = chart[index - 1];
+    expect(row.age).toBe(Math.floor(points[index].age));
+
+    const base = FEDERAL_2026.tables.netInvestmentIncomeTax.values.thresholds.single;
+    expect(base).toBe(200000);
+
+    // 200,000 / 1.03^31 ≈ 79,995. The line has to move: a constant would draw the 2026 figure on a
+    // 2057 chart and claim the threshold kept a purchasing power the statute denies it.
+    expect(row.niitThreshold).toBeCloseTo(base / DEFLATOR, 6);
+    expect(row.niitThreshold).toBeLessThan(base * 0.45);
+  });
+});
 
 describe('statute-locked thresholds are deflated to today’s dollars', () => {
   describe('the guard on the data', () => {

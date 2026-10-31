@@ -422,6 +422,53 @@ describe('the derived housing costs', () => {
     }
   });
 
+  /**
+   * Why the break-even *totals* moved when the thresholds were deflated (R2), hand-derived.
+   *
+   * The renter holds the larger invested portfolio — that is this fixture's whole premise — so the
+   * §1411 base is the tax line the two paths disagree on. The base is statute-locked at $200,000 and
+   * is not indexed, so the real base for a 2060 return is 200,000 / 1.03^34 = 73,208.98: below the
+   * renter's MAGI, and above what the nominal base would allow.
+   *
+   * Both halves are worked out from the statute and the plan's own 3% inflation, never read back, so
+   * removing the deflation turns this red: with a $200,000 base only 37,336 of the renter's
+   * investment income would be subject, not all of it.
+   */
+  it('taxes both paths against the deflated §1411 base, which is what moved the totals', () => {
+    const { owning, renting } = deriveHousingPlans(withNoEmbeddedGains(), { residence: datedResidence(), monthlyRent: 4000 });
+    const runOf = (plan: typeof owning) => simulate(plan, { mode: 'fixedReturns', seed: SEED, asOf: AS_OF });
+    const taxesAt = (plan: typeof owning, calendarYear: string) => {
+      const run = runOf(plan);
+      const index = run.result.data.findIndex((point) => point.date.startsWith(calendarYear));
+      expect(index).toBeGreaterThan(-1);
+      return run.result.data[index].taxes!;
+    };
+
+    // 2031: five rates years from the 2026 ruleset. 200,000 / 1.03^5 = 172,521.76, still above the
+    // renter's MAGI, so nothing is subject yet and the deflation is invisible on both paths.
+    const at2031 = taxesAt(renting, '2031').niit;
+    expect(at2031.threshold).toBeCloseTo(200_000 / 1.03 ** 5, 6);
+    expect(at2031.incomeSubjectToNiit).toBe(0);
+
+    // 2060: thirty-four years out. 200,000 / 1.03^34 = 73,208.98 has fallen below the renter's MAGI,
+    // and by more than its investment income — so the whole amount is subject, and the charge is the
+    // §1411 rate on it. The nominal base would leave most of it untaxed.
+    const taxes2060 = taxesAt(renting, '2060');
+    const at2060 = taxes2060.niit;
+    const magi = taxes2060.incomeSources.adjustedGrossIncome;
+    expect(at2060.threshold).toBeCloseTo(200_000 / 1.03 ** 34, 6);
+    // The two halves of the claim, both from the statute: the deflated base leaves more headroom than
+    // the renter's investment income, so all of it is subject; the nominal $200,000 base would leave
+    // only the difference, which is the part the deflation adds.
+    expect(magi - at2060.threshold).toBeGreaterThan(at2060.netInvestmentIncome);
+    expect(magi - 200_000).toBeLessThan(at2060.netInvestmentIncome);
+    expect(at2060.incomeSubjectToNiit).toBeCloseTo(at2060.netInvestmentIncome, 6);
+    expect(at2060.niitAmount).toBeCloseTo(at2060.incomeSubjectToNiit * 0.038, 6);
+
+    // The owner's house is not investment income, so the same base never binds on that path.
+    expect(taxesAt(owning, '2060').niit.niitAmount).toBe(0);
+  });
+
   it('charges the interim rent until a future purchase, then stops', () => {
     const base = withNoEmbeddedGains();
     const { owning } = deriveHousingPlans(base, {

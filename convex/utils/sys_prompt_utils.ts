@@ -132,7 +132,7 @@ const systemPrompt = (planData: string, keyMetrics: string, simulationData: stri
   - **Expenses:** Name, amount, frequency, start/end dates, growth rate with optional cap
   - **Debts:** Name, balance, APR, interest type (simple/compound), monthly payment, start date
   - **Physical Assets:** Name, purchase price, market value, appreciation rate, purchase/sale dates, payment method (cash or loan with balance, APR, monthly payment)
-  - **Accounts:** Savings, Taxable Brokerage, 401(k), Roth 401(k), Traditional IRA, Roth IRA, HSA—each with balance and bond allocation; taxable accounts track cost basis, Roth accounts track contribution basis
+  - **Accounts:** Savings, Taxable Brokerage, 401(k), Roth 401(k), Traditional IRA, Roth IRA, HSA—each with balance and bond allocation; taxable accounts track cost basis, Roth accounts track contribution basis, traditional IRAs track nondeductible (after-tax) basis so Form 8606 makes part of a withdrawal tax-free
   - **Glide Path:** Enable/disable automatic rebalancing toward a target bond allocation; specify end time (custom date or custom age) and target bond percentage; prioritizes tax-advantaged accounts for rebalancing
   - **Contribution Order:** Priority-ordered rules specifying account, amount (fixed/percentage/unlimited), optional employer match, optional max balance cap, optional mega-backdoor Roth (uses Section 415c limit)
   - **Market Assumptions:** Expected returns and dividend/interest yields for stocks, bonds, and cash; inflation rate
@@ -307,7 +307,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   - **Expenses:** Name, amount, frequency, start/end dates, growth rate with optional cap
   - **Debts:** Name, balance, APR, interest type (simple/compound), monthly payment, start date
   - **Physical Assets:** Name, purchase price, market value, appreciation rate, purchase/sale dates, payment method (cash or loan with balance, APR, monthly payment)
-  - **Accounts:** Savings, Taxable Brokerage, 401(k), Roth 401(k), Traditional IRA, Roth IRA, HSA—each with balance and bond allocation; taxable accounts track cost basis, Roth accounts track contribution basis
+  - **Accounts:** Savings, Taxable Brokerage, 401(k), Roth 401(k), Traditional IRA, Roth IRA, HSA—each with balance and bond allocation; taxable accounts track cost basis, Roth accounts track contribution basis, traditional IRAs track nondeductible (after-tax) basis so Form 8606 makes part of a withdrawal tax-free
   - **Glide Path:** Enable/disable automatic rebalancing toward a target bond allocation; specify end time (custom date or custom age) and target bond percentage; prioritizes tax-advantaged accounts for rebalancing
   - **Contribution Order:** Priority-ordered rules specifying account, amount (fixed/percentage/unlimited), optional employer match, optional max balance cap, optional mega-backdoor Roth (uses Section 415c limit)
   - **Market Assumptions:** Expected returns and dividend/interest yields for stocks, bonds, and cash; inflation rate

@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 
+import { tableValuesInRealDollars } from './real-dollars';
 import { getSaltCap, LATEST_SALT_CAP_YEAR, saltCapAmountsFor, saltCapFor } from './salt-cap';
 
 describe('SALT cap schedule', () => {
@@ -55,6 +56,34 @@ describe('SALT cap schedule', () => {
 
     // A 0% plan is the no-deflation reading: the nominal schedule, unchanged.
     expect(saltCapFor(2035, 0, 'single', 0).cap).toBe(10000);
+  });
+
+  it('deflates the cap, the phase-down threshold and the floor alike, and leaves the 30% share alone', () => {
+    // `saltCapFor` can only ever read a row at divisor 1 today — the schedule names every year
+    // through 2030, and 2030's row is the last one, with `Infinity` above it. So the three amounts'
+    // deflation is pinned here, at the accessor, where the divisor is not 1: the point is that all
+    // three are declared money (`SALT_DOLLAR_FIELDS`) and none of them can keep a purchasing power
+    // the statute denies. The 30% share is a rate and must never move — a deflated 0.3 would turn
+    // the phase-down into 23.8%.
+    const row = (year: number, simYear: number) =>
+      tableValuesInRealDollars(getSaltCap(year), {
+        rulesetYear: year,
+        simYear,
+        cumulativeInflationIndex: (years) => Math.pow(1.03, years),
+      });
+
+    const tenYearsOut = row(2026, 2036);
+    expect(tenYearsOut.cap).toBeCloseTo(40400 / Math.pow(1.03, 10), 6);
+    expect(tenYearsOut.phaseDownThreshold).toBeCloseTo(505000 / Math.pow(1.03, 10), 6);
+    expect(tenYearsOut.floor).toBeCloseTo(10000 / Math.pow(1.03, 10), 6);
+    expect(tenYearsOut.phaseDownRate).toBe(0.3);
+
+    // §70120(iv): from 2030 the cap *is* the $10,000 floor, so the two must land on the same
+    // deflated number — a floor left nominal would permit a cap it is supposed to bound.
+    const floorRow = row(2030, 2035);
+    expect(floorRow.floor).toBeCloseTo(10000 / Math.pow(1.03, 5), 6);
+    expect(floorRow.floor).toBe(floorRow.cap);
+    expect(floorRow.phaseDownThreshold).toBe(Infinity);
   });
 
   it('applies no phase-down at or below the threshold, and 30% of the excess above it', () => {
