@@ -1,25 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import {
-  validateCurrentTaxData,
-  validateRuleset,
-  POLICYENGINE_US_PINNED_COMMIT,
-  POLICYENGINE_US_VERSION,
-} from '../../../../scripts/vendor-tax-rules';
+import { validateCurrentTaxData, validateRuleset } from '../../../../scripts/validate-tax-rules';
 import { getRules, LATEST_TAX_YEAR } from './index';
 
-describe('Annual tax-data update pipeline (R10)', () => {
-  it('cites a pinned PolicyEngine-US commit and version', () => {
-    expect(POLICYENGINE_US_PINNED_COMMIT).toMatch(/^[0-9a-f]{40}$/);
-    expect(POLICYENGINE_US_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
-  });
-
-  it('validates the current registered tax rulesets as conforming', () => {
+describe('Annual tax-data validation (R10)', () => {
+  it('validates every registered tax ruleset as conforming', () => {
     const results = validateCurrentTaxData();
     expect(results.length).toBeGreaterThanOrEqual(2);
+
+    const jurisdictions = results.map((res) => res.jurisdiction);
+    expect(jurisdictions).toContain('federal');
+    expect(jurisdictions).toContain('CA');
+
     for (const res of results) {
       expect(res.valid).toBe(true);
       expect(res.issues).toEqual([]);
     }
+  });
+
+  it('checks the newest registered CA ruleset rather than a hard-coded year', () => {
+    // A hard-coded year would keep validating 2025 after `states/CA/2026.ts` is registered.
+    const newestCa = getRules(LATEST_TAX_YEAR, 'CA');
+    const caResults = validateCurrentTaxData().filter((res) => res.jurisdiction === 'CA');
+
+    expect(caResults.map((res) => res.year)).toContain(newestCa.year);
   });
 
   it('detects missing indexing metadata when broken (falsifiability proof)', () => {
