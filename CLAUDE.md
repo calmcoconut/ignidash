@@ -10,15 +10,19 @@ Ignidash is an open-source personal financial planning app (AGPL-3.0). It runs M
 
 - **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4
 - **Backend:** Convex (serverless DB + functions)
-- **Auth:** Better-Auth with Convex integration — email/password only (Google OAuth was removed)
+- **Auth:** Better-Auth with Convex integration — email/password is the default and only enabled path; Google OAuth is present but off unless `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED` are set
 - **State:** Zustand 5 (with Immer, persist, devtools)
 - **Forms:** React Hook Form + Zod 4 validation
 - **Charts:** Recharts 3
 
-No payments, analytics or hosted AI. This fork is self-hosted and LAN-only, and Stripe, PostHog,
-Vercel Analytics, Resend, Google OAuth, Azure OpenAI and Google Fonts were **deleted**, not
-feature-flagged. Do not add a vendor SDK without deciding whether this fork wants it. Onboarding,
-invariants and traps live in `AGENTS.md`.
+No payments, analytics or hosted AI is required. This fork is self-hosted and LAN-only, and Stripe,
+PostHog, Vercel Analytics and Resend were **deleted**, not feature-flagged. Three vendor surfaces
+were kept instead: Google OAuth (off unless `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and
+`NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED` are set — see `convex/auth.ts`), Azure OpenAI (off unless
+`OPENAI_ENDPOINT` is set; `convex/ai_chat.ts` still constructs the `AzureOpenAI` client) and Google
+Fonts (`next/font/google` in `src/app/layout.tsx`, fetched at build time, never at runtime). Do not
+add a vendor SDK without deciding whether this fork wants it. Onboarding, invariants and traps live
+in `AGENTS.md`.
 
 ## Commands
 
@@ -89,7 +93,7 @@ All server functions (queries, mutations, actions) live here. Key files:
 - `plans.ts`, `account.ts`, `income.ts`, `expense.ts`, `debt.ts` — CRUD for financial entities
 - `messages.ts`, `conversations.ts` — AI chat
 - `insights.ts` — AI-generated insights
-- `ai_chat.ts` — The streaming chat/insights action (renamed from `use_openai.ts`, which named a vendor this fork no longer targets). Provider-agnostic: `OPENAI_BASE_URL` points the `openai` SDK at any OpenAI-compatible server (Ollama, vLLM, llama.cpp), which is what replaced Azure OpenAI. Not dead code — do not delete it as vendor residue.
+- `ai_chat.ts` — The streaming chat/insights action (renamed from `use_openai.ts`, which named a vendor this fork no longer targets). Provider-agnostic: `OPENAI_BASE_URL` points the `openai` SDK at any OpenAI-compatible server (Ollama, vLLM, llama.cpp); `OPENAI_ENDPOINT` still selects the `AzureOpenAI` client for deployments that keep Azure. Not dead code — do not delete it as vendor residue.
 - `http.ts` — Convex HTTP router (no Stripe webhooks: billing was removed from this fork)
 - `utils/auth_utils.ts` — `getUserIdOrThrow(ctx)` for auth in every query/mutation
 - `utils/sys_prompt_utils.ts` — Dynamic AI system prompt from plan data
@@ -178,7 +182,7 @@ Centralized in `src/lib/utils/number-formatters.ts`:
 - `getCurrencySymbol()` — Returns '$'
 - `formatCurrencyPlaceholder(amount)` — Form placeholders
 
-`formatNumber` in `src/lib/utils.ts` is only for non-currency values (percentages, plain numbers).
+Percentages go through `formatPercentage(value, fractionDigits?)` in `src/lib/utils/number-formatters.ts`. `src/lib/utils.ts` exports only `cn` and `formatChartString` — there is no `formatNumber` in `src/`; the one in `convex/utils/sys_prompt_utils.ts` is a separate server-side helper.
 
 ## Code Style
 

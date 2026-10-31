@@ -30,9 +30,15 @@ will tell you in one second. See §4.
 
 **This is a fork.** `origin` is `calmcoconut/ignidash` (public), `upstream` is
 `schelskedevco/ignidash`. It is deliberately self-hosted: one container, LAN-only, plain
-HTTP over an IP, and **no external services** — no PostHog, Stripe, Google OAuth, Resend
-or Azure OpenAI. Those were deleted, not feature-flagged. If you find yourself adding a
-vendor SDK, stop and ask whether this fork wants it.
+HTTP over an IP. PostHog, Stripe and Resend were **deleted**, not feature-flagged — no
+dependency and no call site remain. Two vendor integrations are kept, both inert until
+configured: Google OAuth, only when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set
+(`convex/auth.ts`) **and** `NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=true` was baked into the client
+bundle at build time (`docker-compose.yml`); and the AI client — the `openai` SDK pointed at
+an OpenAI-compatible `OPENAI_BASE_URL` or at Azure OpenAI via `OPENAI_ENDPOINT`, hidden until
+`OPENAI_API_KEY` plus one of those two is set (`convex/utils/ai_utils.ts`). Everything else
+should reach nothing. If you find yourself adding a vendor SDK, stop and ask whether this
+fork wants it.
 
 ---
 
@@ -181,7 +187,7 @@ this repo were landed only after doing exactly that, and it is now the expected 
 - **Convex tests** use the real `convex-test` harness. Mock the module boundary, not the
   behaviour.
 - **Golden corpus** (`src/lib/calc/__tests__/golden/`) is the numerical regression net:
-  3 plans, 5 runs, `Infinity` codec, determinism pinned at ×2 identical sha256.
+  4 plans, 6 runs, `Infinity` codec, determinism pinned at ×2 identical sha256.
 
 ---
 
@@ -206,8 +212,9 @@ answers this in seconds; reading JSX gets it wrong, including for experienced re
 - **Husky + lint-staged** runs `eslint --fix` and `prettier --write` on commit. A commit that
   reformats unrelated lines means you skipped `npm run format`.
 - **Currency** goes through `formatCurrency` / `formatCompactCurrency` /
-  `getCurrencySymbol` in `src/lib/config/currency.ts`. `formatNumber` is for percentages and
-  plain numbers only.
+  `getCurrencySymbol` in `src/lib/utils/number-formatters.ts`, and percentages through
+  `formatPercentage` there. `formatNumber` (`convex/utils/sys_prompt_utils.ts`) is the compact
+  formatter for AI prompt text, not a UI currency helper.
 - **Components are `'use client'`** unless deliberately a server component.
 
 ---
