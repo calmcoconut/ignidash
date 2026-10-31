@@ -133,24 +133,29 @@ charts without one are an accessibility regression.
 ## 4. The invariant that will bite you: the version constant
 
 **`EXPORT_SCHEMA_VERSION` in `src/lib/export/plan-envelope.ts` is a single-writer resource.**
-It is currently **14**. Its history:
+It is currently **19**. Its history:
 
-| v   | Change                                   |
-| --- | ---------------------------------------- |
-| 1   | export/import envelope                   |
-| 2   | time binding                             |
-| 3   | couples                                  |
-| 4   | historical backtest mode                 |
-| 5   | Social Security                          |
-| 6   | household member ages                    |
-| 7   | itemized deductions                      |
-| 8   | California residency                     |
-| 9   | MFS                                      |
-| 10  | withdrawal strategies                    |
-| 11  | real estate (term, property tax, offset) |
-| 12  | milestones                               |
-| 13  | IRA after-tax basis (Form 8606 pro-rata) |
-| 14  | Roth conversions schedule (conversions)  |
+| v   | Change                                                 |
+| --- | ------------------------------------------------------ |
+| 1   | export/import envelope                                 |
+| 2   | time binding                                           |
+| 3   | couples                                                |
+| 4   | historical backtest mode                               |
+| 5   | Social Security                                        |
+| 6   | household member ages                                  |
+| 7   | itemized deductions                                    |
+| 8   | California residency                                   |
+| 9   | MFS                                                    |
+| 10  | withdrawal strategies                                  |
+| 11  | real estate (term, property tax, offset)               |
+| 12  | milestones                                             |
+| 13  | IRA after-tax basis (Form 8606 pro-rata)               |
+| 14  | Roth conversions schedule (conversions)                |
+| 15  | HSA qualified medical withdrawals & CA non-conformity  |
+| 16  | Qualified Charitable Distributions (QCDs from IRAs)    |
+| 17  | Substantially Equal Periodic Payments (SEPP)           |
+| 18  | ACA Premium Tax Credit opt-in & 2026 statutory table   |
+| 19  | Net-worth journal history in portable plan JSON export |
 
 Two people adding fields in parallel will produce a version number that claims to describe a
 shape it does not. **One field-adding change at a time.** If you need parallelism, batch by
