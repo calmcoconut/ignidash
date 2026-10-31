@@ -60,5 +60,4 @@ next-env.d.ts
 # internal planning docs (repo is public; keep these local)
 /PLAN-*.md
 /PARITY-*.md
-/GRILL-ME.md
 /GRILL-ME*.md
