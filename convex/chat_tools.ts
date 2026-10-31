@@ -146,6 +146,7 @@ type Json = Record<string, unknown>;
 const clone = <T>(value: T): T => {
   const json: string | undefined = JSON.stringify(value);
 
+  // pi-lens-ignore: unchecked-throwing-call
   return json === undefined ? value : (JSON.parse(json) as T);
 };
 
@@ -410,7 +411,14 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
       return error(`Year ${year} holds only the plan's starting state, which has no settled tax result; analyse the next year instead.`);
     }
 
-    const analytics = analyzeSimulationTaxYear({ data, index, filingStatus: baseline.taxSettings.filingStatus });
+    const analytics = analyzeSimulationTaxYear({
+      data,
+      index,
+      filingStatus: baseline.taxSettings.filingStatus,
+      // The engine prices the year in today's dollars and deflates the statute-locked thresholds;
+      // the analytics must use the same assumption or its headroom figures contradict the return.
+      inflationRatePercent: baseline.marketAssumptions.inflationRate,
+    });
 
     return JSON.stringify({
       year,

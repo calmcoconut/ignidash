@@ -51,7 +51,16 @@ import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, t
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { saltCapFor } from './tax-data/salt-cap';
-import type { CapitalGainsTaxBracket, FederalIncomeTaxBracket, FederalTaxRuleset, ProgressiveBracket, TaxYear } from './tax-data/types';
+import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
+import type {
+  CapitalGainsTaxBracket,
+  FederalIncomeTaxBracket,
+  FederalTaxRuleset,
+  ProgressiveBracket,
+  TableMeta,
+  TaxYear,
+} from './tax-data/types';
+import { cumulativeInflationIndex } from './time-binding';
 
 export interface CapitalGainsTaxesData {
   taxableIncomeTaxedAsCapitalGains: number;
@@ -155,6 +164,17 @@ export interface TaxProcessorSettings {
    * Only the separate-return path reads it. A household filing one return is unaffected.
    */
   readonly ownership?: ReturnOwnership | undefined;
+  /**
+   * The plan's inflation assumption, as a percentage, for the tax tables that are **not** indexed.
+   *
+   * The engine works in today's dollars, but a statute-locked amount (the §86 base, the NIIT and
+   * Additional Medicare thresholds, the §121 exclusion) keeps its nominal value forever, so in real
+   * terms it shrinks. Absent means 0% — no deflation — which is what a direct construction in a
+   * test wants and what the corpus looked like before the deflation existed.
+   *
+   * See `tax-data/real-dollars.ts` for which tables move and why `indexed` ones do not.
+   */
+  readonly inflationRatePercent?: number | undefined;
 }
 
 /**
@@ -824,6 +844,34 @@ export class TaxProcessor {
   }
 
   /**
+   * The plan's inflation assumption, as a percentage. Absent means none, which makes every
+   * real-dollar divisor 1 and leaves a directly-constructed processor byte-identical to the code
+   * before the deflation existed.
+   */
+  private get inflationRatePercent(): number {
+    return this.deductionSettings.inflationRatePercent ?? 0;
+  }
+
+  /**
+   * A table's dollar amounts in the plan's today-dollars.
+   *
+   * Federal tables resolve from `this.ruleset`, whose `year` can be older than `this.taxYear` (a
+   * year with no ruleset of its own borrows the nearest prior one). California resolves its own
+   * ruleset, so the caller passes that ruleset's year.
+   *
+   * Every reader of a dollar amount in a ruleset goes through here: an `indexed` table comes back
+   * unchanged, a `fixed` one is deflated, and a rate is never touched.
+   */
+  private inRealDollars<TValues>(table: TableMeta<TValues>, rulesetYear: TaxYear = this.ruleset.year): TValues {
+    const context: RealDollarContext = {
+      rulesetYear,
+      simYear: this.taxYear,
+      cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: this.inflationRatePercent }, years),
+    };
+    return tableValuesInRealDollars(table, context);
+  }
+
+  /**
    * Save carryover state before first tax calculation of the year.
    *
    * Both carryforwards are saved — the capital-loss carryover and the minimum-tax credit, which is
@@ -1208,7 +1256,7 @@ export class TaxProcessor {
     netCapitalGains: number;
     regularIncomeTax: number;
   }): AlternativeMinimumTaxesData {
-    const table = this.ruleset.tables.alternativeMinimumTax.values;
+    const table = this.inRealDollars(this.ruleset.tables.alternativeMinimumTax);
 
     // The deductions the regular return took that AMT does not allow (IRC §56(b)(1)): the standard
     // deduction, or the itemized lines it names — state and local taxes, miscellaneous itemized
@@ -1281,7 +1329,7 @@ export class TaxProcessor {
     const magiByYear = this.magiByYearFor(this.returnKey);
     magiByYear.set(taxYear, magi);
 
-    const table = this.ruleset.tables.medicareIrmaa.values;
+    const table = this.inRealDollars(this.ruleset.tables.medicareIrmaa);
     const basisTaxYear = taxYear - table.lookbackYears;
     const basisMagi = magiByYear.get(basisTaxYear) ?? null;
     const tiers = table.tiers[this.filingStatus];
@@ -1359,7 +1407,7 @@ export class TaxProcessor {
     if (this.stateResidency === 'none') return zero;
 
     const rules = getRules(this.taxYear, 'CA');
-    const conformity = rules.tables.conformity.values;
+    const conformity = this.inRealDollars(rules.tables.conformity, rules.year);
     const agi = incomeData.adjustedGrossIncome;
     const entered = this.deductionSettings.itemizedDeductions;
 
@@ -1383,32 +1431,34 @@ export class TaxProcessor {
       charitable: entered?.charitable ?? 0,
       medicalExpenses: Math.max(0, (entered?.medicalExpenses ?? 0) - conformity.medicalExpenseFloor * agi),
     };
-    const itemizedEntered = Object.entries(itemizedLines)
-      .filter(([id]) => !rules.tables.itemizedDeductionLimit.values.disallowed.includes(id))
-      .reduce((total, [, amount]) => total + amount, 0);
-
     // The CA high-income limitation: 6% of AGI over the threshold, capped at 80% of the deduction.
-    const limit = rules.tables.itemizedDeductionLimit.values;
+    const limit = this.inRealDollars(rules.tables.itemizedDeductionLimit, rules.year);
+    const itemizedEntered = Object.entries(itemizedLines)
+      .filter(([id]) => !limit.disallowed.includes(id))
+      .reduce((total, [, amount]) => total + amount, 0);
     const excessAgi = Math.max(0, agi - limit.agiThreshold[this.filingStatus]);
     const limitation = Math.min(itemizedEntered * limit.maxReductionShare, limit.rate * excessAgi);
     const itemized = Math.max(0, itemizedEntered - limitation);
 
-    const standard = rules.tables.standardDeduction.values[this.filingStatus];
+    const standard = this.inRealDollars(rules.tables.standardDeduction, rules.year)[this.filingStatus];
     const deductionType: 'standard' | 'itemized' = itemized > standard ? 'itemized' : 'standard';
     const seniorDeduction = conformity.allowsFederalSeniorDeduction ? this.seniorDeductionFor(agi) : 0;
     const deductionTaken = (deductionType === 'itemized' ? itemized : standard) + seniorDeduction;
 
     const taxableIncome = Math.max(0, income - deductionTaken);
-    const bracketTax = this.progressiveTaxOn(taxableIncome, rules.tables.incomeTaxBrackets.values[this.filingStatus]);
+    const bracketTax = this.progressiveTaxOn(
+      taxableIncome,
+      this.inRealDollars(rules.tables.incomeTaxBrackets, rules.year)[this.filingStatus]
+    );
 
-    const surcharge = rules.tables.behavioralHealthServicesTax.values;
+    const surcharge = this.inRealDollars(rules.tables.behavioralHealthServicesTax, rules.year);
     const behavioralHealthServicesTax = Math.max(0, taxableIncome - surcharge.threshold[this.filingStatus]) * surcharge.rate;
 
     // Personal exemption credits: one per taxpayer, reduced by $6 for each $2,500 (or part) of AGI
     // over the limit — $1,250 on a separate return, which is why the step is per filing status. It
     // is a credit against the tax, so it cannot make the tax negative. A separate return is one
     // taxpayer, so `taxpayers` counts the joint return only.
-    const credit = rules.tables.personalExemptionCredit.values;
+    const credit = this.inRealDollars(rules.tables.personalExemptionCredit, rules.year);
     const taxpayers = this.filingStatus === 'marriedFilingJointly' ? 2 : 1;
     const stepsOver = Math.ceil(Math.max(0, agi - credit.agiLimit[this.filingStatus]) / credit.reductionStep[this.filingStatus]);
     const exemptionCredits = Math.max(0, credit.perTaxpayer * taxpayers - stepsOver * credit.reductionPerStep);
@@ -1444,8 +1494,8 @@ export class TaxProcessor {
   private processDeductions(adjustedGrossIncome: number, stateIncomeTax: number): DeductionData {
     const standardDeduction = this.getStandardDeduction();
     const entered = this.deductionSettings.itemizedDeductions;
-    const salt = saltCapFor(this.taxYear, adjustedGrossIncome, this.filingStatus);
-    const medicalFloor = this.ruleset.tables.medicalExpenseFloor.values;
+    const salt = saltCapFor(this.taxYear, adjustedGrossIncome, this.filingStatus, this.inflationRatePercent);
+    const medicalFloor = this.inRealDollars(this.ruleset.tables.medicalExpenseFloor);
 
     // The federal SALT deduction is state income tax **plus** the property and local taxes the plan
     // entered. With California on, the income-tax half is the CA tax just computed rather than an
@@ -1518,7 +1568,7 @@ export class TaxProcessor {
    * Hand check (2026, single, age 67, MAGI $80,000): 6,000 − 6% × (80,000 − 75,000) = $5,700.
    */
   private seniorDeductionFor(adjustedGrossIncome: number): number {
-    const table = this.ruleset.tables.seniorDeduction.values;
+    const table = this.inRealDollars(this.ruleset.tables.seniorDeduction);
     if (this.taxYear > table.lastTaxYear) return 0;
     // Declared, not computed: a separate return may not claim the deduction at all (P3-P1b). See
     // `SeniorDeductionTable.eligible` — a zero amount would look like a computed value.
@@ -1553,6 +1603,7 @@ export class TaxProcessor {
       wages: annualIncomesData.totalWageIncome ?? 0,
       filingStatus: this.filingStatus,
       taxYear: this.ruleset.year,
+      inflationRatePercent: this.inflationRatePercent,
     });
 
     return { wages, selfEmployment, total: wages.total + selfEmployment.total };
@@ -1772,7 +1823,7 @@ export class TaxProcessor {
 
   /** Calculates Net Investment Income Tax — IRC §1411: 3.8% on lesser of NII or MAGI over threshold */
   private processNIIT(incomeData: IncomeSourcesData): NIITData {
-    const { rate, thresholds } = this.ruleset.tables.netInvestmentIncomeTax.values;
+    const { rate, thresholds } = this.inRealDollars(this.ruleset.tables.netInvestmentIncomeTax);
     const threshold = thresholds[this.filingStatus];
 
     const { taxableDividendIncome, taxableInterestIncome, capitalLossDeduction, realizedGains, adjustedGrossIncome } = incomeData;
@@ -1828,7 +1879,7 @@ export class TaxProcessor {
     provisionalIncome: number;
     socialSecurityIncome: number;
   }): { taxableSocialSecurityIncome: number; maxTaxableSocialSecurityPercentage: number } {
-    const table = this.ruleset.tables.socialSecurityTaxation.values;
+    const table = this.inRealDollars(this.ruleset.tables.socialSecurityTaxation);
     const tiers = table.tiers[this.filingStatus];
 
     if (table.taxableFromFirstDollar[this.filingStatus]) {
@@ -1883,15 +1934,15 @@ export class TaxProcessor {
   }
 
   private getStandardDeduction(): number {
-    return this.ruleset.tables.standardDeduction.values[this.filingStatus];
+    return this.inRealDollars(this.ruleset.tables.standardDeduction)[this.filingStatus];
   }
 
   private getFederalIncomeTaxBrackets(): FederalIncomeTaxBracket[] {
-    return this.ruleset.tables.incomeTaxBrackets.values[this.filingStatus];
+    return this.inRealDollars(this.ruleset.tables.incomeTaxBrackets)[this.filingStatus];
   }
 
   private getCapitalGainsTaxBrackets(): CapitalGainsTaxBracket[] {
-    return this.ruleset.tables.capitalGainsTaxBrackets.values[this.filingStatus];
+    return this.inRealDollars(this.ruleset.tables.capitalGainsTaxBrackets)[this.filingStatus];
   }
 
   /** Applies Section 121 exclusion for primary residence sale gains */
@@ -1899,7 +1950,7 @@ export class TaxProcessor {
     section121Exclusion: number;
     physicalAssetRealizedGains: number;
   } {
-    const maxExclusion = this.ruleset.tables.section121Exclusion.values[this.filingStatus];
+    const maxExclusion = this.inRealDollars(this.ruleset.tables.section121Exclusion)[this.filingStatus];
 
     // Technically, there should only be one primary residence asset, but just in case...
     const section121Exclusion = Object.values(physicalAssetsData.perAssetData)

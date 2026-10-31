@@ -29,11 +29,18 @@
  * the 2026 phase-down threshold is **$505,000** (not $500,000), both because the 1% escalator starts
  * in 2026. The rest of the row holds.
  *
- * ## Why `indexing: 'indexed'`
+ * ## `indexing: 'fixed'` — and why it matters here
  *
- * The repo's flag means "must be re-issued every year, never copied forward". The 2025-2029 rows
- * escalate 1% a year *by statute* (not by CPI), so they are re-issued annually and are marked
- * `indexed`; the 2030-and-later row is a flat $10,000 fixed by statute, so it is marked `fixed`.
+ * The repo's flag answers one question: does the nominal amount rise with **CPI**? None of these
+ * rows does. The 2025-2029 rows escalate 1% a year *by statute* and the 2030-and-later row is a
+ * flat $10,000 forever, so every row is `fixed`.
+ *
+ * An earlier version of this file marked the 2025-2029 rows `indexed` on the grounds that they
+ * are re-issued every year. That is true but it answers a different question, and the consequence
+ * was the one dollar amount in the model that rose with inflation forever: read raw, a 2056 return
+ * got 2026's *nominal* cap as though it had kept its purchasing power. `dollarFields` below marks
+ * the three amounts so `tableValuesInRealDollars` deflates each row to the plan's today-dollars.
+ *
  * The 2026-2029 amounts below are the statute's arithmetic (101% compounding), which is the
  * authority; the IRS publishes rounded dollars for each year as it arrives, and a rounding of cents
  * is immaterial at these magnitudes.
@@ -52,6 +59,9 @@
 
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
+import { cumulativeInflationIndex } from '../time-binding';
+
+import { tableValuesInRealDollars, type RealDollarContext } from './real-dollars';
 import type { TableMeta, TaxYear } from './types';
 
 /** One year's SALT cap: the amount, the MAGI phase-down, and the floor it cannot go below. */
@@ -75,20 +85,65 @@ const SOURCE =
   'IRC §164(b)(6)-(7), added by P.L. 119-21 §70120: $40,000 (2025), $40,400 (2026), +1%/yr through 2029, ' +
   '$10,000 from 2030; phase-down of 30% of MAGI over $500,000 (2025), $505,000 (2026), +1%/yr, floor $10,000.';
 
+/** The three amounts each row states; `phaseDownRate` is a share and is not money. */
+const SALT_DOLLAR_FIELDS = ['cap', 'phaseDownThreshold', 'floor'] as const;
+
 const SALT_CAPS: ReadonlyMap<TaxYear, TableMeta<SaltCapTable>> = new Map<TaxYear, TableMeta<SaltCapTable>>([
-  [2025, { indexing: 'indexed', source: SOURCE, values: { cap: 40000, phaseDownThreshold: 500000, phaseDownRate: 0.3, floor: 10000 } }],
-  [2026, { indexing: 'indexed', source: SOURCE, values: { cap: 40400, phaseDownThreshold: 505000, phaseDownRate: 0.3, floor: 10000 } }],
-  [2027, { indexing: 'indexed', source: SOURCE, values: { cap: 40804, phaseDownThreshold: 510050, phaseDownRate: 0.3, floor: 10000 } }],
+  [
+    2025,
+    {
+      indexing: 'fixed',
+      dollarFields: SALT_DOLLAR_FIELDS,
+      source: SOURCE,
+      values: { cap: 40000, phaseDownThreshold: 500000, phaseDownRate: 0.3, floor: 10000 },
+    },
+  ],
+  [
+    2026,
+    {
+      indexing: 'fixed',
+      dollarFields: SALT_DOLLAR_FIELDS,
+      source: SOURCE,
+      values: { cap: 40400, phaseDownThreshold: 505000, phaseDownRate: 0.3, floor: 10000 },
+    },
+  ],
+  [
+    2027,
+    {
+      indexing: 'fixed',
+      dollarFields: SALT_DOLLAR_FIELDS,
+      source: SOURCE,
+      values: { cap: 40804, phaseDownThreshold: 510050, phaseDownRate: 0.3, floor: 10000 },
+    },
+  ],
   [
     2028,
-    { indexing: 'indexed', source: SOURCE, values: { cap: 41212.04, phaseDownThreshold: 515150.5, phaseDownRate: 0.3, floor: 10000 } },
+    {
+      indexing: 'fixed',
+      dollarFields: SALT_DOLLAR_FIELDS,
+      source: SOURCE,
+      values: { cap: 41212.04, phaseDownThreshold: 515150.5, phaseDownRate: 0.3, floor: 10000 },
+    },
   ],
   [
     2029,
-    { indexing: 'indexed', source: SOURCE, values: { cap: 41624.1604, phaseDownThreshold: 520302.005, phaseDownRate: 0.3, floor: 10000 } },
+    {
+      indexing: 'fixed',
+      dollarFields: SALT_DOLLAR_FIELDS,
+      source: SOURCE,
+      values: { cap: 41624.1604, phaseDownThreshold: 520302.005, phaseDownRate: 0.3, floor: 10000 },
+    },
   ],
   // 2030 and later: the cap reverts to a flat $10,000 with no phase-down, fixed by statute.
-  [2030, { indexing: 'fixed', source: SOURCE, values: { cap: 10000, phaseDownThreshold: Infinity, phaseDownRate: 0, floor: 10000 } }],
+  [
+    2030,
+    {
+      indexing: 'fixed',
+      dollarFields: SALT_DOLLAR_FIELDS,
+      source: SOURCE,
+      values: { cap: 10000, phaseDownThreshold: Infinity, phaseDownRate: 0, floor: 10000 },
+    },
+  ],
 ]);
 
 /** The newest year the schedule names. */
@@ -150,11 +205,20 @@ export function saltCapAmountsFor(
 export function saltCapFor(
   year: TaxYear,
   magi: number,
-  filingStatus: FilingStatus = 'single'
+  filingStatus: FilingStatus = 'single',
+  inflationRatePercent = 0
 ): { cap: number; phaseDown: number; resolvedYear: TaxYear } {
   const resolved = getSaltCap(year);
-  const { phaseDownThreshold, phaseDownRate } = resolved.values;
-  const amounts = saltCapAmountsFor(resolved.values, filingStatus);
+  const context: RealDollarContext = {
+    rulesetYear: resolved.resolvedYear,
+    simYear: year,
+    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: inflationRatePercent }, years),
+  };
+  // Every row is `fixed` (see the header), so a row older than the year being settled — the
+  // 2030 row read by a 2035 return — is deflated for that many years too.
+  const values = tableValuesInRealDollars(resolved, context);
+  const { phaseDownThreshold, phaseDownRate } = values;
+  const amounts = saltCapAmountsFor(values, filingStatus);
 
   const phaseDown = Number.isFinite(phaseDownThreshold) ? phaseDownRate * Math.max(0, magi - amounts.phaseDownThreshold) : 0;
   const allowed = Math.max(amounts.floor, amounts.cap - phaseDown);

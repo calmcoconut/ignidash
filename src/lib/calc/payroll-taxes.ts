@@ -27,7 +27,9 @@ import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema
 
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { getCaliforniaSdi } from './tax-data/california-sdi';
-import type { TaxYear } from './tax-data/types';
+import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
+import type { PayrollTaxRates, TaxYear } from './tax-data/types';
+import { cumulativeInflationIndex } from './time-binding';
 
 /** One year of payroll tax withheld from wages, split by line. */
 export interface WagePayrollTaxes {
@@ -87,14 +89,45 @@ export function zeroSelfEmploymentTaxes(): SelfEmploymentTaxes {
   };
 }
 
-function wagePayrollTaxesFromCumulativeWages(wages: number, filingStatus: FilingStatus, taxYear: TaxYear): WagePayrollTaxes {
-  const { socialSecurityWageBase, payrollTaxRates, additionalMedicareThreshold } = getRules(taxYear).tables;
-  const rates = payrollTaxRates.values;
+/**
+ * The payroll table groups for `taxYear`, in the plan's today-dollars.
+ *
+ * The OASDI wage base is indexed, so it is constant in real terms; the Additional Medicare
+ * threshold has been statute-locked since 2013, so in real terms it shrinks every year. Both go
+ * through the same accessor the income-tax side uses, which is what keeps the payroll layer from
+ * being the one place a fixed threshold silently rises with inflation.
+ */
+function payrollTablesFor(
+  taxYear: TaxYear,
+  inflationRatePercent: number
+): { rates: PayrollTaxRates; wageBase: number; additionalMedicareThreshold: Record<FilingStatus, number> } {
+  const rules = getRules(taxYear);
+  const context: RealDollarContext = {
+    rulesetYear: rules.year,
+    simYear: taxYear,
+    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: inflationRatePercent }, years),
+  };
+  const { socialSecurityWageBase, payrollTaxRates, additionalMedicareThreshold } = rules.tables;
+
+  return {
+    rates: payrollTaxRates.values,
+    wageBase: tableValuesInRealDollars(socialSecurityWageBase, context),
+    additionalMedicareThreshold: tableValuesInRealDollars(additionalMedicareThreshold, context),
+  };
+}
+
+function wagePayrollTaxesFromCumulativeWages(
+  wages: number,
+  filingStatus: FilingStatus,
+  taxYear: TaxYear,
+  inflationRatePercent: number
+): WagePayrollTaxes {
+  const { rates, wageBase, additionalMedicareThreshold } = payrollTablesFor(taxYear, inflationRatePercent);
 
   // OASDI stops at the wage base; Medicare does not; SDI has had no cap since 2024.
-  const socialSecurity = Math.min(wages, socialSecurityWageBase.values) * rates.socialSecurity;
+  const socialSecurity = Math.min(wages, wageBase) * rates.socialSecurity;
   const medicare = wages * rates.medicare;
-  const additionalMedicare = Math.max(0, wages - additionalMedicareThreshold.values[filingStatus]) * rates.additionalMedicare;
+  const additionalMedicare = Math.max(0, wages - additionalMedicareThreshold[filingStatus]) * rates.additionalMedicare;
 
   const sdi = getCaliforniaSdi(taxYear).values;
   const sdiBase = sdi.wageCap === null ? wages : Math.min(wages, sdi.wageCap);
@@ -133,12 +166,15 @@ export function computeWagePayrollTaxes({
   wages,
   filingStatus,
   taxYear,
+  inflationRatePercent = 0,
 }: {
   wages: number;
   filingStatus: FilingStatus;
   taxYear: TaxYear;
+  /** The plan's inflation assumption; a fixed threshold shrinks in real terms over the run. */
+  inflationRatePercent?: number;
 }): WagePayrollTaxes {
-  return wagePayrollTaxesFromCumulativeWages(Math.max(0, wages), filingStatus, taxYear);
+  return wagePayrollTaxesFromCumulativeWages(Math.max(0, wages), filingStatus, taxYear, inflationRatePercent);
 }
 
 /**
@@ -171,20 +207,22 @@ export function computeSelfEmploymentTaxes({
   wages,
   filingStatus,
   taxYear,
+  inflationRatePercent = 0,
 }: {
   netEarnings: number;
   wages: number;
   filingStatus: FilingStatus;
   taxYear: TaxYear;
+  /** The plan's inflation assumption; a fixed threshold shrinks in real terms over the run. */
+  inflationRatePercent?: number;
 }): SelfEmploymentTaxes {
-  const { socialSecurityWageBase, payrollTaxRates, additionalMedicareThreshold } = getRules(taxYear).tables;
-  const rates = payrollTaxRates.values;
+  const { rates, wageBase, additionalMedicareThreshold } = payrollTablesFor(taxYear, inflationRatePercent);
 
   const earnings = Math.max(0, netEarnings);
   if (earnings === 0) return zeroSelfEmploymentTaxes();
 
   const taxableEarnings = earnings * rates.selfEmploymentTaxablePercentage;
-  const remainingWageBase = Math.max(0, socialSecurityWageBase.values - Math.max(0, wages));
+  const remainingWageBase = Math.max(0, wageBase - Math.max(0, wages));
 
   const socialSecurity = Math.min(taxableEarnings, remainingWageBase) * rates.selfEmploymentSocialSecurity;
   const medicare = taxableEarnings * rates.selfEmploymentMedicare;
@@ -192,7 +230,7 @@ export function computeSelfEmploymentTaxes({
   // The 0.9% threshold applies to wages and self-employment compensation together. Wages are
   // withheld first (the payroll processor charges them month by month), so the SE line carries
   // whatever part of the excess the wages did not already cover.
-  const threshold = additionalMedicareThreshold.values[filingStatus];
+  const threshold = additionalMedicareThreshold[filingStatus];
   const wageExcess = Math.max(0, Math.max(0, wages) - threshold);
   const totalExcess = Math.max(0, Math.max(0, wages) + taxableEarnings - threshold);
   const additionalMedicare = Math.max(0, totalExcess - wageExcess) * rates.additionalMedicare;
@@ -230,13 +268,16 @@ export function computeSelfEmploymentTaxes({
 export class PayrollTaxProcessor {
   private taxYear: TaxYear;
   private filingStatus: FilingStatus;
+  /** The plan's inflation assumption, so a statute-locked threshold is deflated in real terms. */
+  private readonly inflationRatePercent: number;
   private yearToDateWages = 0;
   private yearToDateTaxes = zeroWagePayrollTaxes();
   private annualData = zeroWagePayrollTaxes();
 
-  constructor(taxYear: TaxYear = LATEST_TAX_YEAR, filingStatus: FilingStatus = 'single') {
+  constructor(taxYear: TaxYear = LATEST_TAX_YEAR, filingStatus: FilingStatus = 'single', inflationRatePercent = 0) {
     this.taxYear = taxYear;
     this.filingStatus = filingStatus;
+    this.inflationRatePercent = inflationRatePercent;
   }
 
   /**
@@ -271,7 +312,12 @@ export class PayrollTaxProcessor {
     if (periodWages === 0) return zeroWagePayrollTaxes();
 
     this.yearToDateWages += periodWages;
-    const cumulative = wagePayrollTaxesFromCumulativeWages(this.yearToDateWages, this.filingStatus, this.taxYear);
+    const cumulative = wagePayrollTaxesFromCumulativeWages(
+      this.yearToDateWages,
+      this.filingStatus,
+      this.taxYear,
+      this.inflationRatePercent
+    );
     const periodTaxes = subtractWagePayrollTaxes(cumulative, this.yearToDateTaxes);
     this.yearToDateTaxes = cumulative;
 

@@ -269,6 +269,9 @@ describe('getTaxAnalytics (§7-A3, P3-P6)', () => {
       data,
       index: lastIndexFor(data, year),
       filingStatus: inputs.taxSettings.filingStatus,
+      // The tool passes the plan's inflation assumption, because the engine deflates the
+      // statute-locked thresholds and the analytics must measure against the same numbers.
+      inflationRatePercent: inputs.marketAssumptions.inflationRate,
     });
 
     const result = JSON.parse(toolkit.execute('getTaxAnalytics', { year })) as Record<string, unknown>;

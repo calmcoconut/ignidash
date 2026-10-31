@@ -5,9 +5,8 @@ import { BarChart, Bar, ResponsiveContainer, Cell, ReferenceLine, LabelList } fr
 import { formatCompactCurrency, formatPercentage } from '@/lib/utils/number-formatters';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useChartTheme } from '@/hooks/use-chart-theme';
-import type { FederalIncomeTaxBracket } from '@/lib/calc/tax-data/federal-income-tax-brackets';
-import type { CapitalGainsTaxBracket } from '@/lib/calc/tax-data/capital-gains-tax-brackets';
-import { NIIT_RATE } from '@/lib/calc/tax-data/niit-thresholds';
+import { getRules } from '@/lib/calc/tax-data';
+import type { CapitalGainsTaxBracket, FederalIncomeTaxBracket } from '@/lib/calc/tax-data/types';
 import type { SingleSimulationTaxesChartDataPoint } from '@/lib/types/chart-data-points';
 import { getMetricValueFormatter, resolveBarChart } from '@/lib/charts/metric-registry';
 import { toCategoricalBars } from '@/lib/charts/plot-types';
@@ -23,6 +22,16 @@ import {
   BarChartXAxis,
   BarChartYAxis,
 } from '../chart-primitives';
+
+/**
+ * The §1411 rate for the reference line's label.
+ *
+ * Unlike the base amount the line sits on, the rate is dimensionless and statute-locked at 3.8%,
+ * and the ruleset's `dollarFields` for the table deliberately excludes it — so it is the rate in
+ * every year a chart can plot, and the reference year it is read from cannot change it. The
+ * *threshold* comes from the data point, because that one does move (it is not CPI-indexed).
+ */
+const NIIT_RATE = getRules(2026).tables.netInvestmentIncomeTax.values.rate;
 
 const getTaxBrackets = (
   chartData: SingleSimulationTaxesChartDataPoint[]

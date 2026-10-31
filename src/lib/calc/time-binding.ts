@@ -78,8 +78,8 @@ export interface TimeBindingContext extends PlanStartContext {
  * state. Negative `years` (an event dated before the plan's start) yields an index below 1,
  * which inflates the converted amount, the mirror of deflating a future one.
  */
-export function cumulativeInflationIndex(marketAssumptions: MarketAssumptionsInputs, years: number): number {
-  return Math.pow(1 + marketAssumptions.inflationRate / 100, years);
+export function cumulativeInflationIndex(assumptions: Pick<MarketAssumptionsInputs, 'inflationRate'>, years: number): number {
+  return Math.pow(1 + assumptions.inflationRate / 100, years);
 }
 
 /** The first day of the calendar month a `customDate` time point names. */

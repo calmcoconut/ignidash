@@ -1,26 +1,36 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  FEDERAL_INCOME_TAX_BRACKETS_SINGLE,
-  FEDERAL_INCOME_TAX_BRACKETS_MARRIED_FILING_JOINTLY,
-  FEDERAL_INCOME_TAX_BRACKETS_HEAD_OF_HOUSEHOLD,
-} from './federal-income-tax-brackets';
-import {
-  CAPITAL_GAINS_TAX_BRACKETS_SINGLE,
-  CAPITAL_GAINS_TAX_BRACKETS_MARRIED_FILING_JOINTLY,
-  CAPITAL_GAINS_TAX_BRACKETS_HEAD_OF_HOUSEHOLD,
-} from './capital-gains-tax-brackets';
-import {
-  STANDARD_DEDUCTION_SINGLE,
-  STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY,
-  STANDARD_DEDUCTION_HEAD_OF_HOUSEHOLD,
-} from './standard-deduction';
-import { NIIT_RATE, NIIT_THRESHOLDS } from './niit-thresholds';
-import {
-  SOCIAL_SECURITY_TAX_THRESHOLDS_SINGLE,
-  SOCIAL_SECURITY_TAX_THRESHOLDS_MARRIED_FILING_JOINTLY,
-  SOCIAL_SECURITY_TAX_THRESHOLDS_HEAD_OF_HOUSEHOLD,
-} from './social-security-tax-brackets';
+import { FEDERAL_2026 } from './years/2026';
+
+/**
+ * The 2026 ruleset's tables, read directly (R2).
+ *
+ * These used to be six one-table modules under `tax-data/`, each a module-level `const` resolved
+ * from `getRules(2026)`. `years/2026.ts` announced they would go once the tests asserted against
+ * the ruleset; R2 is that point. Keeping them was a trap: a bare constant cannot distinguish an
+ * `indexed` table from a statute-`fixed` one, so it silently encodes "no inflation" — and these
+ * are assertions about the *nominal* 2026 data, which is exactly what the ruleset holds.
+ */
+const TABLES = FEDERAL_2026.tables;
+
+const FEDERAL_INCOME_TAX_BRACKETS_SINGLE = TABLES.incomeTaxBrackets.values.single;
+const FEDERAL_INCOME_TAX_BRACKETS_MARRIED_FILING_JOINTLY = TABLES.incomeTaxBrackets.values.marriedFilingJointly;
+const FEDERAL_INCOME_TAX_BRACKETS_HEAD_OF_HOUSEHOLD = TABLES.incomeTaxBrackets.values.headOfHousehold;
+
+const CAPITAL_GAINS_TAX_BRACKETS_SINGLE = TABLES.capitalGainsTaxBrackets.values.single;
+const CAPITAL_GAINS_TAX_BRACKETS_MARRIED_FILING_JOINTLY = TABLES.capitalGainsTaxBrackets.values.marriedFilingJointly;
+const CAPITAL_GAINS_TAX_BRACKETS_HEAD_OF_HOUSEHOLD = TABLES.capitalGainsTaxBrackets.values.headOfHousehold;
+
+const STANDARD_DEDUCTION_SINGLE = TABLES.standardDeduction.values.single;
+const STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY = TABLES.standardDeduction.values.marriedFilingJointly;
+const STANDARD_DEDUCTION_HEAD_OF_HOUSEHOLD = TABLES.standardDeduction.values.headOfHousehold;
+
+const NIIT_RATE = TABLES.netInvestmentIncomeTax.values.rate;
+const NIIT_THRESHOLDS = TABLES.netInvestmentIncomeTax.values.thresholds;
+
+const SOCIAL_SECURITY_TAX_THRESHOLDS_SINGLE = TABLES.socialSecurityTaxation.values.tiers.single;
+const SOCIAL_SECURITY_TAX_THRESHOLDS_MARRIED_FILING_JOINTLY = TABLES.socialSecurityTaxation.values.tiers.marriedFilingJointly;
+const SOCIAL_SECURITY_TAX_THRESHOLDS_HEAD_OF_HOUSEHOLD = TABLES.socialSecurityTaxation.values.tiers.headOfHousehold;
 
 describe('Tax Data Validation (2026 IRS values)', () => {
   describe('income tax brackets', () => {

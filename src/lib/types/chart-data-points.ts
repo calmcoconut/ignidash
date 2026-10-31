@@ -9,8 +9,7 @@ import type { ExpenseData } from '@/lib/calc/expenses';
 import type { IncomeData } from '@/lib/calc/incomes';
 import type { AccountDataWithFlows } from '@/lib/calc/account';
 import type { AccountDataWithReturns } from '@/lib/calc/returns';
-import type { FederalIncomeTaxBracket } from '@/lib/calc/tax-data/federal-income-tax-brackets';
-import type { CapitalGainsTaxBracket } from '@/lib/calc/tax-data/capital-gains-tax-brackets';
+import type { CapitalGainsTaxBracket, FederalIncomeTaxBracket } from '@/lib/calc/tax-data/types';
 import type { PhysicalAssetData } from '@/lib/calc/physical-assets';
 import type { DebtData } from '@/lib/calc/debts';
 

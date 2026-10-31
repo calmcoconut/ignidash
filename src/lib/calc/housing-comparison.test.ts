@@ -206,10 +206,15 @@ describe('the break-even', () => {
    * Owning wins, and it has to earn it: the down payment realizes taxable gains, so owning is behind
    * for four years and then compounds past renting.
    *
-   *   year 3: 1,351,513 − 1,355,860 = −4,347
-   *   year 4: 1,440,524 − 1,424,407 = +16,116   <- break-even
-   *   year 5: 1,533,170 − 1,496,165 = +37,006
-   *   final:  owning ahead by 592,149 over 53 years
+   *   year 3: −4,684
+   *   year 4: +15,765   <- break-even
+   *   year 5: +36,639
+   *   final:  owning ahead by 748,999 over 53 years
+   *
+   * The figures are the post-R2 readings. Statute-locked thresholds (the NIIT base amount, the
+   * Additional Medicare threshold, the SALT cap) are now deflated to today's dollars, and the renter
+   * holds the larger invested portfolio, so the same policy taxes the two plans differently as the
+   * horizon lengthens. The break-even year itself did not move; only the totals did.
    */
   const owningWins = () => compareHousing(withEmbeddedGains(), { residence: createFinancedResidence(), monthlyRent: 3800 }, OPTIONS);
 
@@ -230,8 +235,8 @@ describe('the break-even', () => {
 
     expect(report.firstAhead).toEqual(report.breakEven);
     expect(report.finalWinner).toBe('owning');
-    expect(report.finalDeltaNetWorth).toBeGreaterThan(560_000);
-    expect(report.finalDeltaNetWorth).toBeLessThan(630_000);
+    expect(report.finalDeltaNetWorth).toBeGreaterThan(700_000);
+    expect(report.finalDeltaNetWorth).toBeLessThan(800_000);
   });
 
   it('prices the sale separately, so selling costs push the break-even later', () => {
@@ -241,8 +246,8 @@ describe('the break-even', () => {
     expect(report.liquidationBreakEven?.yearIndex).toBe(7);
     expect(report.liquidationBreakEven?.calendarYear).toBe(2034);
     expect(report.finalLiquidationWinner).toBe('owning');
-    expect(report.finalDeltaLiquidationValue).toBeGreaterThan(330_000);
-    expect(report.finalDeltaLiquidationValue).toBeLessThan(400_000);
+    expect(report.finalDeltaLiquidationValue).toBeGreaterThan(480_000);
+    expect(report.finalDeltaLiquidationValue).toBeLessThan(560_000);
     // The commission costs the owner 6% of the house, which is why the two series disagree.
     expect(report.finalDeltaLiquidationValue).toBeLessThan(report.finalDeltaNetWorth);
   });
@@ -252,7 +257,7 @@ describe('the break-even', () => {
    * is ahead" implementation gets wrong. It would report a break-even at year 6 for a comparison the
    * owner loses by half a million.
    *
-   *   rent 3,400 instead of 3,800: year 5 −9,131, year 6 +1,830, ..., year 44 ahead, year 52 −537,242
+   *   rent 3,400 instead of 3,800: year 5 −9,498, year 6 +1,448, ..., year 44 +108,487, year 52 −410,643
    */
   it('refuses to call a temporary lead a break-even', () => {
     const report = compareHousing(withEmbeddedGains(), { residence: createFinancedResidence(), monthlyRent: 3400 }, OPTIONS);
@@ -266,8 +271,8 @@ describe('the break-even', () => {
     expect(ahead[ahead.length - 1].yearIndex).toBeLessThan(report.years.length - 1);
 
     expect(report.finalWinner).toBe('renting');
-    expect(report.finalDeltaNetWorth).toBeLessThan(-500_000);
-    expect(report.finalDeltaNetWorth).toBeGreaterThan(-570_000);
+    expect(report.finalDeltaNetWorth).toBeLessThan(-380_000);
+    expect(report.finalDeltaNetWorth).toBeGreaterThan(-450_000);
   });
 
   /**
@@ -283,8 +288,8 @@ describe('the break-even', () => {
     expect(report.breakEven).toBeNull();
     expect(report.liquidationBreakEven).toBeNull();
     expect(report.finalWinner).toBe('renting');
-    expect(report.finalDeltaNetWorth).toBeLessThan(-4_500_000);
-    expect(report.finalDeltaNetWorth).toBeGreaterThan(-5_100_000);
+    expect(report.finalDeltaNetWorth).toBeLessThan(-4_400_000);
+    expect(report.finalDeltaNetWorth).toBeGreaterThan(-4_600_000);
   });
 
   it('reports owning ahead from the first data point as year 0', () => {
@@ -295,8 +300,8 @@ describe('the break-even', () => {
     expect(report.breakEven).toEqual({ yearIndex: 0, age: report.years[0].age, calendarYear: 2027 });
     expect(report.firstAhead).toEqual(report.breakEven);
     expect(report.finalWinner).toBe('owning');
-    expect(report.finalDeltaNetWorth).toBeGreaterThan(680_000);
-    expect(report.finalDeltaNetWorth).toBeLessThan(760_000);
+    expect(report.finalDeltaNetWorth).toBeGreaterThan(1_050_000);
+    expect(report.finalDeltaNetWorth).toBeLessThan(1_250_000);
   });
 });
 

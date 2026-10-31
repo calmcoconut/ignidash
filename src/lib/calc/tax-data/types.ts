@@ -11,6 +11,12 @@
  *   (`'indexed'`) or fixed by statute (`'fixed'`). The two get silently confused, and
  *   borrowing an indexed table for a statutory amount (or vice versa) is a wrong-number bug
  *   that no test would catch, so the declaration is required, not optional.
+ * - `indexing` is **read**, not documentation: `./real-dollars` returns an indexed table's
+ *   amounts unchanged (they are re-issued annually, so they are already in real terms) and
+ *   divides a fixed table's dollar amounts by the cumulative inflation since the ruleset year,
+ *   because the engine works in today's dollars and a statute-locked amount erodes in real terms.
+ * - `dollarFields` names which of a fixed table's fields are money, so the deflator can never
+ *   touch a rate. It is required (and enforced by a guard test) for every `fixed` table.
  * - `source` cites the authority for the amounts, so an annual update can be reviewed as a
  *   data diff against the published release.
  *
@@ -37,11 +43,38 @@ export type Jurisdiction = 'federal' | 'CA';
  * copied forward byte-identical until the statute changes.
  */
 export type Indexing = 'indexed' | 'fixed';
+/**
+ * Where a table's **dollar** amounts live inside its `values`.
+ *
+ * A table's numbers are a mix of dollars and dimensionless rates, and only the dollars move when
+ * inflation is applied. Deflating a rate is a silent wrong-number bug (0.038 becomes 0.0369 in
+ * year 30), so the fields have to be named rather than guessed at.
+ *
+ * Grammar — a dotted path of **named keys**, traversed transparently through the two collection
+ * shapes a table uses (`ByFilingStatus` records and bracket/tier arrays):
+ *
+ * - `'thresholds'` — the `thresholds` field, and every number beneath it;
+ * - `'tiers.min'` — the `min` field of every tier of every filing status, and nothing else, so a
+ *   tier's `taxablePercentage` is left alone;
+ * - `'$'` — the table's value **is** the dollar amount (a bare `number` or a `ByFilingStatus<number>`);
+ * - `[]` — for a `'fixed'` table whose amounts are all rates, saying explicitly that nothing moves.
+ *
+ * Required when `indexing` is `'fixed'` (the accessor throws rather than deflating the wrong
+ * fields, and a guard test walks every ruleset to prove no fixed table is missing it).
+ */
+export type DollarFieldPath = string;
 
-/** A table's values plus the two facts every consumer needs about them. */
+/** A table's values plus the facts every consumer needs about them. */
 export interface TableMeta<TValues> {
   readonly values: TValues;
   readonly indexing: Indexing;
+  /**
+   * The paths, within `values`, that hold dollar amounts. See `DollarFieldPath`.
+   *
+   * Only meaningful for a `'fixed'` table: an `'indexed'` table is re-issued every year, so its
+   * amounts are already in real terms and the accessor returns them unchanged.
+   */
+  readonly dollarFields?: readonly DollarFieldPath[];
   /** Citation for the amounts: the Code section and the published release they come from. */
   readonly source: string;
 }
@@ -144,6 +177,13 @@ export interface PayrollTaxRates {
  * return). The table is declared `indexed` because the amounts that do move are the exemption and
  * its phase-out threshold; the fixed parts say so in their own source line, so the annual update
  * knows exactly what to re-issue and what to copy forward.
+ *
+ * Consequence of declaring the whole table `indexed`: `./real-dollars` leaves every field alone,
+ * including the statute-locked $175,000 ceiling, which therefore keeps its nominal value in a
+ * projection instead of eroding with the exemption it pairs with. That under-taxes the 28% band a
+ * little in long runs. It is a limit of the declaration, not of the deflator: splitting the ceiling
+ * into its own `fixed` table is what would close it, and nothing reads a table's fields except
+ * through the accessor, so the split is contained.
  *
  * `disallowedDeductions` names the below-the-line deductions the regular return allows and AMT does
  * not (IRC §56(b)(1)): the standard deduction, state and local taxes, and miscellaneous itemized

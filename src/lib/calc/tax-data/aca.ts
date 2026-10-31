@@ -151,8 +151,8 @@ const ACA_TABLES: Record<number, AcaYearTable> = {
       indexing: 'indexed',
       source: FPL_SOURCE,
     },
-    applicablePercentages: { values: ARPA_PERCENTAGE_BANDS, indexing: 'fixed', source: ARPA_SOURCE },
-    eligibility: { values: { minFplPercent: 100, maxFplPercent: null }, indexing: 'fixed', source: ARPA_BOUNDS_SOURCE },
+    applicablePercentages: { values: ARPA_PERCENTAGE_BANDS, indexing: 'fixed', dollarFields: [], source: ARPA_SOURCE },
+    eligibility: { values: { minFplPercent: 100, maxFplPercent: null }, indexing: 'fixed', dollarFields: [], source: ARPA_BOUNDS_SOURCE },
   },
   2025: {
     year: 2025,
@@ -161,8 +161,8 @@ const ACA_TABLES: Record<number, AcaYearTable> = {
       indexing: 'indexed',
       source: FPL_SOURCE,
     },
-    applicablePercentages: { values: ARPA_PERCENTAGE_BANDS, indexing: 'fixed', source: ARPA_SOURCE },
-    eligibility: { values: { minFplPercent: 100, maxFplPercent: null }, indexing: 'fixed', source: ARPA_BOUNDS_SOURCE },
+    applicablePercentages: { values: ARPA_PERCENTAGE_BANDS, indexing: 'fixed', dollarFields: [], source: ARPA_SOURCE },
+    eligibility: { values: { minFplPercent: 100, maxFplPercent: null }, indexing: 'fixed', dollarFields: [], source: ARPA_BOUNDS_SOURCE },
   },
 };
 

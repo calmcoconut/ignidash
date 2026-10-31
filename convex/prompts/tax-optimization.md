@@ -55,7 +55,10 @@ before you size a lever, and quote only what it returns.
   and the `costOfCrossing` of the first dollar past it. `cliffs.irmaa.projected` is what this
   year's MAGI will charge two premium years later: the tier, `headroomToNextTier` and
   `nextTier.stepUp`. `cliffs.aca` returns `supported: false` with its `prerequisites`: say the
-  cliff cannot be evaluated and name what it needs — never estimate an ACA number.
+  cliff cannot be evaluated and name what it needs — never estimate an ACA number. **Both
+  thresholds are statute-locked, not inflation-indexed**, so the engine prices them in today's
+  dollars: the longer the projection, the smaller the amount in `cliffs` gets. Quote the number
+  the tool returns rather than the familiar $200,000/$250,000, which is only the 2026 figure.
 - **The deduction.** `deductions` gives what the year's return took: `type` (`standard` or
   `itemized`) and the `total` deducted. `deductions.seniorDeduction` answers the senior deduction for
   the requested filing status — `available` from the ruleset, `claimed` from the return, and

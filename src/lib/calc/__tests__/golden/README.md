@@ -232,3 +232,57 @@ was already total, so its final value cannot move.
 Cross-check run before regenerating: every fixture's `state.jurisdiction` is `'CA'` with
 `resolvedYear` 2025 in every settled row, the per-year `state.total` sums to the tax above, and the
 only numeric changes outside the state block are that tax and its compounding.
+
+### R2: statute-locked thresholds are deflated to today's dollars
+
+Regenerated once, deliberately. The engine works in today's dollars, but nothing applied
+`TableMeta.indexing` to a table's _values_: a `fixed` table's amounts were read as though they kept
+their purchasing power forever. At 3% inflation the §86 base amount is worth about 40% of its
+nominal value after 31 years, so Social Security, the NIIT, the Additional Medicare Tax, the senior
+deduction, the §121 exclusion and the SALT cap were all under-taxed by an amount that grows with the
+horizon. `tax-data/real-dollars.ts` now divides a `fixed` table's declared dollar fields by the
+cumulative index over `simYear − rulesetYear`, and every reader in `taxes.ts`, `payroll-taxes.ts`,
+`tax-analytics.ts` and `salt-cap.ts` goes through it. `indexed` tables are returned unchanged, which
+is why the federal and California bracket breakpoints do not move.
+
+**The control that says the plumbing is inert until inflation is nonzero.** Re-running this corpus
+with every fixture's `inflationRate` forced to 0 produced `sha256 082efeff…bf727` and 1,636,975 bytes
+before this change and the same hash and byte count after it. Only the 3% runs move.
+
+| fixture / run                | Σ `totalTaxLiability`                   | final portfolio                             |
+| ---------------------------- | --------------------------------------- | ------------------------------------------- |
+| `steady-saver` / fixed       | 750,191.57 → **750,740.93** (+549.36)   | 3,612,855.90 → **3,612,273.00** (−582.90)   |
+| `steady-saver` / stochastic  | 751,720.19 → **753,148.29** (+1,428.10) | 4,137,645.60 → **4,136,268.20** (−1,377.40) |
+| `steady-saver` / historical  | 767,332.24 → **767,944.99** (+612.75)   | 3,512,387.39 → **3,511,580.07** (−807.32)   |
+| `time-binding-mixed` / fixed | 745,153.12 → **751,744.07** (+6,590.95) | 2,409,407.30 → **2,402,816.36** (−6,590.94) |
+| `marginal-retiree` / fixed   | 121,386.23 → **121,386.23** (0)         | 0.00 → **0.00** (0)                         |
+| `shortfall-repaid` / fixed   | 287,211.77 → **287,211.77** (0)         | 233,020.81 → **233,020.81** (0)             |
+
+Corpus `a946a8dc…f801241` → **`1e002e8a…b4570fe`**.
+
+**Why the movement is exactly this, and nothing else.** Three deflated amounts appear in these plans'
+rows, and the year each one first binds explains the shape of each diff:
+
+- `steady-saver` itemizes in some years, and its `deduction.saltCap.allowed` falls by $5,424.78
+  across the run as the cap is deflated. From year 21 its $110,000 of wages exceed the deflated
+  $200,000 Additional Medicare threshold, so `fica.wages.additionalMedicare` turns on (+$385.79
+  across the run) — and the withholding that leaves the paycheque also shrinks the pre-tax
+  contribution the plan's `save` rule makes from the surplus, which is why
+  `incomeSources.taxDeductibleContributions` falls by the same $385.79 and taxable ordinary income
+  rises by it. `niit.niitAmount` first becomes non-zero in year 25 ($78.70), when the deflated
+  $200,000 base amount drops below the portfolio's investment income plus MAGI.
+- `time-binding-mixed` has the largest taxable account of the four, so the deflated NIIT base binds
+  much earlier — its `niit.threshold` falls from $200,000 to $177,697 by year 4 — and the run pays
+  $6,590.95 more.
+- `marginal-retiree` moves by exactly zero, and the reason is structural rather than lucky: it has
+  **no** Social Security income and its `niit.netInvestmentIncome` is zero in every row, so no
+  deflated threshold is ever compared against a non-zero amount. Its SALT and senior-deduction
+  lines do not move either (it never itemizes, and its returns are all below the senior deduction's
+  phase-down).
+- `shortfall-repaid` also moves by exactly zero, verified the same way: it has no Social Security
+  income, and although it holds investment income from year 13, its MAGI never exceeds the
+  _deflated_ base amount in any of those years (max MAGI $90,899), so the NIIT line stays zero.
+
+Each final-portfolio delta is slightly larger in magnitude than the tax delta because the tax is paid
+out of the portfolio and stops compounding there — the same mechanism documented under P3-P8.
+`success` is unchanged for every fixture, including the two that are `false` by design.

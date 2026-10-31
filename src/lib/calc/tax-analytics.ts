@@ -73,8 +73,26 @@ import { computeSelfEmploymentTaxes, computeWagePayrollTaxes } from './payroll-t
 import type { SimulationDataPoint } from './simulation-engine';
 import { getRules } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
-import type { CapitalGainsTaxBracket, ProgressiveBracket, TaxYear } from './tax-data/types';
+import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
+import type { CapitalGainsTaxBracket, ProgressiveBracket, TableMeta, TaxRuleset, TaxYear } from './tax-data/types';
 import type { StateTaxesData, TaxesData } from './taxes';
+import { cumulativeInflationIndex } from './time-binding';
+
+/**
+ * A ruleset's table in the plan's today-dollars.
+ *
+ * The analytics must agree with the engine about a threshold, and the engine deflates the tables
+ * that are fixed by statute (see `tax-data/real-dollars.ts`). The analytics reads the same accessor
+ * so a headroom figure is measured against the amount the return actually used.
+ */
+function realDollars<TValues>(table: TableMeta<TValues>, rules: TaxRuleset, taxYear: TaxYear, inflationRatePercent: number): TValues {
+  const context: RealDollarContext = {
+    rulesetYear: rules.year,
+    simYear: taxYear,
+    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: inflationRatePercent }, years),
+  };
+  return tableValuesInRealDollars(table, context);
+}
 
 // ============================================================================
 // Public shapes
@@ -302,6 +320,11 @@ export interface TaxAnalyticsInput {
   earnedIncome: { wages: number; selfEmployment: number };
   /** MAGI from two tax years earlier, for the IRMAA lookback. Omit when unavailable. */
   priorYearMagi?: { taxYear: TaxYear; magi: number };
+  /**
+   * The plan's inflation assumption, as a percentage, so a statute-locked threshold is measured at
+   * the same real value the return used. Absent means 0%, which is the no-deflation reading.
+   */
+  inflationRatePercent?: number;
 }
 
 export interface TaxAnalytics {
@@ -451,8 +474,21 @@ function capitalGainsBracketRows(taxableOrdinary: number, taxableGains: number, 
  * $110,000 the tier is 1 ($81.20 Part B + $14.50 Part D a month), with $27,000 of room before the
  * $137,000 threshold.
  */
-export function irmaaCliff({ magi, taxYear, filingStatus }: { magi: number; taxYear: TaxYear; filingStatus: FilingStatus }): IrmaaCliff {
-  const table = getRules(taxYear).tables.medicareIrmaa.values;
+export function irmaaCliff({
+  magi,
+  taxYear,
+  filingStatus,
+  inflationRatePercent = 0,
+}: {
+  magi: number;
+  taxYear: TaxYear;
+  filingStatus: FilingStatus;
+  inflationRatePercent?: number;
+}): IrmaaCliff {
+  const rules = getRules(taxYear);
+  // The IRMAA table is indexed, so this is a no-op today; it is read through the accessor so a
+  // future ruleset that marks a tier amount `fixed` cannot leave the analytics on nominal dollars.
+  const table = realDollars(rules.tables.medicareIrmaa, rules, taxYear, inflationRatePercent);
   const rows = table.tiers[filingStatus];
   const index = irmaaTierFor(magi, rows);
   const row = rows[index];
@@ -526,16 +562,17 @@ interface YearModel {
 function buildYearModel(input: TaxAnalyticsInput): YearModel {
   const rules = getRules(input.taxYear);
   const { taxes } = input;
-  const tiers = rules.tables.socialSecurityTaxation.values.tiers[input.filingStatus];
+  const inflationRatePercent = input.inflationRatePercent ?? 0;
+  const inRealDollars = <TValues>(table: TableMeta<TValues>) => realDollars(table, rules, input.taxYear, inflationRatePercent);
+  const tiers = inRealDollars(rules.tables.socialSecurityTaxation).tiers[input.filingStatus];
   const maxShare = tiers[tiers.length - 1].taxablePercentage;
-
   return {
     taxYear: input.taxYear,
     filingStatus: input.filingStatus,
-    ordinaryBrackets: rules.tables.incomeTaxBrackets.values[input.filingStatus],
-    capitalGainsBrackets: rules.tables.capitalGainsTaxBrackets.values[input.filingStatus],
+    ordinaryBrackets: inRealDollars(rules.tables.incomeTaxBrackets)[input.filingStatus],
+    capitalGainsBrackets: inRealDollars(rules.tables.capitalGainsTaxBrackets)[input.filingStatus],
     niitRate: rules.tables.netInvestmentIncomeTax.values.rate,
-    niitThreshold: rules.tables.netInvestmentIncomeTax.values.thresholds[input.filingStatus],
+    niitThreshold: inRealDollars(rules.tables.netInvestmentIncomeTax).thresholds[input.filingStatus],
 
     taxableOrdinary: taxes.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary,
     taxableCapitalGains: taxes.capitalGainsTaxes.taxableIncomeTaxedAsCapitalGains,
@@ -735,9 +772,16 @@ const CALIFORNIA_NOT_MODELLED = [
  * figure, copied — so "the rule denies it" and "the year allows it but nothing was claimed" stay
  * distinguishable in one object.
  */
-function seniorDeductionAvailability(taxYear: TaxYear, filingStatus: FilingStatus, claimed: number): SeniorDeductionAvailability {
+function seniorDeductionAvailability(
+  taxYear: TaxYear,
+  filingStatus: FilingStatus,
+  claimed: number,
+  inflationRatePercent: number
+): SeniorDeductionAvailability {
   const rules = getRules(taxYear);
-  const table = rules.tables.seniorDeduction.values;
+  // `eligible` and `lastTaxYear` are not dollars; reading through the accessor keeps this function
+  // honest if the table's money is deflated (it is: `perIndividual` and the phase-out threshold).
+  const table = realDollars(rules.tables.seniorDeduction, rules, taxYear, inflationRatePercent);
   const available = table.eligible[filingStatus];
   const inForce = taxYear <= table.lastTaxYear;
 
@@ -790,7 +834,12 @@ function resolveIrmaaLookback(input: TaxAnalyticsInput): {
   }
 
   // The thresholds applied are the premium year's; only the MAGI comes from the lookback year.
-  const tier = irmaaCliff({ magi: prior.magi, taxYear: input.taxYear, filingStatus: input.filingStatus }).tier;
+  const tier = irmaaCliff({
+    magi: prior.magi,
+    taxYear: input.taxYear,
+    filingStatus: input.filingStatus,
+    inflationRatePercent: input.inflationRatePercent ?? 0,
+  }).tier;
   return { charged: { ...tier, magi: prior.magi, magiTaxYear: prior.taxYear }, unavailable: null };
 }
 
@@ -840,10 +889,20 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
 
   const rules = getRules(input.taxYear);
   const niitHeadroom = Math.max(0, model.niitThreshold - model.magi);
-  const additionalMedicareThreshold = rules.tables.additionalMedicareThreshold.values[input.filingStatus];
+  const additionalMedicareThreshold = realDollars(
+    rules.tables.additionalMedicareThreshold,
+    rules,
+    input.taxYear,
+    input.inflationRatePercent ?? 0
+  )[input.filingStatus];
   const additionalMedicareHeadroom = Math.max(0, additionalMedicareThreshold - model.wages);
 
-  const projectedIrmaa = irmaaCliff({ magi: model.magi, taxYear: input.taxYear, filingStatus: input.filingStatus });
+  const projectedIrmaa = irmaaCliff({
+    magi: model.magi,
+    taxYear: input.taxYear,
+    filingStatus: input.filingStatus,
+    inflationRatePercent: input.inflationRatePercent ?? 0,
+  });
   const lookback = resolveIrmaaLookback(input);
 
   return {
@@ -860,7 +919,12 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
     deductions: {
       type: input.taxes.deduction.type,
       total: input.taxes.deduction.total,
-      seniorDeduction: seniorDeductionAvailability(input.taxYear, input.filingStatus, input.taxes.deduction.seniorDeduction),
+      seniorDeduction: seniorDeductionAvailability(
+        input.taxYear,
+        input.filingStatus,
+        input.taxes.deduction.seniorDeduction,
+        input.inflationRatePercent ?? 0
+      ),
     },
     bracketFill: {
       ordinary: { brackets: ordinaryRows, taxableIncome: model.taxableOrdinary, nextDollarRate: ordinaryRate },
@@ -977,6 +1041,8 @@ export function analyzeSimulationTaxYear(params: {
   data: readonly SimulationDataPoint[];
   index: number;
   filingStatus: FilingStatus;
+  /** The plan's inflation assumption, so a statute-locked threshold matches the return's. */
+  inflationRatePercent?: number;
 }): TaxAnalytics {
   const dataPoint = params.data[params.index];
   if (!dataPoint) throw new Error(`No simulation data point at index ${params.index}`);
@@ -1000,5 +1066,6 @@ export function analyzeSimulationTaxYear(params: {
       selfEmployment: dataPoint.incomes?.totalSelfEmploymentIncome ?? 0,
     },
     priorYearMagi,
+    inflationRatePercent: params.inflationRatePercent,
   });
 }

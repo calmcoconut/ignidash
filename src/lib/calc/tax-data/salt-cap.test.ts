@@ -17,7 +17,10 @@ describe('SALT cap schedule', () => {
     expect(resolved.values.phaseDownThreshold).toBe(505000);
     expect(resolved.values.phaseDownRate).toBe(0.3);
     expect(resolved.values.floor).toBe(10000);
-    expect(resolved.indexing).toBe('indexed');
+    // `fixed` is about CPI, not about whether the amount is re-issued: the 1%/yr escalator is
+    // statutory, so in today's dollars the cap erodes. See `real-dollars.ts`.
+    expect(resolved.indexing).toBe('fixed');
+    expect(resolved.dollarFields).toEqual(['cap', 'phaseDownThreshold', 'floor']);
     expect(resolved.resolvedYear).toBe(2026);
   });
 
@@ -37,6 +40,21 @@ describe('SALT cap schedule', () => {
     // A year past the last row keeps the reverted amount rather than inventing a new one.
     expect(getSaltCap(2040).values.cap).toBe(10000);
     expect(getSaltCap(2040).resolvedYear).toBe(2030);
+  });
+
+  it('deflates a row to the plan’s today-dollars when the settlement year is later', () => {
+    // The escalator is 1% a year by statute and nothing else: at 3% inflation the real cap falls.
+    // 2035 resolves the 2030 row ($10,000, no phase-down) five years late: 10,000 / 1.03^5.
+    const fiveYearsOut = saltCapFor(2035, 0, 'single', 3);
+    expect(fiveYearsOut.cap).toBeCloseTo(10000 / Math.pow(1.03, 5), 6);
+    expect(fiveYearsOut.resolvedYear).toBe(2030);
+
+    // 2029's $41,624.16 row read by a 2029 settlement is unchanged, because the divisor is 1 there.
+    expect(saltCapFor(2029, 0).cap).toBeCloseTo(41624.1604);
+    expect(saltCapFor(2029, 0, 'single', 3).cap).toBeCloseTo(41624.1604);
+
+    // A 0% plan is the no-deflation reading: the nominal schedule, unchanged.
+    expect(saltCapFor(2035, 0, 'single', 0).cap).toBe(10000);
   });
 
   it('applies no phase-down at or below the threshold, and 30% of the excess above it', () => {

@@ -10,6 +10,12 @@
  * Amounts: IRS 2026 inflation adjustments, including the OBBBA amendments. The NIIT (§1411),
  * Social Security base amounts (§86) and §121 exclusion are statutory and were not adjusted for
  * 2026 — they are marked `indexing: 'fixed'` for exactly that reason.
+ *
+ * `fixed` is not only a note for the next annual update: `tax-data/real-dollars.ts` reads it. The
+ * engine simulates in today's dollars, so a fixed amount is divided by the cumulative inflation
+ * since this ruleset year whenever a later year settles against it — the $25,000 §86 base amount is
+ * worth about $10,000 in today's dollars by 2057. `dollarFields` on each fixed table says which of
+ * its numbers are money, so a rate (3.8% NIIT, 6.2% OASDI) is never deflated.
  */
 
 import type { FederalTaxRuleset } from '../types';
@@ -117,6 +123,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     },
     netInvestmentIncomeTax: {
       indexing: 'fixed',
+      // The 3.8% rate is dimensionless; only the base amounts are money.
+      dollarFields: ['thresholds'],
       source:
         'IRC §1411; 3.8% rate and $200k/$250k/$125k base amounts, not indexed since 2013. ' +
         '§1411(b)(2) sets the separate-return threshold at $125,000, half of the joint $250,000.',
@@ -148,6 +156,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     // deductible above the line (IRC §164(f)). All of these are statutory, not indexed.
     payrollTaxRates: {
       indexing: 'fixed',
+      // Every value in this table is a rate, so nothing here is deflated with inflation.
+      dollarFields: [],
       source:
         'IRC §3101(a) (6.2% OASDI), §3101(b) (1.45% Medicare), §3101(b)(2) (0.9% Additional Medicare), ' +
         '§1401(a)-(b) (12.4% + 2.9% self-employment), §1402(a)(12) (92.35% of net SE earnings) and §164(f) (half of SE tax deductible).',
@@ -260,6 +270,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     // years beginning before January 1, 2029. Fixed by statute, not indexed.
     seniorDeduction: {
       indexing: 'fixed',
+      // The 6% phase-out rate, the eligibility flags and the sunset year stay as stated.
+      dollarFields: ['perIndividual', 'phaseOutThreshold'],
       source:
         'IRC §151(d)(5)(C), added by P.L. 119-21 §70103: $6,000 per individual aged 65+, reduced by 6% of MAGI over ' +
         '$75,000 ($150,000 joint, $75,000 separate), taxable years beginning before January 1, 2029; the paragraph denies ' +
@@ -277,6 +289,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     // IRC §213(a): medical expenses are deductible only above 7.5% of AGI. A rate, so `fixed`.
     medicalExpenseFloor: {
       indexing: 'fixed',
+      // 7.5% is a rate: the floor is a share of AGI, not an amount, so inflation never touches it.
+      dollarFields: [],
       source: 'IRC §213(a): the medical-expense deduction is limited to expenses above 7.5% of adjusted gross income.',
       values: 0.075,
     },
@@ -287,6 +301,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     // true-up), so the filing status wins.
     additionalMedicareThreshold: {
       indexing: 'fixed',
+      // The value itself is the filing-status-keyed dollar amount.
+      dollarFields: ['$'],
       source:
         'IRC §3101(b)(2)(A), §1401(b)(2)(A): $200,000 single/HOH, $250,000 MFJ, $125,000 separate (half the joint amount); ' +
         'not indexed since 2013.',
@@ -299,6 +315,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     },
     socialSecurityTaxation: {
       indexing: 'fixed',
+      // The tier bounds are money; `taxablePercentage` (50%/85%) is the §86 share and is not.
+      dollarFields: ['tiers.min', 'tiers.max'],
       source:
         'IRC §86; base amounts of $25,000/$34,000 (single, HOH) and $32,000/$44,000 (MFJ), fixed by statute; ' +
         '§86(c)(1)(C) and (c)(2)(C) set both the base and the adjusted base amount of a married individual filing a separate ' +
@@ -336,6 +354,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     },
     section121Exclusion: {
       indexing: 'fixed',
+      // The value itself is the filing-status-keyed dollar amount.
+      dollarFields: ['$'],
       source:
         'IRC §121(b)(1)-(2); $250,000 generally and $500,000 on a joint return, fixed by statute. A separate return is the ' +
         'general $250,000: §121(b)(1) is the base amount and (b)(2) is what doubles it for a joint return.',

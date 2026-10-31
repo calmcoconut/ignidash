@@ -125,6 +125,8 @@ export const CALIFORNIA_2025: CaliforniaTaxRuleset = {
     },
     behavioralHealthServicesTax: {
       indexing: 'fixed',
+      // The 1% rate is dimensionless; only the $1,000,000 / $500,000 threshold is money.
+      dollarFields: ['threshold'],
       source:
         'R&TC §17043; 2025 Form 540, line 62 worksheet: 1% of the amount over $1,000,000 (the Mental Health Services Tax before ' +
         '2025), and $500,000 on a separate return.',
@@ -185,6 +187,8 @@ export const CALIFORNIA_2025: CaliforniaTaxRuleset = {
     },
     conformity: {
       indexing: 'fixed',
+      // Conformity flags and the 7.5% medical floor: no amounts, nothing to deflate.
+      dollarFields: [],
       source:
         '2025 Form 540 booklet ("Federal Tax Changes Under One Big Beautiful Bill Act (OBBBA) — In general, California R&TC does not ' +
         'conform to the OBBBA"), Schedule CA (540) lines 4 and 5a, and Schedules X/Y/Z (one schedule for all income).',

@@ -408,7 +408,13 @@ export class FinancialSimulationEngine {
     // withholding and the tax processor reports the same year's total.
     // Its tax year is the *settlement* year of the period being accumulated, not the year the run
     // starts in: see `settlementTaxYearForPeriod`. Both processors therefore price one year.
-    let payrollTaxProcessor = new PayrollTaxProcessor(settlementTaxYearForPeriod(startCalendarDate, 0), filingStatus);
+    // The plan's inflation assumption travels with it: a statute-locked threshold is deflated to
+    // today's dollars, and a 0% plan is byte-identical to the pre-deflation engine.
+    let payrollTaxProcessor = new PayrollTaxProcessor(
+      settlementTaxYearForPeriod(startCalendarDate, 0),
+      filingStatus,
+      this.inputs.marketAssumptions.inflationRate
+    );
     // The per-owner totals exist only for a separate-return year (P3-P1b): they are what the two
     // returns are divided from. A one-return household — one member, or a couple filing jointly —
     // keeps the income data it always had, which is why the frozen corpus does not move.
@@ -438,6 +444,9 @@ export class FinancialSimulationEngine {
     // each restate it. A household filing one return never reads the block.
     const taxProcessorSettings: TaxProcessorSettings = {
       ...this.inputs.taxSettings,
+      // The tax tables are nominal; the engine is in today's dollars. `TaxProcessor` needs the
+      // assumption to deflate the tables that are fixed by statute (see `tax-data/real-dollars.ts`).
+      inflationRatePercent: this.inputs.marketAssumptions.inflationRate,
       ownership: {
         accounts: simulationContext.accountOwners ?? {},
         physicalAssets: simulationContext.physicalAssetOwners ?? {},
@@ -612,7 +621,8 @@ export class FinancialSimulationEngine {
           );
           payrollTaxProcessor = new PayrollTaxProcessor(
             settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month),
-            filingStatus
+            filingStatus,
+            this.inputs.marketAssumptions.inflationRate
           );
           incomesProcessor = new IncomesProcessor(
             simulationState,

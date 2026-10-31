@@ -6,13 +6,22 @@ import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import type { FederalTaxRuleset } from './tax-data/types';
 import { Portfolio } from './portfolio';
 import { computeWagePayrollTaxes } from './payroll-taxes';
-import {
-  STANDARD_DEDUCTION_SINGLE,
-  STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY,
-  STANDARD_DEDUCTION_HEAD_OF_HOUSEHOLD,
-} from './tax-data/standard-deduction';
-import { NIIT_RATE, NIIT_THRESHOLDS } from './tax-data/niit-thresholds';
-import { SECTION_121_EXCLUSION } from './tax-data/section-121-exclusion';
+import { FEDERAL_2026 } from './tax-data/years/2026';
+
+/**
+ * The 2026 ruleset's own tables, read directly (R2). `tax-data/`'s old single-table alias modules
+ * were deleted: a module-level `const` derived from one year cannot distinguish an `indexed` table
+ * from a statute-`fixed` one, and every assertion against it silently assumed 0% inflation. These
+ * tests construct a processor with no inflation assumption, so the nominal 2026 amounts are the
+ * right expectation here — a future-year test must read the ruleset through `inRealDollars`.
+ */
+const FEDERAL_2026_TABLES = FEDERAL_2026.tables;
+const STANDARD_DEDUCTION_SINGLE = FEDERAL_2026_TABLES.standardDeduction.values.single;
+const STANDARD_DEDUCTION_MARRIED_FILING_JOINTLY = FEDERAL_2026_TABLES.standardDeduction.values.marriedFilingJointly;
+const STANDARD_DEDUCTION_HEAD_OF_HOUSEHOLD = FEDERAL_2026_TABLES.standardDeduction.values.headOfHousehold;
+const NIIT_RATE = FEDERAL_2026_TABLES.netInvestmentIncomeTax.values.rate;
+const NIIT_THRESHOLDS = FEDERAL_2026_TABLES.netInvestmentIncomeTax.values.thresholds;
+const SECTION_121_EXCLUSION = FEDERAL_2026_TABLES.section121Exclusion.values;
 import {
   createEmptyPortfolioData,
   createEmptyIncomesData,
