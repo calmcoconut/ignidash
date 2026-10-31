@@ -428,68 +428,63 @@ export class PortfolioProcessor {
     let earningsWithdrawn = 0;
     let unseasonedConversionsWithdrawn = 0;
 
-    const withdrawalOrder = this.getWithdrawalOrder();
+    const withdrawalSteps = this.withdrawalStepsForMonth();
     const desiredWithdrawal = Math.abs(netCashFlow);
     let remainingToWithdraw = annualAllowance === undefined ? desiredWithdrawal : Math.min(desiredWithdrawal, Math.max(0, annualAllowance));
     let withdrawnTotal = 0;
 
-    for (const { accountType, modifier } of withdrawalOrder) {
+    for (const { item, account } of withdrawalSteps) {
       if (remainingToWithdraw <= 0) break;
 
-      const accountsOfType = this.simulationState.portfolio.getAccounts().filter((account) => account.getAccountType() === accountType);
-      if (accountsOfType.length === 0) continue;
+      const { modifier } = item;
 
-      for (const account of accountsOfType) {
-        if (remainingToWithdraw <= 0) break;
-        if (!(account.getBalance() > 0)) continue;
+      if (!(account.getBalance() > 0)) continue;
 
-        let maxWithdrawable = account.getBalance();
-        if (modifier === 'contributionsOnly' && account instanceof TaxFreeAccount) {
-          maxWithdrawable = Math.min(maxWithdrawable, account.getContributionBasis());
-        }
-
-        const withdrawFromThisAccount = Math.min(remainingToWithdraw, maxWithdrawable);
-
-        const withdrawalAllocation = this.getAllocationForWithdrawal(withdrawFromThisAccount);
-        const startCalendarDate = {
-          year: this.simulationContext.startDate.getFullYear(),
-          month: this.simulationContext.startDate.getMonth() + 1,
-          day: 1,
-        };
-        const currentMonthStart = addMonths(startCalendarDate, this.simulationState.time.month - 1);
-        const currentDate = formatISODate({
-          year: currentMonthStart.year,
-          month: currentMonthStart.month,
-          day: 1,
-        });
-        const {
-          realizedGains: realizedGainsFromThisAccount,
-          earningsWithdrawn: earningsWithdrawnFromThisAccount,
-          unseasonedConversionsWithdrawn: unseasonedConversionsFromThisAccount,
-          ...withdrawnAssets
-        } = account.applyWithdrawal(withdrawFromThisAccount, 'regular', withdrawalAllocation, {
-          date: currentDate,
-          age: this.simulationState.time.age,
-        });
-
-        realizedGainsByAccount[account.getAccountID()] =
-          (realizedGainsByAccount[account.getAccountID()] ?? 0) + realizedGainsFromThisAccount;
-        realizedGains += realizedGainsFromThisAccount;
-
-        earningsWithdrawnByAccount[account.getAccountID()] =
-          (earningsWithdrawnByAccount[account.getAccountID()] ?? 0) + earningsWithdrawnFromThisAccount;
-        earningsWithdrawn += earningsWithdrawnFromThisAccount;
-
-        if (unseasonedConversionsFromThisAccount && unseasonedConversionsFromThisAccount > 0) {
-          unseasonedConversionsWithdrawnByAccount[account.getAccountID()] =
-            (unseasonedConversionsWithdrawnByAccount[account.getAccountID()] ?? 0) + unseasonedConversionsFromThisAccount;
-          unseasonedConversionsWithdrawn += unseasonedConversionsFromThisAccount;
-        }
-
-        byAccount[account.getAccountID()] = addFlows(byAccount[account.getAccountID()] ?? zeroFlows(), withdrawnAssets);
-        remainingToWithdraw -= withdrawFromThisAccount;
-        withdrawnTotal += withdrawFromThisAccount;
+      let maxWithdrawable = account.getBalance();
+      if (modifier === 'contributionsOnly' && account instanceof TaxFreeAccount) {
+        maxWithdrawable = Math.min(maxWithdrawable, account.getContributionBasis());
       }
+
+      const withdrawFromThisAccount = Math.min(remainingToWithdraw, maxWithdrawable);
+
+      const withdrawalAllocation = this.getAllocationForWithdrawal(withdrawFromThisAccount);
+      const startCalendarDate = {
+        year: this.simulationContext.startDate.getFullYear(),
+        month: this.simulationContext.startDate.getMonth() + 1,
+        day: 1,
+      };
+      const currentMonthStart = addMonths(startCalendarDate, this.simulationState.time.month - 1);
+      const currentDate = formatISODate({
+        year: currentMonthStart.year,
+        month: currentMonthStart.month,
+        day: 1,
+      });
+      const {
+        realizedGains: realizedGainsFromThisAccount,
+        earningsWithdrawn: earningsWithdrawnFromThisAccount,
+        unseasonedConversionsWithdrawn: unseasonedConversionsFromThisAccount,
+        ...withdrawnAssets
+      } = account.applyWithdrawal(withdrawFromThisAccount, 'regular', withdrawalAllocation, {
+        date: currentDate,
+        age: this.ageForAccount(account),
+      });
+
+      realizedGainsByAccount[account.getAccountID()] = (realizedGainsByAccount[account.getAccountID()] ?? 0) + realizedGainsFromThisAccount;
+      realizedGains += realizedGainsFromThisAccount;
+
+      earningsWithdrawnByAccount[account.getAccountID()] =
+        (earningsWithdrawnByAccount[account.getAccountID()] ?? 0) + earningsWithdrawnFromThisAccount;
+      earningsWithdrawn += earningsWithdrawnFromThisAccount;
+
+      if (unseasonedConversionsFromThisAccount && unseasonedConversionsFromThisAccount > 0) {
+        unseasonedConversionsWithdrawnByAccount[account.getAccountID()] =
+          (unseasonedConversionsWithdrawnByAccount[account.getAccountID()] ?? 0) + unseasonedConversionsFromThisAccount;
+        unseasonedConversionsWithdrawn += unseasonedConversionsFromThisAccount;
+      }
+
+      byAccount[account.getAccountID()] = addFlows(byAccount[account.getAccountID()] ?? zeroFlows(), withdrawnAssets);
+      remainingToWithdraw -= withdrawFromThisAccount;
+      withdrawnTotal += withdrawFromThisAccount;
     }
 
     const total = Object.values(byAccount).reduce((acc, curr) => addFlows(acc, curr), zeroFlows());
@@ -534,6 +529,26 @@ export class PortfolioProcessor {
     const owner = this.simulationContext.accountOwners?.[account.getAccountID()] ?? 'primary';
 
     return this.simulationContext.rmdAgeByOwner?.[owner] ?? this.simulationContext.rmdAge;
+  }
+
+  /**
+   * This account owner's age on the plan's axis (P1-P3).
+   *
+   * `simulationState.time.age` is the *primary's* age — the axis the clock runs on — so an owner of
+   * a different age is that reading less the offset the engine resolved for the member. An account
+   * with no recorded owner reads as `primary` (as `ownerOf` does everywhere else), and a context
+   * built without the map — a unit test, or a caller that predates per-member ages — falls back to
+   * the clock's own age for every account, which is exactly the pre-household behaviour.
+   *
+   * Every age a withdrawal is measured against reads this: the Roth seasoning rule on
+   * `applyWithdrawal`, the withdrawal-order switch below, and (through the same offsets) the tax
+   * layer's early-withdrawal gates. A gate read at one age and a penalty charged at another is the
+   * contradiction this exists to prevent.
+   */
+  private ageForAccount(account: Account): number {
+    const owner = this.simulationContext.accountOwners?.[account.getAccountID()] ?? 'primary';
+
+    return this.simulationState.time.age - (this.simulationContext.ageOffsetByOwner?.[owner] ?? 0);
   }
 
   /**
@@ -997,19 +1012,56 @@ export class PortfolioProcessor {
   }
 
   /**
-   * Returns the withdrawal order from the injected strategy.
+   * The withdrawal order from the injected strategy, read at one age.
    *
    * The default (`ordered`) strategy returns exactly the age-based sequence this method used to
    * hardcode — before 59.5: savings -> taxable -> Roth contributions -> tax-deferred -> Roth
    * earnings -> HSA; after: savings -> tax-deferred -> taxable -> Roth -> HSA — so the default run
    * is unchanged. A capping strategy still withdraws *from* the same places, only less per year.
    */
-  private getWithdrawalOrder(): readonly WithdrawalOrderItem[] {
+  private getWithdrawalOrder(age: number): readonly WithdrawalOrderItem[] {
     return this.withdrawalStrategy.getOrder({
-      age: this.simulationState.time.age,
+      age,
       endAge: this.simulationContext.endAge,
       portfolioValue: this.simulationState.portfolio.getTotalValue(),
     });
+  }
+
+  /**
+   * The (sequence step, account) pairs a month's regular withdrawal walks, in order.
+   *
+   * The sequence is the strategy's, asked at *that account's own owner's* age (P1-P3): one sequence
+   * per household cannot describe a couple where one member has reached 59.5 and the other has not,
+   * and walking the primary's sequence would drain a younger owner's tax-deferred account ahead of
+   * their taxable one — the very penalty the tax layer now charges them at their own age. So each
+   * account takes the step index its type has for its owner's age, and the steps run in ascending
+   * index order.
+   *
+   * `sort` is stable, so two accounts at the same index keep portfolio order, and a household where
+   * every account resolves to one age (a single member, or a couple born on the same date) walks
+   * exactly the sequence the strategy named — the pre-household behaviour, step for step.
+   */
+  private withdrawalStepsForMonth(): Array<{ item: WithdrawalOrderItem; account: Account }> {
+    const orderByAge = new Map<number, readonly WithdrawalOrderItem[]>();
+    const steps: Array<{ rank: number; item: WithdrawalOrderItem; account: Account }> = [];
+
+    for (const account of this.simulationState.portfolio.getAccounts()) {
+      const age = this.ageForAccount(account);
+      let order = orderByAge.get(age);
+
+      if (order === undefined) {
+        order = this.getWithdrawalOrder(age);
+        orderByAge.set(age, order);
+      }
+
+      order.forEach((item, rank) => {
+        if (item.accountType === account.getAccountType()) steps.push({ rank, item, account });
+      });
+    }
+
+    steps.sort((left, right) => left.rank - right.rank);
+
+    return steps.map(({ item, account }) => ({ item, account }));
   }
 
   resetMonthlyData(): void {

@@ -27,6 +27,7 @@
  * rules in `eslint.config.mjs`).
  */
 
+import type { Owner } from '@/lib/schemas/inputs/household-schema';
 import type { MarketAssumptionsInputs } from '@/lib/schemas/inputs/market-assumptions-form-schema';
 import type { AmountBasis, TimePoint } from '@/lib/schemas/inputs/income-expenses-shared-schemas';
 
@@ -64,6 +65,20 @@ export interface PlanStartContext {
 /** Plan-level facts a time point needs: where the run starts, and the inflation assumption. */
 export interface TimeBindingContext extends PlanStartContext {
   readonly marketAssumptions: MarketAssumptionsInputs;
+  /**
+   * Each member's own birth year, keyed by owner (P1-P3), so a claiming adjustment can be read from
+   * the birth year of the member who earns the income rather than from the plan's.
+   *
+   * Optional, and absent means "every owner is the primary's": a context built without a household
+   * (a unit test, or a caller that predates per-member ages) resolves exactly as it did before. A
+   * member that stores no ages of its own resolves to the plan's year, so a single-member plan and a
+   * couple born on the same date land on the same map value and change nothing.
+   *
+   * `joint` reads the **older** member, the one `rmdAgeByOwner.joint` starts a joint account's RMDs
+   * on (simulation-engine.ts): an item the engine cannot split between two people is read at the
+   * member whose own gate opens first, rather than at a second convention invented here.
+   */
+  readonly birthYearByOwner?: Readonly<Record<Owner, number>> | undefined;
 }
 
 /**

@@ -189,6 +189,16 @@ export interface TaxProcessorSettings {
    */
   readonly iraBasisByAccount?: Readonly<Record<string, number>> | undefined;
   /**
+   * Each owner's own age as an offset from the plan axis (P1-P3): `planAge - offset` is that owner's
+   * age, so the early-withdrawal gates (59.5 for Roth earnings, 401(k)s and IRAs, 65 for the HSA 20%
+   * penalty) are read per account owner rather than at the primary's age.
+   *
+   * Absent means **every owner reads as the primary's**, which is what a direct construction in a
+   * test wants and what a plan without a household gets. `joint` follows `rmdAgeByOwner.joint`: the
+   * first of its owners to reach the gate, i.e. the older member.
+   */
+  readonly ageOffsetByOwner?: Readonly<Record<Owner, number>> | undefined;
+  /**
    * ACA Premium Tax Credit (IRC §36B) opt-in and benchmark inputs (R8).
    *
    * Absent means no ACA PTC modeling (disabled), matching earlier behavior.
@@ -1189,7 +1199,15 @@ export class TaxProcessor {
       }
     }
 
-    return Math.round(low * 100) / 100;
+    // Bisection narrows [0, fromAccountBalance], and the last surviving `low` is below the balance by
+    // less than the search's resolution. Rounding that to the cent can then land ABOVE the balance
+    // (a sub-cent balance of 100,000.008 with a bracket-filling amount of 100,000.005 rounds to
+    // 100,000.01), and `applyConversionOut` throws 'Insufficient funds for conversion' — inside
+    // `simulate()`, during render, which leaves a committed plan that never opens again. Clamp to the
+    // balance: a fill can never convert more than the account holds, and converting exactly the
+    // balance is allowed. The fixed-amount path is separate and keeps its own `Math.min` in
+    // `PortfolioProcessor.processConversions`, so user-entered amounts are untouched.
+    return Math.min(Math.round(low * 100) / 100, fromAccountBalance);
   }
 
   /**
@@ -1388,12 +1406,18 @@ export class TaxProcessor {
    * (§1211(b)), the minimum-tax credit (§53) and the IRMAA lookback (a premium is set by the return
    * that was filed two years earlier).
    *
-   * Two things are deliberately not modelled. The §86(c)(1)(C) lived-apart exception: a separate
-   * return is always the collapsed 85%-from-dollar-one rule (see
-   * `getTaxablePortionOfSocialSecurityIncome`). And the partner's own age where the computation asks
-   * for one — the early-withdrawal gate and the senior deduction read `simulationState`, which runs on
-   * the primary's plan axis, so a partner of a different age is treated as the primary's age for those
-   * two gates. Per-member RMD ages are the engine's business (§1-P3) and are unaffected.
+   * One thing is deliberately not modelled: the §86(c)(1)(C) lived-apart exception. A separate return
+   * is always the collapsed 85%-from-dollar-one rule (see
+   * `getTaxablePortionOfSocialSecurityIncome`).
+   *
+   * A member's own age is **not** on that list. The early-withdrawal gates read the age of the owner of
+   * the account being distributed (`ownerAge`, from the `ageOffsetByOwner` the engine resolves for the
+   * household), in every filing status — they were never a separate-return question, and the
+   * withdrawal-order switch and the Roth seasoning rule are read at that same age (portfolio.ts). Two
+   * ages remain household-level because their inputs are: the senior deduction (a §151-style household
+   * flag, and a separate return forfeits it outright, see `deductions.seniorDeduction`) and the QCD age
+   * gate, whose distributions are matched against the return's charitable expenses as a whole. Per-member
+   * RMD ages are the engine's business (§1-P3) and are unaffected.
    */
   private processSeparateReturns(
     annualPortfolioDataBeforeTaxes: PortfolioData,
@@ -1882,6 +1906,21 @@ export class TaxProcessor {
     return { wages, selfEmployment, total: wages.total + selfEmployment.total };
   }
 
+  /**
+   * The plan-axis age of the owner of one account.
+   *
+   * `simulationState.time.age` is the *primary's* age — the axis the run's clock is on — so an owner
+   * of a different age is read from the offset the engine resolved for the household (P1-P3). An
+   * account with no recorded owner reads as `primary`, as `ownerOf` does everywhere else, and a
+   * processor built without the map falls back to the clock's own age, which is the pre-household
+   * behaviour to the cent.
+   */
+  private ownerAge(accountId: string | undefined): number {
+    const owner = (accountId === undefined ? undefined : this.deductionSettings.ownership?.accounts[accountId]) ?? 'primary';
+
+    return this.simulationState.time.age - (this.deductionSettings.ageOffsetByOwner?.[owner] ?? 0);
+  }
+
   /** Assembles all income sources and computes adjusted gross income */
   private getTaxableIncomeData(
     annualPortfolioDataBeforeTaxes: PortfolioData,
@@ -1911,13 +1950,21 @@ export class TaxProcessor {
     let totalHsaWithdrawals = 0;
     let hsaContributions = 0;
     let hsaEarnings = 0;
+    // The 65 gate is applied to the non-qualified total, which is a household figure, so each
+    // owner's withdrawals are kept apart here and the penalty is charged to the owners under 65.
+    const hsaWithdrawalsByOwnerAge = new Map<number, number>();
 
     for (const account of Object.values(annualPortfolioDataBeforeTaxes.perAccountData)) {
+      // The gate is the *owner's* age, not the primary's (P1-P3): a partner of a different age takes
+      // a distribution from their own plan at their own age, and the engine already charges the
+      // withdrawal-order and Roth-seasoning rules at that same age (portfolio.ts).
+      const accountAge = this.ownerAge(account.id);
+
       switch (account.type) {
         case 'roth401k':
         case 'roth403b':
         case 'rothIra': {
-          if (age < regularQualifiedWithdrawalAge) {
+          if (accountAge < regularQualifiedWithdrawalAge) {
             const annualEarningsWithdrawn = account.earningsWithdrawn;
 
             earlyRothEarningsWithdrawals += annualEarningsWithdrawn;
@@ -1933,7 +1980,7 @@ export class TaxProcessor {
           const annualConversions = account.conversions ?? 0;
 
           taxDeferredWithdrawals += annualWithdrawals + annualConversions;
-          if (age < regularQualifiedWithdrawalAge) {
+          if (accountAge < regularQualifiedWithdrawalAge) {
             const nonSeppWithdrawals = Math.max(0, annualWithdrawals - (account.sepp ?? 0));
             early401kAndIraWithdrawals += nonSeppWithdrawals;
           }
@@ -1949,7 +1996,7 @@ export class TaxProcessor {
           // withdrawals and conversions have left it. The fraction adds the distributions back to get the balance
           // the basis is measured against.
           iraYearEndBalance += account.balance;
-          if (age < regularQualifiedWithdrawalAge) {
+          if (accountAge < regularQualifiedWithdrawalAge) {
             const nonSeppWithdrawals = Math.max(0, annualWithdrawals - (account.sepp ?? 0));
             early401kAndIraWithdrawals += nonSeppWithdrawals;
             earlyIraWithdrawals += nonSeppWithdrawals;
@@ -1957,7 +2004,9 @@ export class TaxProcessor {
           break;
         }
         case 'hsa': {
-          totalHsaWithdrawals += account.withdrawals ? sumFlows(account.withdrawals) : 0;
+          const hsaWithdrawn = account.withdrawals ? sumFlows(account.withdrawals) : 0;
+          totalHsaWithdrawals += hsaWithdrawn;
+          hsaWithdrawalsByOwnerAge.set(accountAge, (hsaWithdrawalsByOwnerAge.get(accountAge) ?? 0) + hsaWithdrawn);
           hsaContributions += account.contributions ? Math.max(0, sumFlows(account.contributions) - (account.employerMatch ?? 0)) : 0;
           const explicitYield = (account as unknown as { yieldAmounts?: AssetFlows }).yieldAmounts
             ? sumFlows((account as unknown as { yieldAmounts: AssetFlows }).yieldAmounts)
@@ -1984,9 +2033,21 @@ export class TaxProcessor {
     // IRC §223(f)(1): qualified medical distributions are tax-free federally.
     // Non-qualified distributions are taxable as ordinary income.
     taxDeferredWithdrawals += nonQualifiedHsaWithdrawals;
-    // IRC §223(f)(4): 20% penalty applies to non-qualified distributions before age 65.
-    if (age < hsaQualifiedWithdrawalAge) {
-      earlyHsaWithdrawals += nonQualifiedHsaWithdrawals;
+    // IRC §223(f)(4): 20% penalty applies to non-qualified distributions before age 65, read at the
+    // account owner's age (P1-P3). The qualified share is matched against the household's medical
+    // expenses as a whole — that report is not per owner — so the non-qualified total is apportioned
+    // across owners by their share of the year's HSA withdrawals. A household with one HSA owner (or
+    // one age between them) adds its own figure unchanged, to the cent.
+    if (hsaWithdrawalsByOwnerAge.size <= 1) {
+      const [soleOwnerAge] = hsaWithdrawalsByOwnerAge.keys();
+
+      if (soleOwnerAge !== undefined && soleOwnerAge < hsaQualifiedWithdrawalAge) earlyHsaWithdrawals += nonQualifiedHsaWithdrawals;
+    } else {
+      for (const [ownerAge, withdrawn] of hsaWithdrawalsByOwnerAge) {
+        if (ownerAge >= hsaQualifiedWithdrawalAge) continue;
+
+        earlyHsaWithdrawals += (nonQualifiedHsaWithdrawals * withdrawn) / totalHsaWithdrawals;
+      }
     }
 
     // IRC §408(d)(8): Qualified Charitable Distributions (QCDs)

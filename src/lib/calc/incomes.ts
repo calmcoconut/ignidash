@@ -379,29 +379,28 @@ export interface IncomeData {
 }
 
 /**
- * The birth year a claiming adjustment is read from: the plan member's own, recovered from the plan
- * start.
+ * The birth year a claiming adjustment is read from for one owner: that member's own, when the
+ * context carries the household's (`TimeBindingContext.birthYearByOwner`, P1-P3), and otherwise the
+ * plan's.
  *
+ * The plan-level fallback recovers the primary's birth year from the plan start.
  * `TimeBindingContext.startAge` is `calculatePreciseAge(birthMonth, birthYear, asOf)` — whole months
  * over twelve — and `startDate` is that same `asOf`, so stepping the plan start back by
- * `round(startAge × 12)` calendar months lands on the earner's birth month exactly. The full
+ * `round(startAge × 12)` calendar months lands on the primary's birth month exactly. The full
  * retirement age (`fra-table.ts`) is a step function of the birth *year*, so that is all the
  * precision it needs.
  *
- * A couple whose members were born in different years is the one case this cannot resolve: the
- * incomes layer is handed the plan-level start, not `timeline.household`, so a partner's Social
- * Security income is adjusted against the plan's (the primary's) birth year.
+ * Why the owner decides it: FRA rises from 65 to 67 across the 1938–1960 cohorts
+ * (`FULL_RETIREMENT_AGE_TABLE`), so a couple born either side of a step gets different claim-age
+ * factors from the same `claimAge`. Two members two years apart in FRA differ by up to ~14% of the
+ * benefit — a partner claiming at 62 receives 0.70 of their PIA at FRA 67 and 0.80 at FRA 65 — and
+ * the difference persists for every year of the run, so reading the primary's year for a partner's
+ * income is a wrong number with no symptom.
  *
- * The exposure is not a month of precision — it is a whole FRA step, and it does not wash out. Two
- * members on different rows of `FULL_RETIREMENT_AGE_TABLE` are up to two years apart in claiming
- * distance: FRA 65 at a birth year of 1938 or earlier, FRA 67 at 1960 or later, with 22 of those 24
- * months inside the range the table's month-steps actually cover (65y2m from 1938 through 67y0m).
- * Claiming at the same age, the wrong FRA moves the claim-age factor by up to about 14% of the
- * benefit — a partner claiming at 64 receives 0.80 of the PIA where their own FRA gives 0.9333, and
- * at 62 the widest pair is 0.70 against 0.80 — and it persists for every year of the run rather
- * than averaging out. Resolving it per member means threading member birth years through
- * `simulation-engine.ts`, which this item does not own, so it is recorded as a limitation rather
- * than guessed at.
+ * A member that stores no birth year of its own resolves to the plan's (`resolveHouseholdMember`),
+ * so the fallback is the pre-household behaviour rather than a second rule: it is reached by a
+ * context built without a household (a unit test, or a caller that predates per-member ages), and
+ * by an owner the map cannot name.
  */
 function planBirthYear(context: TimeBindingContext): number {
   const monthsSinceBirth = Math.round(context.startAge * 12);
@@ -409,6 +408,11 @@ function planBirthYear(context: TimeBindingContext): number {
 
   // A locally built date, so `getFullYear()` reads the same calendar day this context was built in.
   return new Date(startDate.getFullYear(), startDate.getMonth() - monthsSinceBirth, 1).getFullYear();
+}
+
+/** The birth year the income's own owner claims against, falling back to the plan's (see above). */
+function ownerBirthYear(owner: Owner, context: TimeBindingContext): number {
+  return context.birthYearByOwner?.[owner] ?? planBirthYear(context);
 }
 
 /**
@@ -419,12 +423,12 @@ function planBirthYear(context: TimeBindingContext): number {
  *   shape, so reaching it means a plan bypassed validation; stopping is the honest response, since
  *   paying a guessed benefit would be a wrong number with no symptom.
  */
-function socialSecurityEstimateFor(data: IncomeInputs, context: TimeBindingContext): SocialSecurityEstimate | undefined {
+function socialSecurityEstimateFor(data: IncomeInputs, owner: Owner, context: TimeBindingContext): SocialSecurityEstimate | undefined {
   if (data.socialSecurity === undefined || data.taxes.incomeType !== 'socialSecurity') return undefined;
 
   return estimateSocialSecurityBenefit({
     socialSecurity: data.socialSecurity,
-    birthYear: planBirthYear(context),
+    birthYear: ownerBirthYear(owner, context),
     inflationRate: context.marketAssumptions.inflationRate,
   });
 }
@@ -475,7 +479,7 @@ export class Income {
     this.withholdingRate = data.taxes.withholding ?? 0;
     // P1-P8: resolved here, once, so every month pays the same benefit before the COLA step. The
     // module doc's precedence table is the rule; the estimate wins over `amount` in both modes.
-    this.socialSecurityEstimate = socialSecurityEstimateFor(data, context);
+    this.socialSecurityEstimate = socialSecurityEstimateFor(data, this.owner, context);
   }
 
   /** The tax treatment this income is declared under; payroll tax applies to `wage` only. */

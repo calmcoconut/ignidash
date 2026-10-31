@@ -33,7 +33,7 @@ describe('tax-optimization prompt: markdown and TypeScript mirror', () => {
   });
 
   it('is versioned', () => {
-    expect(TAX_OPTIMIZATION_SKILL_VERSION).toBe(2);
+    expect(TAX_OPTIMIZATION_SKILL_VERSION).toBe(3);
     expect(markdown).toContain(`# Tax-optimization skill (v${TAX_OPTIMIZATION_SKILL_VERSION})`);
   });
 });
@@ -105,10 +105,23 @@ describe('tax-optimization prompt: what the engine does not model', () => {
     expect(markdown).not.toContain('separately is not available');
     // What the separate return costs, stated correctly: the senior deduction is forfeited outright
     // (`SeniorDeductionTable.eligible.marriedFilingSeparately` is false, and the engine returns zero
-    // before it reads any age), while only the early-withdrawal gate falls back to the primary's age.
-    expect(markdown).toContain('the early-withdrawal gate');
+    // before it reads any age). A member's age is *not* a separate-return limit: every item is read at
+    // its own owner's age in every filing status, so the old "the gate uses the primary's age" claim —
+    // which was never specific to a separate return — is false and must stay out.
+    expect(markdown).toContain("owner's own age at the 59.5 and 65 thresholds");
+    expect(markdown).not.toContain('the early-withdrawal gate');
+    expect(markdown).not.toContain('the partner`s own age is not read');
     expect(markdown).toContain('cannot claim the senior deduction at all');
     expect(markdown).not.toContain('senior-deduction gates use the primary');
+  });
+
+  it('reads the Social Security claiming adjustment at the earner`s own full retirement age', () => {
+    // The FRA is a step function of the *earner's* birth year, so the prompt has to say whose birth
+    // year it is. The old line denied any claiming-age calculation at all — a claim the engine has
+    // not supported since the `socialSecurity` block shipped.
+    expect(markdown).toContain("against the full retirement age of **that income's");
+    expect(markdown).toContain('adjusted on their own FRA rather than the primary');
+    expect(markdown).not.toContain('No PIA, claiming-age, spousal or survivor');
   });
 
   it('stops calling itemized deductions and the SALT cap unmodelled', () => {

@@ -15,9 +15,12 @@ import {
   TEST_CLOCK,
   create401kAccount,
   createDefaultTimeline,
+  createIncomeInput,
+  createIraAccount,
   createLivingExpense,
   createSavingsAccount,
   createSimulatorInputs,
+  createTaxableBrokerageAccount,
   createWageIncome,
 } from './__tests__/test-utils';
 
@@ -30,6 +33,7 @@ import {
  * | 2 | horizon = the longest life expectancy | the run ends at the later death, and a single member's end age is exactly the plan's |
  * | 3 | a couple's joint phase starts when the **last** earner retires | two wage incomes with staggered end bounds; the phase flips at the later one, and a single-member plan with the same income still flips at its retirement age |
  * | 4 | derived filing status, and the survivor transition | one member keeps the stored status, two settle jointly; after the first death the survivor files single, the deceased's incomes stop, and cost basis steps up (community in full, separate half) |
+ * | 5 | per-member **ages** at the claiming and early-withdrawal gates | a couple nine years apart straddling a full-retirement-age step and 59.5: the partner's own claim is adjusted at their own FRA, and a distribution from their own IRA is penalised while they are under 59.5 |
  *
  * Every fixture is a plan the schema accepts: no shape here is one only the test understands.
  */
@@ -577,5 +581,228 @@ describe('the survivor arithmetic, as pure functions', () => {
     // The settlement year ending at 71 spans ages 70..71, so a death at 70.5 is inside it.
     expect(survivorFilingStatus('marriedFilingJointly', { age: 70.5 }, 71)).toBe('marriedFilingJointly');
     expect(survivorFilingStatus('marriedFilingJointly', { age: 70 }, 71.5)).toBe('single');
+  });
+});
+
+// ============================================================================
+// Piece 5 — each member is read at their own age, not the plan's
+// ============================================================================
+
+/**
+ * A couple nine years apart on the 2026-10-01 test clock: the primary was born in June 1954 and the
+ * partner in June 1968, so they start the run aged 72.33 and 58.33.
+ *
+ * The two birth years are chosen to straddle both gates a birth year decides, so neither test can
+ * pass by accident:
+ *
+ * - a real step of `FULL_RETIREMENT_AGE_TABLE` — 1954 is FRA **66y0m**, 1968 is FRA **67y0m**, so
+ *   the same claim age of 62 pays 0.75 of the PIA for one and 0.70 for the other;
+ * - the 59.5 qualified-withdrawal threshold — the partner is under it for the whole first year of
+ *   the run, the primary is thirteen years past it.
+ */
+const AGE_GAP_PRIMARY = { birthMonth: 6, birthYear: 1954 } as const;
+const AGE_GAP_PARTNER = { birthMonth: 6, birthYear: 1968 } as const;
+
+/** The plan the age-gap tests are built on: the primary's dates are the plan's own. */
+const ageGapPlan = (overrides: Partial<SimulatorInputs> = {}): SimulatorInputs =>
+  basePlan({
+    timeline: {
+      ...createDefaultTimeline(),
+      birthMonth: AGE_GAP_PRIMARY.birthMonth,
+      birthYear: AGE_GAP_PRIMARY.birthYear,
+      lifeExpectancy: 92,
+      household: householdWith({ ...AGE_GAP_PRIMARY, lifeExpectancy: 92 }, { ...AGE_GAP_PARTNER, lifeExpectancy: 92 }),
+    },
+    incomes: {},
+    ...overrides,
+  });
+
+/** A Social Security income paying a stated PIA, adjusted by `claimAge` against the owner's FRA. */
+const socialSecurityIncome = (owner: 'primary' | 'partner') => ({
+  ...createIncomeInput({
+    id: 'socialSecurity',
+    name: 'Social Security',
+    amount: 3000,
+    frequency: 'yearly',
+    taxes: { incomeType: 'socialSecurity', withholding: 0 },
+    timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+  }),
+  owner,
+  socialSecurity: { mode: 'manual' as const, pia: 3000, claimAge: 62 },
+});
+
+/** The first settled year is `data[0]`'s successor; `data[0]` is the initial state. */
+const firstMonth = (result: SimulationResult) => result.data[1];
+
+/** The first settled year: `data[0]` is the initial state, `data[1]` the first year's settlement. */
+const firstSettledYear = (result: SimulationResult) => result.data[1];
+
+/** What an account has taken out since the run began (all three asset classes). */
+const cumulativeWithdrawalsOf = (result: SimulationResult, accountId: string): number => {
+  const withdrawn = firstSettledYear(result).portfolio.perAccountData[accountId]!.cumulativeWithdrawals;
+
+  return withdrawn.stocks + withdrawn.bonds + withdrawn.cash;
+};
+
+describe('each member claims against their own full retirement age', () => {
+  const planOwnedBy = (owner: 'primary' | 'partner') => ageGapPlan({ incomes: { socialSecurity: socialSecurityIncome(owner) } });
+
+  it('adjusts a partner-owned Social Security benefit at the partner`s birth year, not the plan`s', () => {
+    const asPartner = firstMonth(run(planOwnedBy('partner'))).incomes!.totalSocialSecurityIncome;
+    const asPrimary = firstMonth(run(planOwnedBy('primary'))).incomes!.totalSocialSecurityIncome;
+
+    // $3,000 a month of PIA claimed at 62: 0.70 of it at FRA 67 (the partner, born 1968) and 0.75
+    // at FRA 66 (the primary, born 1954). A yearly income pays the year's benefit in its first
+    // month, so each figure is the annual one. Reading the plan's birth year for both would make
+    // the two runs identical, which is exactly the defect this pins.
+    expect(asPrimary).toBeCloseTo(3000 * 0.75 * 12, 6);
+    expect(asPartner).toBeCloseTo(3000 * 0.7 * 12, 6);
+    expect(asPartner / asPrimary).toBeCloseTo(0.7 / 0.75, 10);
+  });
+});
+
+describe('the early-withdrawal gates read the account owner`s age', () => {
+  /** The partner's own traditional IRA, and nothing else to draw from. */
+  const partnerIraPlan = () =>
+    ageGapPlan({
+      accounts: {
+        // The shared factories do not carry `owner`, so it is set here explicitly: whose account
+        // this is, is the whole point of the test.
+        partnerIra: {
+          ...createIraAccount({ id: 'partnerIra', name: 'Partner IRA', balance: 300000, percentBonds: 30 }),
+          owner: 'partner' as const,
+        },
+      },
+      expenses: {
+        living: createLivingExpense({
+          id: 'living',
+          amount: 24000,
+          timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+        }),
+      },
+    });
+
+  it('charges the 10% federal penalty and California`s 2.5% on a 59-year-old partner`s distribution', () => {
+    const settled = firstSettledYear(run(partnerIraPlan()));
+
+    // The partner is 59.33 when the first year settles, the primary 73.33. The distribution is the
+    // partner's, so the gate is theirs: both penalties apply, and neither would at the primary's age.
+    const withdrawn = cumulativeWithdrawalsOf(run(partnerIraPlan()), 'partnerIra');
+    expect(withdrawn).toBeGreaterThan(0);
+
+    const penalties = settled.taxes!.earlyWithdrawalPenalties;
+    expect(penalties.taxDeferredPenaltyAmount).toBeCloseTo(withdrawn * 0.1, 6);
+    expect(penalties.californiaPenaltyAmount).toBeCloseTo(withdrawn * 0.025, 6);
+    expect(penalties.totalPenaltyAmount).toBeCloseTo(withdrawn * 0.125, 6);
+  });
+
+  it('leaves the same account unpenalised once its owner is past 59.5, with the primary still older', () => {
+    // The partner born nine years *before* the primary: both are past 59.5, and the gate must not
+    // fall back to the primary's age in either direction.
+    const result = run(
+      ageGapPlan({
+        timeline: {
+          ...createDefaultTimeline(),
+          birthMonth: AGE_GAP_PRIMARY.birthMonth,
+          birthYear: AGE_GAP_PRIMARY.birthYear,
+          lifeExpectancy: 92,
+          household: householdWith({ ...AGE_GAP_PRIMARY, lifeExpectancy: 92 }, { birthMonth: 6, birthYear: 1945, lifeExpectancy: 92 }),
+        },
+        accounts: {
+          partnerIra: {
+            ...createIraAccount({ id: 'partnerIra', name: 'Partner IRA', balance: 300000, percentBonds: 30 }),
+            owner: 'partner' as const,
+          },
+        },
+        expenses: {
+          living: createLivingExpense({
+            id: 'living',
+            amount: 24000,
+            timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+          }),
+        },
+      })
+    );
+
+    expect(cumulativeWithdrawalsOf(result, 'partnerIra')).toBeGreaterThan(0);
+    expect(firstSettledYear(result).taxes!.earlyWithdrawalPenalties.totalPenaltyAmount).toBe(0);
+  });
+
+  it('orders the partner`s own accounts at the partner`s age too, so the two never disagree', () => {
+    // The partner owns both a taxable brokerage account and a traditional IRA. Under 59.5 the
+    // engine's sequence reaches taxable money before tax-deferred money; at the primary's 73 the
+    // sequence is the other way round, which would drain the IRA and charge the penalty this plan
+    // is arranged not to owe.
+    const result = run(
+      ageGapPlan({
+        accounts: {
+          partnerBrokerage: {
+            ...createTaxableBrokerageAccount({
+              id: 'partnerBrokerage',
+              name: 'Partner Brokerage',
+              balance: 200000,
+              costBasis: 200000,
+              percentBonds: 0,
+            }),
+            owner: 'partner' as const,
+          },
+          partnerIra: {
+            ...createIraAccount({ id: 'partnerIra', name: 'Partner IRA', balance: 300000, percentBonds: 30 }),
+            owner: 'partner' as const,
+          },
+        },
+        expenses: {
+          living: createLivingExpense({
+            id: 'living',
+            amount: 24000,
+            timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+          }),
+        },
+      })
+    );
+
+    // The first year's spending came out of the taxable account, so no early-withdrawal penalty is
+    // owed at all — and the IRA has not been touched.
+    expect(cumulativeWithdrawalsOf(result, 'partnerBrokerage')).toBeGreaterThan(0);
+    expect(cumulativeWithdrawalsOf(result, 'partnerIra')).toBe(0);
+    expect(firstSettledYear(result).taxes!.earlyWithdrawalPenalties.totalPenaltyAmount).toBe(0);
+  });
+});
+
+describe('a household whose members share the plan`s own ages is untouched', () => {
+  it('keeps a single-member plan bit-identical to the same plan with no household at all', () => {
+    // Every offset is exactly 0 and every birth year is the plan's, so the per-member maps cannot
+    // move a single-member run: the two results are the same bytes.
+    expect(run(basePlan({ timeline: timelineWith(SINGLE_MEMBER_HOUSEHOLD) }))).toStrictEqual(run(basePlan()));
+  });
+
+  it('keeps a couple born on the same date bit-identical to a couple that stores no ages', () => {
+    // A partner that stores no ages resolves to the plan's, which is what every couple did before
+    // per-member ages existed — so the stored-ages couple and the inherited-ages couple must agree.
+    const sameDateCouple = (household: Household) =>
+      basePlan({
+        timeline: { ...createDefaultTimeline(), birthMonth: 3, birthYear: 1960, lifeExpectancy: 90, household },
+        incomes: { salary: wageIncome({ id: 'salary', owner: 'partner' }) },
+        accounts: {
+          partnerIra: {
+            ...createIraAccount({ id: 'partnerIra', name: 'Partner IRA', balance: 300000, percentBonds: 30 }),
+            owner: 'partner' as const,
+          },
+        },
+        expenses: {
+          living: createLivingExpense({
+            id: 'living',
+            amount: 30000,
+            timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+          }),
+        },
+      });
+
+    const storedAges = sameDateCouple(
+      householdWith({ birthMonth: 3, birthYear: 1960, lifeExpectancy: 90 }, { birthMonth: 3, birthYear: 1960, lifeExpectancy: 90 })
+    );
+    const inheritedAges = sameDateCouple(householdWith());
+
+    expect(run(storedAges)).toStrictEqual(run(inheritedAges));
   });
 });

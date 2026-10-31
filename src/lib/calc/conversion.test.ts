@@ -497,6 +497,89 @@ describe('Roth conversion engine execution (R4a)', () => {
     expect(Math.abs((firstYear.portfolio.conversions ?? 0) - 83_125)).toBeLessThanOrEqual(1);
   });
 
+  it('fills a sub-cent balance to the bracket without converting more than the account holds', () => {
+    // The fill-to-bracket search bisects [0, balance] and rounds its answer to the cent. A balance
+    // with sub-cent precision that sits just above the amount the bracket needs can therefore round
+    // the answer ABOVE the balance, and `applyConversionOut` throws 'Insufficient funds for
+    // conversion' inside `simulate()` — during render, with no error boundary above it, which bricks
+    // the plan. IRA balances and nondeductible basis are both tracked through returns, so sub-cent
+    // precision is ordinary, not contrived.
+    //
+    // 2026 single, no income, 0% returns: the 12% bracket top is 50,400 and the standard deduction
+    // is 16,100, so a conversion of x leaves 0.8x (Form 8606 pro-rata on the 33,500.0064 basis over
+    // the 100,000.008 balance) of taxable ordinary income. That puts the bracket-filling amount a
+    // few tenths of a cent below the balance: 100,000.0050 here.
+    const balance = 100_000.008;
+    const base = createSimulatorInputs();
+    const inputs: SimulatorInputs = {
+      ...base,
+      incomes: {},
+      expenses: {},
+      debts: {},
+      physicalAssets: {},
+      marketAssumptions: {
+        ...base.marketAssumptions,
+        stockReturn: 0,
+        bondReturn: 0,
+        cashReturn: 0,
+        stockYield: 0,
+        bondYield: 0,
+        inflationRate: 0,
+      },
+      taxSettings: {
+        ...base.taxSettings,
+        stateResidency: 'none',
+      },
+      accounts: {
+        'savings-1': {
+          id: 'savings-1',
+          name: 'Savings',
+          type: 'savings',
+          balance: 10_000,
+        },
+        'ira-1': {
+          id: 'ira-1',
+          name: 'Traditional IRA',
+          type: 'ira',
+          balance,
+          percentBonds: 0,
+          nondeductibleBasis: 33_500.0064,
+        },
+        'roth-1': {
+          id: 'roth-1',
+          name: 'Roth IRA',
+          type: 'rothIra',
+          balance: 0,
+          percentBonds: 0,
+          contributionBasis: 0,
+        },
+      },
+      conversions: [
+        {
+          id: 'conv-1',
+          fromAccountId: 'ira-1',
+          toAccountId: 'roth-1',
+          fillToBracket: 0.12,
+          year: 2026,
+        },
+      ],
+    };
+
+    const result = simulate(inputs, { mode: 'fixedReturns', asOf: '2026-01-01', seed: 1 });
+    const firstYear = result.result.data[1];
+    const converted = firstYear.portfolio.conversions ?? 0;
+
+    // The conversion actually happened, and never took more than the account held.
+    expect(converted).toBeGreaterThan(0);
+    expect(converted).toBeLessThanOrEqual(balance);
+    // The IRA cannot go negative and the Roth received exactly what left the IRA.
+    expect(firstYear.portfolio.perAccountData['ira-1'].balance).toBeGreaterThanOrEqual(0);
+    expect(firstYear.portfolio.perAccountData['roth-1'].conversions).toBe(converted);
+    // Still a genuine fill: the answer lands on the bracket top, not on the clamp alone.
+    const taxableOrdinary = firstYear.taxes?.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary ?? 0;
+    expect(Math.abs(taxableOrdinary - 50_400)).toBeLessThanOrEqual(1);
+  });
+
   it('imposes 10% penalty on early withdrawal of converted principal at year 4 edge (R4c)', () => {
     // Start 2026-01-01, age 40. Convert $50,000 in 2026 (month 1).
     // In year 2030 (year 4 after conversion, calendar year 2030, age 44 < 59.5),

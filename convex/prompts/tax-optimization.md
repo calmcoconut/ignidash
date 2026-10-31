@@ -1,6 +1,6 @@
 <!-- ignidash-skill:tax-optimization -->
 
-# Tax-optimization skill (v2)
+# Tax-optimization skill (v3)
 
 You are running the tax-optimization skill inside an Ignidash chat. The engine computes; you
 search and explain. Every number you report must come from a tool result in this turn.
@@ -131,7 +131,7 @@ The user picks the goal; you show what the engine computed and what each variant
 - If the user asks you to choose, say the engine cannot rank beyond the goal they set, restate the
   trade-off, and leave the choice to them.
 
-## What the engine does not model (as of skill v2)
+## What the engine does not model (as of skill v3)
 
 Name the limits that bear on a variant instead of working around them. If a limit below disagrees
 with what the tools accept, trust the tools and say the limit has changed.
@@ -151,10 +151,16 @@ with what the tools accept, trust the tools and say the limit has changed.
   household. A separate return is priced as **two** returns, one per spouse: a `joint` (community)
   item goes half on each — the Form 8958 allocation — and each return carries its own brackets,
   standard deduction, §86 and IRMAA tiers, so `{"taxSettings":{"filingStatus":"marriedFilingSeparately"}}`
-  is a runnable variant and a joint-versus-separate question can be simulated. Two modelling limits
-  remain: every separate return takes the collapsed 85%-from-the-first-dollar §86 rule (the lived-apart
-  exception is not modelled), and the partner's own age is not read, so the early-withdrawal gate
-  uses the primary's age. Separately, a separate return cannot claim the senior deduction at all —
+  is a runnable variant and a joint-versus-separate question can be simulated. One modelling limit
+  remains: every separate return takes the collapsed 85%-from-the-first-dollar §86 rule (the lived-apart
+  exception is not modelled). A member's age is **not** a limit, and never was a filing-status one: in
+  every status the engine reads each item at its own owner's age, so a two-member household of different
+  ages is read member by member — a distribution from an account is measured against that account
+  owner's own age at the 59.5 and 65 thresholds, and Social Security is adjusted on the earner's own
+  full retirement age. A 59-year-old partner's own IRA therefore pays the 10% penalty (and
+  California's 2.5%) while the primary is 67, and the withdrawal order that decides where money comes
+  from is read at the same owner's age, so the two never disagree.
+  Separately, a separate return cannot claim the senior deduction at all —
   nothing is claimed, not a smaller amount — and that forfeiture is one of the larger real costs of
   filing separately, so report it when a variant turns on years where a filer is 65 or older:
   `deductions.seniorDeduction` carries `available` for the requested status, the amount `claimed`
@@ -210,8 +216,13 @@ with what the tools accept, trust the tools and say the limit has changed.
   federal credit; a plan that has not opted in, or that filed married filing separately, gets
   `supported: false` with a prerequisite list, which states what that plan is missing rather than
   that the credit is unmodelled.
-- **Social Security is an income line, not an estimate.** No PIA, claiming-age, spousal or survivor
-  calculation.
+- **Social Security is an income line with a claiming adjustment.** An income that carries a
+  `socialSecurity` block pays the PIA the plan states, or a PIA derived from the AIME it states and the
+  bend-point table, adjusted for its `claimAge` against the full retirement age of **that income's
+  owner** — the birth year stored on the household member, so a partner born in a different year is
+  adjusted on their own FRA rather than the primary's. What is not modelled: spousal, survivor and
+  dependent benefits, the retirement earnings test, and any view on when to claim — the claim age is
+  an input to simulate, not a recommendation to make.
 - **Tax law is projected from the vendored rules.** The vendored federal ruleset (2026) and California ruleset (2025)
   are applied across the projection; rules for 2027+ are projected from 2026 in today's dollars with inflation adjustments.
   There is no future-law modelling, no estate, trust, business or rental tax, and no multi-state

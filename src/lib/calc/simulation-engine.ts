@@ -249,6 +249,23 @@ export interface SimulationContext {
    * back to `rmdAge` for every account, which is the pre-household behaviour.
    */
   readonly rmdAgeByOwner?: Record<Owner, number>;
+  /**
+   * Each owner's own age, as an offset from the plan axis (P1-P3): `planAge - offset` is that
+   * owner's age, so a partner born in a different year does not read the primary's age at a gate
+   * (the 59.5 qualified-withdrawal and 65 HSA thresholds, and the withdrawal-order switch).
+   *
+   * Optional so a context built without a household (a unit test, say) reads the plan's own age for
+   * every account, which is the pre-household behaviour. `joint` follows `rmdAgeByOwner.joint`: the
+   * first of its owners to reach the gate, i.e. the older member.
+   */
+  readonly ageOffsetByOwner?: Record<Owner, number>;
+  /**
+   * Each member's own birth year (P1-P3), for the Social Security claiming adjustment: the full
+   * retirement age is a function of the earner's birth year, not of the plan's. Optional on the
+   * same terms — absent means every owner reads as the primary's, and `joint` follows the older
+   * member, as `ageOffsetByOwner` does.
+   */
+  readonly birthYearByOwner?: Record<Owner, number>;
   /** `ownerOf` for every account, keyed by account id. Absent means every account is `primary`. */
   readonly accountOwners?: Record<string, Owner>;
   /** `ownerOf` for every physical asset, keyed by asset id. Absent means every asset is `primary`. */
@@ -367,6 +384,7 @@ export class FinancialSimulationEngine {
       startAge: simulationContext.startAge,
       startDate: simulationContext.startDate,
       marketAssumptions: this.inputs.marketAssumptions,
+      ...(simulationContext.birthYearByOwner === undefined ? {} : { birthYearByOwner: simulationContext.birthYearByOwner }),
     };
 
     // Filing status follows the household, not the stored field alone (piece 4). Both tax
@@ -473,6 +491,9 @@ export class FinancialSimulationEngine {
       // states none is absent from the map, which reads as no basis; the schema does not offer the
       // field on a 401(k)/403(b)/HSA, because those follow §72 rather than §408(d)(2).
       iraBasisByAccount: iraBasisByAccountFrom(this.inputs.accounts),
+      // The early-withdrawal gates read the account owner's age, not the primary's (P1-P3): the
+      // engine already charges per-member RMD ages from the same offsets.
+      ...(simulationContext.ageOffsetByOwner === undefined ? {} : { ageOffsetByOwner: simulationContext.ageOffsetByOwner }),
       ownership: {
         accounts: simulationContext.accountOwners ?? {},
         physicalAssets: simulationContext.physicalAssetOwners ?? {},
@@ -865,7 +886,13 @@ export class FinancialSimulationEngine {
       const sharesPlanBirthDate = member.birthMonth === planAges.birthMonth && member.birthYear === planAges.birthYear;
       const offset = sharesPlanBirthDate ? 0 : startAge - calculatePreciseAge(member.birthMonth, member.birthYear, this.clock.asOf);
 
-      return { role: member.role, deathAge: offset + member.lifeExpectancy, rmdStartAge: offset + secureActRmdAge(member.birthYear) };
+      return {
+        role: member.role,
+        birthYear: member.birthYear,
+        ageOffset: offset,
+        deathAge: offset + member.lifeExpectancy,
+        rmdStartAge: offset + secureActRmdAge(member.birthYear),
+      };
     });
 
     // The run lasts until the longest-lived member dies (P1-P3 piece 2). `Math.max` over one
@@ -892,6 +919,32 @@ export class FinancialSimulationEngine {
       joint: Math.min(primaryRmdAge, partnerRmdAge),
     };
     const rmdAge = rmdAgeByOwner.joint;
+
+    // And the same for the members' *ages* (P1-P3): `simulationState.time.age` runs on the primary's
+    // axis, so an owner of a different age is `planAge - offset` (read by `ownerAge` in taxes.ts and
+    // `ageForAccount` in portfolio.ts). A joint item is read at the first member to reach a gate —
+    // the older one — which is the rule `rmdAgeByOwner.joint` already follows by taking the smaller
+    // plan-axis age.
+    const ageOffsetByRole = new Map(memberFacts.map((member) => [member.role, member.ageOffset]));
+    const primaryAgeOffset = ageOffsetByRole.get('primary') ?? 0;
+    const partnerAgeOffset = ageOffsetByRole.get('partner') ?? primaryAgeOffset;
+    const ageOffsetByOwner: Record<Owner, number> = {
+      primary: primaryAgeOffset,
+      partner: partnerAgeOffset,
+      joint: Math.min(primaryAgeOffset, partnerAgeOffset),
+    };
+
+    // The birth years the claiming adjustment is read from, on the same joint rule: an item the
+    // engine cannot split is read at the older member, not at a second convention.
+    const birthYearByRole = new Map(memberFacts.map((member) => [member.role, member.birthYear]));
+    const primaryBirthYear = birthYearByRole.get('primary') ?? planAges.birthYear;
+    const partnerBirthYear = birthYearByRole.get('partner') ?? primaryBirthYear;
+    const birthYearByOwner: Record<Owner, number> = {
+      primary: primaryBirthYear,
+      partner: partnerBirthYear,
+      // `min` because the smaller offset is the older member, whose own gate opens first.
+      joint: primaryAgeOffset <= partnerAgeOffset ? primaryBirthYear : partnerBirthYear,
+    };
 
     const accountOwners: Record<string, Owner> = Object.fromEntries(
       Object.values(this.inputs.accounts).map((account) => [account.id, ownerOf(account)])
@@ -922,6 +975,8 @@ export class FinancialSimulationEngine {
       retirementStrategy,
       rmdAge,
       rmdAgeByOwner,
+      ageOffsetByOwner,
+      birthYearByOwner,
       accountOwners,
       physicalAssetOwners,
       firstDeath,

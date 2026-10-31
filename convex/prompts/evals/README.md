@@ -49,12 +49,16 @@ prompt, so the rubric and the prompt cannot drift apart silently.
 
 ## What the set deliberately omits
 
-These differ in what a fixture could test. Social Security claiming is not modelled, so on that
-lever only the refusal path exists — and `refused-patches` covers exactly that, using the same levers
-a user would ask about. The ACA credit is the other kind of case: the engine computes it for a plan
-that opts in, and `taxSettings` **is** patchable — `simulationSettings` is the only key the tool
-pins — so a fixture could set `taxSettings.aca.optIn` with a stated SLCSP premium and exercise
-`cliffs.aca.credit`. None here does, which is a gap in this set, not a limit of the engine.
+These differ in what a fixture could test, and both of the kinds below are gaps in this set rather
+than limits of the engine. The ACA credit is one: the engine computes it for a plan that opts in, and
+`taxSettings` **is** patchable — `simulationSettings` is the only key the tool pins — so a fixture
+could set `taxSettings.aca.optIn` with a stated SLCSP premium and exercise `cliffs.aca.credit`. None
+here does. Social Security claiming is the other: a claim age **is** modelled — an income's
+`socialSecurity` block carries `claimAge`, and the engine adjusts the benefit against the full
+retirement age of the birth year stored on the income's owner, so a partner born in a different year
+is adjusted on their own FRA — and `incomes` is patchable too, so a `planPatch` that changes
+`claimAge` returns real numbers. Calling it unmodelled would be the wrong answer, and no case here
+carries a `socialSecurity` block, which is the fixture gap.
 
 California's omission is a third kind, not a refusal either: the state return is computed (P3-P8) and
 the prompt tells the agent to quote `jurisdictions.california.reported`, but no case turns on a
@@ -67,7 +71,12 @@ state-only lever. Covered California subsidies and California AMT are not modell
   engine: an opted-in plan gets the refundable §36B credit on its settled return and
   `cliffs.aca.credit` from the analytics, so an answer that calls ACA unmodelled is wrong even on
   these plans — the right answer names the missing input.
-- **Social Security claiming.** Social Security is an income line, not a PIA estimate.
+- **Social Security claiming.** No case in this set carries a `socialSecurity` block, so no fixture
+  exercises a claim-age change. That is a gap in the fixtures, not a missing feature: the engine
+  adjusts the benefit for `claimAge` against the earner's own full retirement age, and `incomes` is
+  patchable, so a variant that moves `claimAge` returns the numbers. What is not modelled is spousal,
+  survivor and dependent benefits, and the retirement earnings test; the claim age is an input to
+  simulate, never a recommendation to make.
 
 Not on this list, because the engine computes them: **itemized deductions** (the four entered lines
 under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), **the §164 SALT cap with
