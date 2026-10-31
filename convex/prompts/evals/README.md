@@ -33,32 +33,40 @@ Prerequisites: a deployment with an AI provider configured — `OPENAI_API_KEY` 
 The checks are the ones the prompt states as hard rules, turned into something a reviewer can
 confirm by reading one transcript:
 
-| id                       | property                                                                                                                                                                                                                                                             |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `grounded-numbers`       | Every figure appears in a tool result from the same turn; nothing is estimated, recalled or derived by arithmetic.                                                                                                                                                   |
-| `goal-first`             | The answer names the goal it ranks by (the one in the case's `request`) and orders the variants by it.                                                                                                                                                               |
-| `refused-patches`        | A lever the engine does not model is refused as not modelled; an invalid `planPatch` is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions, the SALT cap, AMT, IRMAA — is never such a refusal. |
-| `no-writes`              | The answer never claims or implies the plan was changed; it says the user applies a variant in the simulator.                                                                                                                                                        |
-| `no-recommendation`      | No variant is called best, optimal or recommended, and no result is phrased as advice — even when the request asks the agent to choose.                                                                                                                              |
-| `budget`                 | At most 6 variants and 12 tool calls in the turn, and every reported variant was actually simulated.                                                                                                                                                                 |
-| `assumptions-stated`     | The answer ends with the pinned clock and seed, the plan's own return/inflation/tax assumptions, and the limits that bear on the variants proposed.                                                                                                                  |
-| `monte-carlo-on-request` | Monte Carlo numbers appear only when the request asks for probabilistic results, and then as aggregates (500 trials, summary).                                                                                                                                       |
+| id                       | property                                                                                                                                                                                                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grounded-numbers`       | Every figure appears in a tool result from the same turn; nothing is estimated, recalled or derived by arithmetic.                                                                                                                                                                                                        |
+| `goal-first`             | The answer names the goal it ranks by (the one in the case's `request`) and orders the variants by it.                                                                                                                                                                                                                    |
+| `refused-patches`        | A lever the engine does not model is refused as not modelled; an invalid `planPatch` is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions, the SALT cap, AMT, IRMAA, the ACA premium tax credit an opted-in plan reports — is never such a refusal. |
+| `no-writes`              | The answer never claims or implies the plan was changed; it says the user applies a variant in the simulator.                                                                                                                                                                                                             |
+| `no-recommendation`      | No variant is called best, optimal or recommended, and no result is phrased as advice — even when the request asks the agent to choose.                                                                                                                                                                                   |
+| `budget`                 | At most 6 variants and 12 tool calls in the turn, and every reported variant was actually simulated.                                                                                                                                                                                                                      |
+| `assumptions-stated`     | The answer ends with the pinned clock and seed, the plan's own return/inflation/tax assumptions, and the limits that bear on the variants proposed.                                                                                                                                                                       |
+| `monte-carlo-on-request` | Monte Carlo numbers appear only when the request asks for probabilistic results, and then as aggregates (500 trials, summary).                                                                                                                                                                                            |
 
 `convex/prompts/evals/tax-optimization-evals.test.ts` fails if a check id loses its rule in the
 prompt, so the rubric and the prompt cannot drift apart silently.
 
 ## What the set deliberately omits
 
-The engine cannot compute most of these today, so a fixture would only test the refusal path — except
-that `refused-patches` covers exactly that, using the same levers a user would ask about.
+These differ in what a fixture could test. Social Security claiming is not modelled, so on that
+lever only the refusal path exists — and `refused-patches` covers exactly that, using the same levers
+a user would ask about. The ACA credit is the other kind of case: the engine computes it for a plan
+that opts in, and `taxSettings` **is** patchable — `simulationSettings` is the only key the tool
+pins — so a fixture could set `taxSettings.aca.optIn` with a stated SLCSP premium and exercise
+`cliffs.aca.credit`. None here does, which is a gap in this set, not a limit of the engine.
 
-The one omission that is not a refusal is California's: the state return is computed (P3-P8) and the
-prompt tells the agent to quote `jurisdictions.california.reported`, but no case turns on a
+California's omission is a third kind, not a refusal either: the state return is computed (P3-P8) and
+the prompt tells the agent to quote `jurisdictions.california.reported`, but no case turns on a
 state-only lever. Covered California subsidies and California AMT are not modelled, which
 `jurisdictions.california.notModelled` says on every run.
 
-- **ACA premium tax credit and its cliff.** `cliffs.aca` returns `supported: false` with its
-  prerequisites, so a fixture could only test the refusal — never quote an ACA number.
+- **ACA premium tax credit and its cliff.** No case in this set opts in (`taxSettings.aca.optIn`
+  with a stated SLCSP premium), so every plan here reports `cliffs.aca.supported` as `false` with
+  its prerequisites and no case exercises the credit. That is a gap in the fixtures, not in the
+  engine: an opted-in plan gets the refundable §36B credit on its settled return and
+  `cliffs.aca.credit` from the analytics, so an answer that calls ACA unmodelled is wrong even on
+  these plans — the right answer names the missing input.
 - **Social Security claiming.** Social Security is an income line, not a PIA estimate.
 
 Not on this list, because the engine computes them: **itemized deductions** (the four entered lines

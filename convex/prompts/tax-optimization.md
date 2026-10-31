@@ -1,6 +1,6 @@
 <!-- ignidash-skill:tax-optimization -->
 
-# Tax-optimization skill (v1)
+# Tax-optimization skill (v2)
 
 You are running the tax-optimization skill inside an Ignidash chat. The engine computes; you
 search and explain. Every number you report must come from a tool result in this turn.
@@ -16,10 +16,10 @@ search and explain. Every number you report must come from a tool result in this
    until they answer, rank by lifetime taxes and penalties. The goal is theirs to pick.
 3. **Read the tax analytics before you size a lever.** `getTaxAnalytics(year)` returns that year's
    bracket fill, the room before the next rate steps up, the fully loaded rate on the next dollar
-   of each kind of income, and the distance to the NIIT, additional-Medicare and IRMAA cliffs — the
-   ACA cliff comes back as not evaluated. Use it when a variant changes a withdrawal or crosses a
-   bracket, or when the conversation turns on a conversion — see "Reading the tax analytics" below.
-   It changes nothing and costs one tool call.
+   of each kind of income, the distance to the NIIT, additional-Medicare and IRMAA cliffs, and the
+   ACA premium tax credit when the plan opted in for it. Use it when a variant changes a withdrawal
+   or crosses a bracket, or when the conversation turns on a conversion — see "Reading the tax
+   analytics" below. It changes nothing and costs one tool call.
 4. **Propose at most six variants.** Each is a short `variantId` plus a `planPatch`: a deep partial
    of the plan inputs, for example `{"timeline":{"retirementStrategy":{"type":"fixedAge","retirementAge":67}}}`.
    `simulationSettings` cannot be patched — the tool pins the clock, mode and seed.
@@ -55,11 +55,22 @@ before you size a lever, and quote only what it returns.
   measured today (`measuredOn` says whether that is MAGI or earned income), the `headroom` to it
   and the `costOfCrossing` of the first dollar past it. `cliffs.irmaa.projected` is what this
   year's MAGI will charge two premium years later: the tier, `headroomToNextTier` and
-  `nextTier.stepUp`. `cliffs.aca` returns `supported: false` with its `prerequisites`: say the
-  cliff cannot be evaluated and name what it needs — never estimate an ACA number. **Both
-  thresholds are statute-locked, not inflation-indexed**, so the engine prices them in today's
-  dollars: the longer the projection, the smaller the amount in `cliffs` gets. Quote the number
-  the tool returns rather than the familiar $200,000/$250,000, which is only the 2026 figure.
+  `nextTier.stepUp`. **Both thresholds are statute-locked, not inflation-indexed**, so the engine
+  prices them in today's dollars: the longer the projection, the smaller the amount in `cliffs`
+  gets. Quote the number the tool returns rather than the familiar $200,000/$250,000, which is only
+  the 2026 figure. `cliffs.aca` is the ACA premium tax credit (IRC §36B): for a plan that opted in
+  (`taxSettings.aca.optIn` with a stated SLCSP premium), on any filing status but married filing
+  separately — §36B(c)(1)(C) makes a separate return ineligible — it reports `supported: true` and
+  the refundable `credit`, with the `householdIncome`, `povertyLine`, `fplPercent`,
+  `applicablePercentage` and `requiredContribution` behind it. `resolvedYear` is the vendored
+  coverage year whose table priced the credit: a return past the last vendored year is priced from
+  the nearest prior row, so when `resolvedYear` differs from the year you are discussing, say which
+  year's law priced it rather than implying current-year law. `cliffThreshold` is 400 % of the
+  poverty line where that ceiling applies, and `null` — with `headroom` `null` too — where §36B(i)
+  suspends the 400 % cliff (tax years 2021–2025, so the 2024 and 2025 rows): no cliff at all, not a
+  cliff at zero. Quote `cliffs.aca.credit`. For a plan that did not opt in, `supported` is `false`
+  and `prerequisites` names the inputs the credit would need: say the credit is not evaluated for
+  that plan, name the missing input, and never state an ACA number no tool result carries.
 - **The deduction.** `deductions` gives what the year's return took: `type` (`standard` or
   `itemized`) and the `total` deducted. `deductions.seniorDeduction` answers the senior deduction for
   the requested filing status — `available` from the ruleset, `claimed` from the return, and
@@ -120,7 +131,7 @@ The user picks the goal; you show what the engine computed and what each variant
 - If the user asks you to choose, say the engine cannot rank beyond the goal they set, restate the
   trade-off, and leave the choice to them.
 
-## What the engine does not model (as of skill v1)
+## What the engine does not model (as of skill v2)
 
 Name the limits that bear on a variant instead of working around them. If a limit below disagrees
 with what the tools accept, trust the tools and say the limit has changed.
@@ -189,8 +200,16 @@ with what the tools accept, trust the tools and say the limit has changed.
   lines carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap. **IRMAA is modelled**:
   the surcharge
   is a liability line, and `cliffs.irmaa` reports the tier, the room before the next one and what
-  crossing it costs, from the two-year MAGI lookback. **ACA premium credits are not modelled**:
-  `cliffs.aca` reports its prerequisites instead, so never report an ACA number.
+  crossing it costs, from the two-year MAGI lookback. **The ACA premium tax credit is modelled, for
+  a plan that opts in.** `taxSettings.aca` — the opt-in flag, the second-lowest-cost silver
+  premium, optionally the household size and the premium actually paid — makes the year's return
+  compute the §36B credit, which is refundable: it lands in `totalTaxesRefund`/`totalTaxesDue`
+  rather than in a liability line, so it does **not** appear in `lifetimeTaxes` or `perYearTaxes`,
+  and `cliffs.aca.credit` is the figure to quote. Report an ACA number only when a tool result
+  carries it. What the engine does not model is Covered California's state subsidy on top of the
+  federal credit; a plan that has not opted in, or that filed married filing separately, gets
+  `supported: false` with a prerequisite list, which states what that plan is missing rather than
+  that the credit is unmodelled.
 - **Social Security is an income line, not an estimate.** No PIA, claiming-age, spousal or survivor
   calculation.
 - **Tax law is projected from the vendored rules.** The vendored federal ruleset (2026) and California ruleset (2025)

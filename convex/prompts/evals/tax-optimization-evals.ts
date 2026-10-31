@@ -14,9 +14,10 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  * Deliberately **not** covered:
  * - **California state-tax planning.** The state return is computed (P3-P8) and reported, but no case
  *   turns on it: there is no state-specific lever, and Covered California subsidies and CA AMT are not modelled.
- * - **ACA credits, Social Security claiming.** The skill may be
- *   *asked* about these; the correct behaviour is to say the lever is not modelled, which is what the
- *   refused-patch check looks at.
+ * - **ACA opt-in cases, Social Security claiming.** The skill may be
+ *   *asked* about these. No case here opts in through `taxSettings.aca`, so no fixture exercises the
+ *   premium tax credit, and the correct answer to "add the ACA credit" is to read it from a tool
+ *   result after opting the plan in — not to refuse the lever as unmodelled.
  * - **Not on that list: the levers the engine does model.** Itemized deductions (the four entered
  *   lines under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), the §164 SALT
  *   cap with its MAGI phase-down, AMT, IRMAA, Roth conversions (with fixed amounts or bracket-filling,
@@ -25,8 +26,9 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  *   basis on withdrawals through `nondeductibleBasis` are computed and reported, so refusing one of them
  *   is the false answer now. What is still missing about the deductions is the *marginal* effect
  *   (`notComputed` names it), not the deduction; and of the AMT and Medicare machinery only the
- *   credit beyond §53 and the non-income-related Part B and D premiums remain unmodelled. ACA is
- *   genuinely absent — `cliffs.aca.supported` is `false` — so it stays on the list above.
+ *   credit beyond §53 and the non-income-related Part B and D premiums remain unmodelled. The ACA
+ *   credit is on the modelled side instead: `cliffs.aca.supported` is `false` on every plan in this
+ *   corpus only because none of them opts in, which is a fixture gap and not a missing feature.
  */
 
 /** The goal a run is ranked by. F1: the user picks it; the agent never does. */
@@ -562,7 +564,7 @@ export const TAX_OPTIMIZATION_EVAL_CHECKS: readonly EvalCheck[] = [
   {
     id: 'refused-patches',
     property:
-      'Asking for a lever the engine does not model (for example ACA credits) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, Roth conversions through `conversions`, SEPP schedules through `sepp`, pro-rata IRA basis on a withdrawal through `nondeductibleBasis`, and qualified charitable distributions from IRAs through `expenses[*].satisfyFromIra` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
+      'Asking for a lever the engine does not model (for example Social Security claiming) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, the ACA premium tax credit for a plan that opts in through `taxSettings.aca`, Roth conversions through `conversions`, SEPP schedules through `sepp`, pro-rata IRA basis on a withdrawal through `nondeductibleBasis`, and qualified charitable distributions from IRAs through `expenses[*].satisfyFromIra` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
   },
   {
     id: 'no-writes',

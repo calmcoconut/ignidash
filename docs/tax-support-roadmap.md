@@ -1,11 +1,9 @@
 # Tax Support Roadmap
 
-The tax engine (`TaxProcessor` in `taxes.ts`) currently models federal income tax brackets (2026 OBBBA), long-term capital gains with bracket stacking, NIIT (3.8%), Social Security taxation (provisional income method), FICA (7.65% on wages — see gaps below), standard deduction, capital loss deductions with $3k cap and unlimited carryover, tax-deferred contribution deductions, early withdrawal penalties, and Section 121 exclusions.
+The tax engine (`TaxProcessor` in `taxes.ts`) currently models federal income tax brackets (2026 OBBBA), long-term capital gains with bracket stacking, NIIT (3.8%), Social Security taxation (provisional income method), FICA (7.65% employee share, capped at the OASDI wage base, plus the 0.9% Additional Medicare Tax — `payroll-taxes.ts`), standard deduction, capital loss deductions with $3k cap and unlimited carryover, tax-deferred contribution deductions, early withdrawal penalties, and Section 121 exclusions.
 
 **Known gaps in current implementation:**
 
-- FICA does not cap the 6.2% Social Security portion at the wage base (~$176k)
-- FICA does not include the 0.9% Additional Medicare Tax on wages above $200k/$250k
 - All dividends are taxed at LTCG rates (no qualified vs non-qualified distinction)
 
 ---

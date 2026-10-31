@@ -33,7 +33,7 @@ describe('tax-optimization prompt: markdown and TypeScript mirror', () => {
   });
 
   it('is versioned', () => {
-    expect(TAX_OPTIMIZATION_SKILL_VERSION).toBe(1);
+    expect(TAX_OPTIMIZATION_SKILL_VERSION).toBe(2);
     expect(markdown).toContain(`# Tax-optimization skill (v${TAX_OPTIMIZATION_SKILL_VERSION})`);
   });
 });
@@ -123,12 +123,42 @@ describe('tax-optimization prompt: what the engine does not model', () => {
   });
 
   it('separates what the analytics answers from what it does not', () => {
-    // The analytics reports IRMAA (the surcharge is a liability line) and cannot report ACA. A
-    // prompt that lumped them together would make the agent refuse a cliff it has and quote one it
-    // does not.
+    // The analytics reports IRMAA (the surcharge is a liability line), and it reports the ACA premium
+    // tax credit too: an opted-in plan's settled return carries the refundable §36B credit and
+    // `cliffs.aca.credit` is that figure. A prompt that still lumped them together would make the
+    // agent refuse a credit the tool returns and offer a prerequisite list it has already been given.
+    // Assertions are flattened, so a rewrap of the prose cannot pass this test on a changed claim.
+    const flat = markdown.replace(/\s+/g, ' ');
+
     expect(markdown).toContain('**IRMAA is modelled**');
-    expect(markdown).toContain('**ACA premium credits are not modelled**');
-    expect(markdown).toContain('never report an ACA number');
+    expect(flat).toContain('**The ACA premium tax credit is modelled, for a plan that opts in.**');
+    expect(flat).toContain('`taxSettings.aca.optIn` with a stated SLCSP premium');
+    expect(flat).toContain('Quote `cliffs.aca.credit`');
+    // Refundable, so it is a refund and not a liability line — the one fact that decides which tool
+    // result a reported ACA figure can come from.
+    expect(flat).toContain('it does **not** appear in `lifetimeTaxes` or `perYearTaxes`');
+    // Not opted in: prerequisites, described as that plan's missing inputs rather than an absence.
+    expect(flat).toContain('`supported` is `false` and `prerequisites` names the inputs the credit would need');
+    expect(flat).toContain('rather than that the credit is unmodelled');
+    // The rule the agent must keep: the number comes from a tool result, never from the model.
+    expect(flat).toContain('never state an ACA number no tool result carries');
+    // Provenance and the suspended ceiling. `resolvedYear` names the vendored table that actually
+    // priced the credit — a return past the last vendored year is priced from the nearest prior row —
+    // and `cliffThreshold` is `null`, not 400 % of the FPL, where §36B(i) suspends the cliff (the 2024
+    // and 2025 rows). A prompt that stated a flat 400 % would have the model invent a cliff for those
+    // years, and one silent on `resolvedYear` would let it quote 2027 law as a 2029 return's own.
+    expect(flat).toContain('`resolvedYear` is the vendored coverage year whose table priced the credit');
+    expect(flat).toContain('priced from the nearest prior row');
+    expect(flat).toContain("say which year's law priced it rather than implying current-year law");
+    expect(flat).toContain('`cliffThreshold` is 400 % of the poverty line where that ceiling applies');
+    expect(flat).toContain('§36B(i) suspends the 400 % cliff');
+    expect(flat).toContain('no cliff at all, not a cliff at zero');
+    // The old flat claim, gone: it named a 400 % threshold the ARPA coverage years do not have.
+    expect(flat).not.toContain('the `cliffThreshold` (400 % of the poverty line)');
+    // The old claim, gone — it said no ACA figure could exist at all.
+    expect(flat).not.toContain('ACA premium credits are not modelled');
+    expect(flat).not.toContain('never report an ACA number');
+    expect(flat).not.toContain('ACA cliff comes back as not evaluated');
     // Roth conversions and ladders are modelled as transactions with five-year clocks and IRMAA lookahead.
     expect(markdown).toContain('**Roth conversions and the Roth ladder are modelled as transactions.**');
     expect(markdown).toContain('Five-year clocks');

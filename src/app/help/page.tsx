@@ -146,22 +146,13 @@ export default function HelpPage() {
             <DescriptionTerm>Configurable drawdown order</DescriptionTerm>
             <DescriptionDetails>Q1 2026</DescriptionDetails>
 
-            <DescriptionTerm>Modeling debt in Simulator</DescriptionTerm>
+            <DescriptionTerm>State income taxes outside California</DescriptionTerm>
             <DescriptionDetails>Q1 2026</DescriptionDetails>
 
-            <DescriptionTerm>Modeling physical assets in Simulator</DescriptionTerm>
+            <DescriptionTerm>Roth conversions</DescriptionTerm>
             <DescriptionDetails>Q1 2026</DescriptionDetails>
 
-            <DescriptionTerm>State & local taxes, IRMAA surcharges</DescriptionTerm>
-            <DescriptionDetails>Q1 2026</DescriptionDetails>
-
-            <DescriptionTerm>Roth conversions & SEPP</DescriptionTerm>
-            <DescriptionDetails>Q1 2026</DescriptionDetails>
-
-            <DescriptionTerm>Custom financial goals & milestones</DescriptionTerm>
-            <DescriptionDetails>Q2 2026</DescriptionDetails>
-
-            <DescriptionTerm>Support for planning as a couple</DescriptionTerm>
+            <DescriptionTerm>Custom financial goals</DescriptionTerm>
             <DescriptionDetails>Q2 2026</DescriptionDetails>
 
             <DescriptionTerm>Track NW with real-time data</DescriptionTerm>

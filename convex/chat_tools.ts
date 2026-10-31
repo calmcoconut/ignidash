@@ -105,7 +105,7 @@ export const CHAT_TOOL_DEFINITIONS: ChatToolDefinition[] = [
     function: {
       name: 'getTaxAnalytics',
       description:
-        'The settled tax shape of one year of the baseline projection (P3-P6): what the engine charged, how full each bracket is, how much taxable income fits before the next rate, the fully loaded rate on the next dollar of each income type, and the distance to the NIIT, additional-Medicare and IRMAA cliffs. The ACA cliff comes back as not evaluated, with what it would need. Read-only: it creates no variant and never changes the plan. Call it when a conversion, withdrawal or bracket question needs a number.',
+        'The settled tax shape of one year of the baseline projection (P3-P6): what the engine charged, how full each bracket is, how much taxable income fits before the next rate, the fully loaded rate on the next dollar of each income type, and the distance to the NIIT, additional-Medicare and IRMAA cliffs. The ACA side is the §36B premium tax credit: a plan that opted in for it gets the refundable credit and its distance to the 400 % cliff; a plan that did not (or that filed married filing separately) gets a not-evaluated answer listing the inputs it would need. Read-only: it creates no variant and never changes the plan. Call it when a conversion, withdrawal or bracket question needs a number.',
       parameters: {
         type: 'object',
         properties: {

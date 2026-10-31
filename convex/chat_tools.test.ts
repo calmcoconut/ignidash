@@ -384,7 +384,7 @@ describe('getTaxAnalytics (§7-A3, P3-P6)', () => {
     expect(exhausted.error).toMatch(/Tool budget exhausted/);
   });
 
-  it('describes only the levers the toolkit can run, and reports the ACA cliff as unsupported', () => {
+  it('describes only the levers the toolkit can run, and states the ACA credit conditionally', () => {
     // The conversion-schedule lever is deferred until P3-P5 is wired: a description that named it
     // would send the model looking for a tool that does not exist.
     for (const tool of CHAT_TOOL_DEFINITIONS) {
@@ -393,9 +393,14 @@ describe('getTaxAnalytics (§7-A3, P3-P6)', () => {
 
     const description = CHAT_TOOL_DEFINITIONS.find((tool) => tool.function.name === 'getTaxAnalytics')?.function.description ?? '';
     expect(description).toMatch(/IRMAA/);
-    // ACA premium credits are P3-P7b: the analytics returns `supported: false`, so the description
-    // must not promise a distance to a cliff the tool cannot measure.
-    expect(description).toMatch(/ACA cliff comes back as not evaluated/);
+    // The credit is computed for a plan that opts in (P3-P7b shipped), so the description must not
+    // claim the cliff is always unevaluated — that would tell the model no ACA number exists even on
+    // a plan whose settled return carries one. It must still name the not-evaluated path, because a
+    // plan that did not opt in (or filed MFS) gets prerequisites instead of a figure.
+    expect(description).toMatch(/§36B premium tax credit/);
+    expect(description).toMatch(/refundable credit and its distance to the 400 % cliff/);
+    expect(description).toMatch(/not-evaluated answer listing the inputs it would need/);
+    expect(description).not.toMatch(/ACA cliff comes back as not evaluated/);
   });
 });
 
