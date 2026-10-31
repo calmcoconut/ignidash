@@ -377,6 +377,7 @@ export abstract class ChartDataExtractor {
    */
   static extractSingleSimulationWithdrawalsData(simulation: SimulationResult): SingleSimulationWithdrawalsChartDataPoint[] {
     let cumulativeEarlyWithdrawals = 0;
+    let cumulativeRothConversions = 0;
 
     return simulation.data.slice(1).map((data) => {
       const age = Math.floor(data.age);
@@ -390,6 +391,11 @@ export abstract class ChartDataExtractor {
 
       const annualEarlyWithdrawals = SimulationDataExtractor.getEarlyWithdrawals(data, age);
       cumulativeEarlyWithdrawals += annualEarlyWithdrawals;
+
+      // `portfolio.conversions` is the year's total moved from tax-deferred to Roth; it is absent
+      // in a year with no conversion, so absence reads as zero here (unlike a stated zero amount).
+      const annualRothConversions = portfolioData.conversions ?? 0;
+      cumulativeRothConversions += annualRothConversions;
 
       const withdrawalRate = SimulationDataExtractor.getWithdrawalRate(data);
 
@@ -408,6 +414,8 @@ export abstract class ChartDataExtractor {
         cumulativeRealizedGains: portfolioData.cumulativeRealizedGains,
         annualRequiredMinimumDistributions: portfolioData.rmds,
         cumulativeRequiredMinimumDistributions: portfolioData.cumulativeRmds,
+        annualRothConversions,
+        cumulativeRothConversions,
         annualRothEarningsWithdrawals: portfolioData.earningsWithdrawn,
         cumulativeRothEarningsWithdrawals: portfolioData.cumulativeEarningsWithdrawn,
         annualEarlyWithdrawals,

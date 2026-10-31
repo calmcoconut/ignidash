@@ -559,6 +559,7 @@ export abstract class TableDataExtractor {
     const historicalRanges = simulation.context.historicalRanges ?? null;
 
     let cumulativeEarlyWithdrawals = 0;
+    let cumulativeRothConversions = 0;
 
     return simulation.data.map((data, idx) => {
       const historicalYear: number | null = getHistoricalYear(historicalRanges, idx);
@@ -585,6 +586,8 @@ export abstract class TableDataExtractor {
           cumulativeRealizedGains: null,
           annualRequiredMinimumDistributions: null,
           cumulativeRequiredMinimumDistributions: null,
+          annualRothConversions: null,
+          cumulativeRothConversions: null,
           annualEarlyWithdrawals: null,
           cumulativeEarlyWithdrawals: null,
           annualRothEarningsWithdrawals: null,
@@ -609,6 +612,11 @@ export abstract class TableDataExtractor {
       const annualEarlyWithdrawals = SimulationDataExtractor.getEarlyWithdrawals(data, age);
       cumulativeEarlyWithdrawals += annualEarlyWithdrawals;
 
+      // `portfolio.conversions` is the year's total moved from tax-deferred to Roth; it is absent
+      // in a year with no conversion, so absence reads as zero here (unlike a stated zero amount).
+      const annualRothConversions = portfolioData.conversions ?? 0;
+      cumulativeRothConversions += annualRothConversions;
+
       const { surplusDeficit } = SimulationDataExtractor.getCashFlowData(data);
       const withdrawalRate = SimulationDataExtractor.getWithdrawalRate(data);
 
@@ -629,6 +637,8 @@ export abstract class TableDataExtractor {
         cumulativeRealizedGains: portfolioData.cumulativeRealizedGains,
         annualRequiredMinimumDistributions: portfolioData.rmds,
         cumulativeRequiredMinimumDistributions: portfolioData.cumulativeRmds,
+        annualRothConversions,
+        cumulativeRothConversions,
         annualEarlyWithdrawals,
         cumulativeEarlyWithdrawals,
         annualRothEarningsWithdrawals: portfolioData.earningsWithdrawn,

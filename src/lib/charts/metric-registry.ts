@@ -742,12 +742,19 @@ const WITHDRAWALS_REALIZED_GAINS = defineLineMetric(
   { stack: 'none' }
 );
 
+// RMDs and Roth conversions are the two taxable events of a tax-deferred account: both leave
+// the tax-deferred side and raise ordinary income, and `portfolio.conversions` is already folded
+// into the tax-deferred distribution line the taxes views show. They share this view so the
+// conversion that raised taxable income has a visible source; the conversion series is labelled
+// as a transfer between accounts, never as a withdrawal or a distribution.
 const WITHDRAWALS_REQUIRED_MINIMUM_DISTRIBUTIONS = defineLineMetric(
   'withdrawals.requiredMinimumDistributions',
   'currency',
   [
     ['annualRequiredMinimumDistributions', 'var(--chart-2)'],
     ['cumulativeRequiredMinimumDistributions', 'var(--chart-4)'],
+    ['annualRothConversions', 'var(--chart-1)'],
+    ['cumulativeRothConversions', 'var(--chart-3)'],
   ],
   { stack: 'none' }
 );
@@ -1247,6 +1254,8 @@ export const BAR_CHARTS: Readonly<Record<string, BarChartDefinition>> = {
   'withdrawals.requiredMinimumDistributions': barView('currency', [
     ['annualRequiredMinimumDistributions', 'var(--chart-2)', 'Annual RMDs', 'Annual RMDs'],
     ['cumulativeRequiredMinimumDistributions', 'var(--chart-4)', 'Cumul. RMDs', 'Cumul. RMDs'],
+    ['annualRothConversions', 'var(--chart-1)', 'Annual Roth Conversions', 'Annual Roth Conv.'],
+    ['cumulativeRothConversions', 'var(--chart-3)', 'Cumul. Roth Conversions', 'Cumul. Roth Conv.'],
   ]),
   'withdrawals.earlyWithdrawals': barView('currency', [
     ['annualEarlyWithdrawals', 'var(--chart-2)', 'Annual Early Withdrawals', 'Annual EWs'],

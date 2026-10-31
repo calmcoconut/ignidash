@@ -32,6 +32,7 @@ import type { ChartKind, MetricCategory, MetricDataPoint } from './plot-types';
 import { formatChartString } from '@/lib/utils';
 import { BAR_CHARTS, PIE_CHARTS } from './metric-registry';
 import { serializeBarChartDefinition, serializePieChartDefinition } from './plot-types';
+import { resolveChartCardBody, resolveMetricTableColumns, resolveMetricTableRows } from './metric-table';
 
 // ============================================================================
 // FROZEN CONTRACTS
@@ -486,6 +487,11 @@ const FROZEN_LINE_METRICS: Record<string, { format: 'currency' | 'percent'; stac
     series: [
       ['annualRequiredMinimumDistributions', 'var(--chart-2)', 'bar', 1],
       ['cumulativeRequiredMinimumDistributions', 'var(--chart-4)', 'bar', 1],
+      // Roth conversions are a transfer between accounts, not a withdrawal; they share this view
+      // because both are taxable tax-deferred-account events, so one display's RMD view now also
+      // sources the conversion that raised taxable income.
+      ['annualRothConversions', 'var(--chart-1)', 'bar', 1],
+      ['cumulativeRothConversions', 'var(--chart-3)', 'bar', 1],
     ],
   },
   'withdrawals.earlyWithdrawals': {
@@ -666,7 +672,7 @@ const FROZEN_BAR_CHARTS: Record<string, string> = {
   'withdrawals.realizedGains':
     'currency#annualRealizedGains|var(--chart-2)|1|Annual Realized Gains|Annual Gains;cumulativeRealizedGains|var(--chart-4)|1|Cumul. Realized Gains|Cumul. Gains##filter-zero',
   'withdrawals.requiredMinimumDistributions':
-    'currency#annualRequiredMinimumDistributions|var(--chart-2)|1|Annual RMDs|Annual RMDs;cumulativeRequiredMinimumDistributions|var(--chart-4)|1|Cumul. RMDs|Cumul. RMDs##filter-zero',
+    'currency#annualRequiredMinimumDistributions|var(--chart-2)|1|Annual RMDs|Annual RMDs;cumulativeRequiredMinimumDistributions|var(--chart-4)|1|Cumul. RMDs|Cumul. RMDs;annualRothConversions|var(--chart-1)|1|Annual Roth Conversions|Annual Roth Conv.;cumulativeRothConversions|var(--chart-3)|1|Cumul. Roth Conversions|Cumul. Roth Conv.##filter-zero',
   'withdrawals.shortfall':
     'currency#annualShortfall|var(--chart-2)|1|Annual Shortfall|Annual Shortfall;outstandingShortfall|var(--chart-4)|1|Outstanding Shortfall|Outstanding Shortfall##filter-zero',
   'withdrawals.taxCategory':
@@ -1163,4 +1169,108 @@ describe('migrated bar and pie views: frozen parity', () => {
       expect(definition.series.length).toBeGreaterThan(0);
     });
   }
+});
+
+// ============================================================================
+// ROTH CONVERSIONS ON THE WITHDRAWALS RMD VIEW
+// ============================================================================
+
+/**
+ * Roth conversions are a transfer from a tax-deferred account to a Roth account. They share the
+ * RMD view because both are the taxable events of a tax-deferred account (and the engine already
+ * folds the conversion into the tax-deferred distribution line the taxes views show), but their
+ * series are labelled as conversions — never as a withdrawal or a distribution.
+ */
+describe('Roth conversions on the withdrawals RMD view', () => {
+  const metricId = 'withdrawals.requiredMinimumDistributions';
+
+  it('adds the conversion series to the existing view instead of a new data-view id', () => {
+    // A new id would be a persisted client contract; the conversions ride the existing view.
+    expect(WITHDRAWALS_DATA_VIEWS).toEqual(FROZEN_DATA_VIEW_IDS.withdrawals);
+    expect(WITHDRAWALS_DATA_VIEWS).not.toContain('rothConversions');
+
+    const metric = getMetric(metricId);
+    if (!metric) throw new Error(`metric ${metricId} is not registered`);
+    const keys = resolveSeries(metric, 'line').map((series) => series.key);
+    expect(keys).toEqual([
+      'annualRequiredMinimumDistributions',
+      'cumulativeRequiredMinimumDistributions',
+      'annualRothConversions',
+      'cumulativeRothConversions',
+    ]);
+  });
+
+  it('labels the conversion series as a transfer between accounts', () => {
+    const metric = getMetric(metricId);
+    if (!metric) throw new Error(`metric ${metricId} is not registered`);
+    const labels = resolveSeries(metric, 'line')
+      .filter((series) => series.key.endsWith('RothConversions'))
+      .map((series) => series.label);
+
+    expect(labels).toEqual(['Annual Roth Conversions', 'Cumul. Roth Conversions']);
+    for (const label of labels) {
+      // The repo's named defect class: a label that describes the number as something it is not.
+      expect(label).not.toMatch(/withdraw|distribution|RMD/i);
+    }
+  });
+
+  it('renders the conversion series in the single-age bar view too', () => {
+    const definition = BAR_CHARTS[metricId];
+    if (!definition) throw new Error(`bar view ${metricId} is not registered`);
+
+    expect(definition.series.map((series) => series.key)).toEqual([
+      'annualRequiredMinimumDistributions',
+      'cumulativeRequiredMinimumDistributions',
+      'annualRothConversions',
+      'cumulativeRothConversions',
+    ]);
+    // The view's bars are a flat list, so no segment grouping was introduced.
+    expect(definition.segments).toBeUndefined();
+  });
+
+  it('resolves through the chart card with a table body carrying both conversion columns', () => {
+    const metric = getMetric(metricId);
+    if (!metric) throw new Error(`metric ${metricId} is not registered`);
+
+    expect(resolveMetricTableColumns(metric).map((column) => column.key)).toEqual([
+      'age',
+      'annualRequiredMinimumDistributions',
+      'cumulativeRequiredMinimumDistributions',
+      'annualRothConversions',
+      'cumulativeRothConversions',
+    ]);
+
+    const points = [
+      point({
+        age: 40,
+        annualRequiredMinimumDistributions: 0,
+        cumulativeRequiredMinimumDistributions: 0,
+        annualRothConversions: 0,
+        cumulativeRothConversions: 0,
+      }),
+      point({
+        age: 41,
+        annualRequiredMinimumDistributions: 0,
+        cumulativeRequiredMinimumDistributions: 0,
+        annualRothConversions: 25_000,
+        cumulativeRothConversions: 25_000,
+      }),
+      point({
+        age: 42,
+        annualRequiredMinimumDistributions: 0,
+        cumulativeRequiredMinimumDistributions: 0,
+        annualRothConversions: 0,
+        cumulativeRothConversions: 25_000,
+      }),
+    ];
+
+    const rows = resolveMetricTableRows(metric, points);
+    expect(rows.map((row) => row.annualRothConversions)).toEqual([0, 25_000, 0]);
+    // Cumulative keeps its running total through the year with no conversion.
+    expect(rows.map((row) => row.cumulativeRothConversions)).toEqual([0, 25_000, 25_000]);
+
+    // The card renders the table when the table view is selected and a table exists.
+    expect(resolveChartCardBody('table', resolveMetricTableRows(metric, points))).toBe('table');
+    expect(resolveChartCardBody('chart', resolveMetricTableRows(metric, points))).toBe('chart');
+  });
 });

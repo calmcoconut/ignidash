@@ -209,6 +209,10 @@ export interface SingleSimulationWithdrawalsChartDataPoint {
   cumulativeRealizedGains: number;
   annualRequiredMinimumDistributions: number;
   cumulativeRequiredMinimumDistributions: number;
+  /** Roth conversions that left a tax-deferred account this year (a transfer, not a withdrawal). */
+  annualRothConversions: number;
+  /** Running total of `annualRothConversions`, matching the RMD pair it sits beside. */
+  cumulativeRothConversions: number;
   annualEarlyWithdrawals: number;
   cumulativeEarlyWithdrawals: number;
   annualRothEarningsWithdrawals: number;

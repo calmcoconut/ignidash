@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 
 import { ChartDataExtractor } from './chart-data-extractor';
 import type { SimulationResult, SimulationDataPoint } from '../simulation-engine';
+import { createEmptyPortfolioData, createSimulatorInputs } from '../__tests__/test-utils';
+import { simulate } from '../simulate';
 import type { PortfolioData } from '../portfolio';
 import type { PhysicalAssetsData } from '../physical-assets';
 import type { DebtsData } from '../debts';
@@ -1631,5 +1633,114 @@ describe('ChartDataExtractor - Gap Coverage Tests', () => {
     expect(result[1].annualSoldAssetValue - result[1].annualDebtPayoff).toBe(100000);
     // Net portfolio change = 100k sale - 150k purchase = -50k
     expect(result[1].netPortfolioChange).toBeCloseTo(-50000, 2);
+  });
+});
+
+// ============================================================================
+// Roth conversions in the withdrawals series
+// ============================================================================
+
+/**
+ * A withdrawals-relevant data point whose only interesting field is `portfolio.conversions`.
+ *
+ * `conversions` is optional on `PortfolioData` and absent in a year with no conversion, so the
+ * helper omits the key rather than stating a zero — exactly the shape the engine produces.
+ */
+function createConversionTestDataPoint(age: number, conversions?: number): SimulationDataPoint {
+  return {
+    date: `20${26 + (age - 40)}-03-15`,
+    age,
+    portfolio: {
+      ...createEmptyPortfolioData(),
+      totalValue: 500_000,
+      ...(conversions === undefined ? {} : { conversions }),
+    },
+    incomes: null,
+    expenses: null,
+    debts: null,
+    physicalAssets: null,
+    phase: { name: 'retirement' },
+    taxes: null,
+    returns: null,
+  };
+}
+
+function createConversionTestSimulation(data: SimulationDataPoint[]): SimulationResult {
+  return {
+    data,
+    context: {
+      startAge: data[0].age,
+      endAge: data[data.length - 1].age,
+      yearsToSimulate: data.length,
+      startDate: data[0].date,
+      endDate: data[data.length - 1].date,
+      retirementStrategy: { type: 'fixedAge', retirementAge: 65 },
+      rmdAge: 75,
+    },
+  } as SimulationResult;
+}
+
+describe('ChartDataExtractor - Roth conversions on the withdrawals series', () => {
+  it('reports the annual conversion and accumulates it like the neighbouring RMD pair', () => {
+    const simulation = createConversionTestSimulation([
+      createConversionTestDataPoint(40),
+      createConversionTestDataPoint(41, 25_000),
+      createConversionTestDataPoint(42),
+      createConversionTestDataPoint(43, 10_000),
+    ]);
+
+    const points = ChartDataExtractor.extractSingleSimulationWithdrawalsData(simulation);
+
+    // Year 0 is excluded, so the first point is the 25,000-conversion year.
+    expect(points.map((point) => point.annualRothConversions)).toEqual([25_000, 0, 10_000]);
+    // Cumulative is a running total of the annual value (not a re-read of a snapshot field).
+    expect(points.map((point) => point.cumulativeRothConversions)).toEqual([25_000, 25_000, 35_000]);
+  });
+
+  it('reports zero conversions on a plan without a conversion schedule', () => {
+    const simulation = createConversionTestSimulation([createConversionTestDataPoint(40), createConversionTestDataPoint(41)]);
+
+    const points = ChartDataExtractor.extractSingleSimulationWithdrawalsData(simulation);
+
+    expect(points.map((point) => point.annualRothConversions)).toEqual([0]);
+    expect(points.map((point) => point.cumulativeRothConversions)).toEqual([0]);
+  });
+
+  it('carries the engine conversion total through on a real run', () => {
+    const base = createSimulatorInputs();
+    const inputs = {
+      ...base,
+      incomes: {},
+      expenses: {},
+      debts: {},
+      physicalAssets: {},
+      accounts: {
+        'savings-1': { id: 'savings-1', name: 'Savings', type: 'savings' as const, balance: 10_000 },
+        'ira-1': { id: 'ira-1', name: 'Traditional IRA', type: 'ira' as const, balance: 100_000, percentBonds: 0 },
+        'roth-1': {
+          id: 'roth-1',
+          name: 'Roth IRA',
+          type: 'rothIra' as const,
+          balance: 20_000,
+          percentBonds: 0,
+          contributionBasis: 20_000,
+        },
+      },
+      conversions: [{ id: 'conv-1', fromAccountId: 'ira-1', toAccountId: 'roth-1', amount: 25_000, year: 2026 }],
+    };
+
+    const outcome = simulate(inputs, { mode: 'fixedReturns', asOf: '2026-01-01', seed: 1 });
+    if (outcome.mode !== 'fixedReturns') throw new Error('expected a single-run outcome');
+
+    const points = ChartDataExtractor.extractSingleSimulationWithdrawalsData(outcome.result);
+
+    // A fixed-amount conversion moves exactly 25,000 from the IRA to the Roth in its year.
+    expect(points[0].annualRothConversions).toBe(25_000);
+    expect(points[0].cumulativeRothConversions).toBe(25_000);
+    // It is a transfer, not a distribution: it never lands in the RMD or Roth-earnings series.
+    // (This plan's withdrawal total is not asserted, because the tax the conversion creates is
+    // itself funded from the portfolio — a separate, genuine withdrawal with its own series.)
+    expect(points[0].annualRequiredMinimumDistributions).toBe(0);
+    expect(points[0].annualRothEarningsWithdrawals).toBe(0);
   });
 });

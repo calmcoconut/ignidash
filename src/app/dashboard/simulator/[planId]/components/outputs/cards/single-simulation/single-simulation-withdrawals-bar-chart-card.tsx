@@ -38,7 +38,7 @@ export default function SingleSimulationWithdrawalsBarChartCard({
       title = 'Realized Gains';
       break;
     case 'requiredMinimumDistributions':
-      title = 'Required Minimum Distributions';
+      title = 'RMDs & Roth Conversions';
       break;
     case 'earlyWithdrawals':
       title = 'Early Withdrawals';
