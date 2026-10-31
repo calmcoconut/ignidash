@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
-import { createSimulatorInputs, createWageIncome } from './__tests__/test-utils';
+import { createDefaultTimeline, createSimulatorInputs, createWageIncome } from './__tests__/test-utils';
 import { simulate } from './simulate';
 
 describe('Roth conversion engine execution (R4a)', () => {
@@ -495,5 +495,172 @@ describe('Roth conversion engine execution (R4a)', () => {
     // Must land within $1 of the bracket top ($50,400)
     expect(Math.abs(taxableOrdinary - 50_400)).toBeLessThanOrEqual(1);
     expect(Math.abs((firstYear.portfolio.conversions ?? 0) - 83_125)).toBeLessThanOrEqual(1);
+  });
+
+  it('imposes 10% penalty on early withdrawal of converted principal at year 4 edge (R4c)', () => {
+    // Start 2026-01-01, age 40. Convert $50,000 in 2026 (month 1).
+    // In year 2030 (year 4 after conversion, calendar year 2030, age 44 < 59.5),
+    // living expense of $20,000 is withdrawn from Roth IRA (since IRA balance is 0).
+    // Conversion seasons on 2031-01-01, so in 2030 it is unseasoned.
+    // IRC §72(t) imposes 10% penalty ($2,000) on the $20,000 unseasoned conversion.
+    // Taxable ordinary income = $0 (converted dollars are already taxed).
+    const base = createSimulatorInputs();
+    const inputs: SimulatorInputs = {
+      ...base,
+      timeline: {
+        ...createDefaultTimeline(),
+        birthYear: 1986,
+        birthMonth: 1,
+      },
+      incomes: {},
+      expenses: {
+        'living-2030': {
+          id: 'living-2030',
+          name: 'Living Expense',
+          amount: 20_000,
+          frequency: 'yearly',
+          amountBasis: 'nominal',
+          timeframe: {
+            start: { type: 'customDate', year: 2030, month: 1 },
+            end: { type: 'customDate', year: 2030, month: 12 },
+          },
+        },
+      },
+      debts: {},
+      physicalAssets: {},
+      marketAssumptions: {
+        ...base.marketAssumptions,
+        stockReturn: 0,
+        bondReturn: 0,
+        cashReturn: 0,
+        stockYield: 0,
+        bondYield: 0,
+        inflationRate: 0,
+      },
+      taxSettings: {
+        ...base.taxSettings,
+        stateResidency: 'none',
+      },
+      accounts: {
+        'ira-1': {
+          id: 'ira-1',
+          name: 'Traditional IRA',
+          type: 'ira',
+          balance: 50_000,
+          percentBonds: 0,
+        },
+        'roth-1': {
+          id: 'roth-1',
+          name: 'Roth IRA',
+          type: 'rothIra',
+          balance: 0,
+          percentBonds: 0,
+          contributionBasis: 0,
+        },
+      },
+      conversions: [
+        {
+          id: 'conv-1',
+          fromAccountId: 'ira-1',
+          toAccountId: 'roth-1',
+          amount: 50_000,
+          year: 2026,
+        },
+      ],
+    };
+
+    const result = simulate(inputs, { mode: 'fixedReturns', asOf: '2026-01-01', seed: 1 });
+    // Year 2030 is data point index 5 (index 0 is init, 1 is 2026, 2 is 2027, 3 is 2028, 4 is 2029, 5 is 2030)
+    const year2030 = result.result.data[5];
+    expect(year2030.date.startsWith('2031-01-01')).toBe(true);
+
+    const penalties = year2030.taxes?.earlyWithdrawalPenalties;
+    // 10% penalty on unseasoned conversions ($20,000 expense + penalty funding from Roth)
+    expect(penalties?.taxFreePenaltyAmount).toBeCloseTo(2_037.02, 1);
+    expect(penalties?.totalPenaltyAmount).toBeCloseTo(2_037.02, 1);
+    expect(year2030.taxes?.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBe(0);
+  });
+
+  it('exempts withdrawal from 10% penalty after 5-year clock has run at year 5 edge (R4c)', () => {
+    // Start 2026-01-01, age 40. Convert $50,000 in 2026 (month 1).
+    // In year 2031 (5 full years elapsed, calendar year 2031, age 45 < 59.5),
+    // living expense of $20,000 is withdrawn from Roth IRA.
+    // Conversion seasoned on 2031-01-01, so in 2031 withdrawals are seasoned.
+    // 10% penalty is $0.
+    // Taxable ordinary income = $0.
+    const base = createSimulatorInputs();
+    const inputs: SimulatorInputs = {
+      ...base,
+      timeline: {
+        ...createDefaultTimeline(),
+        birthYear: 1986,
+        birthMonth: 1,
+      },
+      incomes: {},
+      expenses: {
+        'living-2031': {
+          id: 'living-2031',
+          name: 'Living Expense',
+          amount: 20_000,
+          frequency: 'yearly',
+          amountBasis: 'nominal',
+          timeframe: {
+            start: { type: 'customDate', year: 2031, month: 1 },
+            end: { type: 'customDate', year: 2031, month: 12 },
+          },
+        },
+      },
+      debts: {},
+      physicalAssets: {},
+      marketAssumptions: {
+        ...base.marketAssumptions,
+        stockReturn: 0,
+        bondReturn: 0,
+        cashReturn: 0,
+        stockYield: 0,
+        bondYield: 0,
+        inflationRate: 0,
+      },
+      taxSettings: {
+        ...base.taxSettings,
+        stateResidency: 'none',
+      },
+      accounts: {
+        'ira-1': {
+          id: 'ira-1',
+          name: 'Traditional IRA',
+          type: 'ira',
+          balance: 50_000,
+          percentBonds: 0,
+        },
+        'roth-1': {
+          id: 'roth-1',
+          name: 'Roth IRA',
+          type: 'rothIra',
+          balance: 0,
+          percentBonds: 0,
+          contributionBasis: 0,
+        },
+      },
+      conversions: [
+        {
+          id: 'conv-1',
+          fromAccountId: 'ira-1',
+          toAccountId: 'roth-1',
+          amount: 50_000,
+          year: 2026,
+        },
+      ],
+    };
+
+    const result = simulate(inputs, { mode: 'fixedReturns', asOf: '2026-01-01', seed: 1 });
+    // Year 2031 is data point index 6
+    const year2031 = result.result.data[6];
+    expect(year2031.date.startsWith('2032-01-01')).toBe(true);
+
+    const penalties = year2031.taxes?.earlyWithdrawalPenalties;
+    expect(penalties?.taxFreePenaltyAmount).toBe(0);
+    expect(penalties?.totalPenaltyAmount).toBe(0);
+    expect(year2031.taxes?.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBe(0);
   });
 });

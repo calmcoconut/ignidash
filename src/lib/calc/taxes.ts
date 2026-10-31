@@ -359,6 +359,7 @@ export interface IncomeSourcesData {
     rothEarnings: number;
     '401kAndIra': number;
     hsa: number;
+    unseasonedConversions?: number;
   };
 }
 
@@ -623,6 +624,9 @@ function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesD
       rothEarnings: sum(records.map((record) => record.earlyWithdrawals.rothEarnings)),
       '401kAndIra': sum(records.map((record) => record.earlyWithdrawals['401kAndIra'])),
       hsa: sum(records.map((record) => record.earlyWithdrawals.hsa)),
+      ...(sum(records.map((record) => record.earlyWithdrawals.unseasonedConversions ?? 0)) > 0
+        ? { unseasonedConversions: sum(records.map((record) => record.earlyWithdrawals.unseasonedConversions ?? 0)) }
+        : {}),
     },
   };
 }
@@ -1780,6 +1784,7 @@ export class TaxProcessor {
 
     let taxDeferredWithdrawals = 0;
     let earlyRothEarningsWithdrawals = 0;
+    let earlyUnseasonedConversions = 0;
     let early401kAndIraWithdrawals = 0;
     let earlyHsaWithdrawals = 0;
     // The §408(d)(2) aggregate: only an `ira` is apportioned by Form 8606, so its distributions and
@@ -1797,6 +1802,9 @@ export class TaxProcessor {
             const annualEarningsWithdrawn = account.earningsWithdrawn;
 
             earlyRothEarningsWithdrawals += annualEarningsWithdrawn;
+          }
+          if (account.unseasonedConversionsWithdrawn && account.unseasonedConversionsWithdrawn > 0) {
+            earlyUnseasonedConversions += account.unseasonedConversionsWithdrawn;
           }
           break;
         }
@@ -1922,6 +1930,7 @@ export class TaxProcessor {
         rothEarnings: earlyRothEarningsWithdrawals,
         '401kAndIra': early401kAndIraWithdrawals,
         hsa: earlyHsaWithdrawals,
+        ...(earlyUnseasonedConversions > 0 ? { unseasonedConversions: earlyUnseasonedConversions } : {}),
       },
     };
   }
@@ -2030,10 +2039,10 @@ export class TaxProcessor {
     return { netInvestmentIncome, incomeSubjectToNiit, niitAmount, threshold };
   }
 
-  /** Calculates early withdrawal penalties — IRC §72(t): 10% for 401k/IRA; IRC §223(f)(4): 20% for HSA */
+  /** Calculates early withdrawal penalties — IRC §72(t): 10% for 401k/IRA/unseasoned Roth conversions; IRC §223(f)(4): 20% for HSA */
   private processEarlyWithdrawalPenalties(earlyWithdrawalsData: IncomeSourcesData['earlyWithdrawals']): EarlyWithdrawalPenaltyData {
     const taxDeferredPenaltyAmount = earlyWithdrawalsData['401kAndIra'] * 0.1 + earlyWithdrawalsData.hsa * 0.2;
-    const taxFreePenaltyAmount = earlyWithdrawalsData.rothEarnings * 0.1;
+    const taxFreePenaltyAmount = (earlyWithdrawalsData.rothEarnings + (earlyWithdrawalsData.unseasonedConversions ?? 0)) * 0.1;
 
     return { taxDeferredPenaltyAmount, taxFreePenaltyAmount, totalPenaltyAmount: taxDeferredPenaltyAmount + taxFreePenaltyAmount };
   }

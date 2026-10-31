@@ -547,7 +547,7 @@ export class FinancialSimulationEngine {
         });
 
         if (activeConversions.length > 0) {
-          const currentDate = formatISODate(monthStartAfter(startCalendarDate, simulationState.time.month));
+          const currentDate = formatISODate({ year: currentYear, month: 1, day: 1 });
           portfolioProcessor.processConversions(activeConversions, currentDate);
           for (const conv of activeConversions) {
             executedConversionIds.add(conv.id);
@@ -627,7 +627,7 @@ export class FinancialSimulationEngine {
             );
 
             if (amount > 0) {
-              const currentDate = formatISODate(monthStartAfter(startCalendarDate, simulationState.time.month));
+              const currentDate = formatISODate({ year: conversionYear, month: 1, day: 1 });
               fromAccount.applyConversionOut(amount);
               toAccount.applyConversionIn(amount, currentDate);
               portfolioProcessor.recordConversion(conv.fromAccountId, conv.toAccountId, amount);

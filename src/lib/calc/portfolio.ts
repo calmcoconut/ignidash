@@ -9,7 +9,7 @@
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
-import type { ISODateString } from './clock';
+import { formatISODate, type ISODateString } from './clock';
 
 import {
   type Account,
@@ -141,6 +141,8 @@ export class PortfolioProcessor {
       realizedGainsByAccount: realizedGainsByAccountBeforeRebalance,
       earningsWithdrawn,
       earningsWithdrawnByAccount,
+      unseasonedConversionsWithdrawn,
+      unseasonedConversionsWithdrawnByAccount,
       shortfall,
     } = this.processWithdrawals(
       netCashFlow,
@@ -162,7 +164,8 @@ export class PortfolioProcessor {
       withdrawalsByAccount,
       realizedGainsByAccount,
       earningsWithdrawnByAccount,
-      {}
+      {},
+      unseasonedConversionsWithdrawnByAccount
     );
 
     const portfolioData = this.buildPortfolioData(
@@ -175,6 +178,7 @@ export class PortfolioProcessor {
         rmds: 0,
         shortfall,
         shortfallRepaid,
+        ...(unseasonedConversionsWithdrawn > 0 ? { unseasonedConversionsWithdrawn } : {}),
       },
       perAccountData
     );
@@ -222,6 +226,9 @@ export class PortfolioProcessor {
       shortfallRepaid += res.shortfallRepaid;
     }
 
+    let unseasonedConversionsWithdrawnByAccount: Record<string, number> = {};
+    let unseasonedConversionsWithdrawn = annualPortfolioDataBeforeTaxes.unseasonedConversionsWithdrawn ?? 0;
+
     if (taxesData.totalTaxesDue > 0) {
       const res = this.processWithdrawals(-taxesData.totalTaxesDue);
       withdrawals = addFlows(withdrawals, res.total);
@@ -230,6 +237,10 @@ export class PortfolioProcessor {
       realizedGainsByAccount = res.realizedGainsByAccount;
       earningsWithdrawn += res.earningsWithdrawn;
       earningsWithdrawnByAccount = res.earningsWithdrawnByAccount;
+      if (res.unseasonedConversionsWithdrawn > 0) {
+        unseasonedConversionsWithdrawnByAccount = res.unseasonedConversionsWithdrawnByAccount;
+        unseasonedConversionsWithdrawn += res.unseasonedConversionsWithdrawn;
+      }
       shortfall += res.shortfall;
     }
 
@@ -240,7 +251,8 @@ export class PortfolioProcessor {
       withdrawalsByAccount,
       realizedGainsByAccount,
       earningsWithdrawnByAccount,
-      {}
+      {},
+      unseasonedConversionsWithdrawnByAccount
     );
 
     const portfolioData = this.buildPortfolioData(
@@ -254,6 +266,7 @@ export class PortfolioProcessor {
         shortfall,
         shortfallRepaid,
         conversions: annualPortfolioDataBeforeTaxes.conversions,
+        ...(unseasonedConversionsWithdrawn > 0 ? { unseasonedConversionsWithdrawn } : {}),
       },
       perAccountData
     );
@@ -381,11 +394,14 @@ export class PortfolioProcessor {
     realizedGainsByAccount: Record<string, number>;
     earningsWithdrawn: number;
     earningsWithdrawnByAccount: Record<string, number>;
+    unseasonedConversionsWithdrawn: number;
+    unseasonedConversionsWithdrawnByAccount: Record<string, number>;
     shortfall: number;
   } {
     const byAccount: Record<string, AssetFlows> = {};
     const realizedGainsByAccount: Record<string, number> = {};
     const earningsWithdrawnByAccount: Record<string, number> = {};
+    const unseasonedConversionsWithdrawnByAccount: Record<string, number> = {};
     if (!(netCashFlow < 0)) {
       return {
         total: zeroFlows(),
@@ -394,12 +410,15 @@ export class PortfolioProcessor {
         realizedGainsByAccount,
         earningsWithdrawn: 0,
         earningsWithdrawnByAccount,
+        unseasonedConversionsWithdrawn: 0,
+        unseasonedConversionsWithdrawnByAccount,
         shortfall: 0,
       };
     }
 
     let realizedGains = 0;
     let earningsWithdrawn = 0;
+    let unseasonedConversionsWithdrawn = 0;
 
     const withdrawalOrder = this.getWithdrawalOrder();
     const desiredWithdrawal = Math.abs(netCashFlow);
@@ -424,11 +443,21 @@ export class PortfolioProcessor {
         const withdrawFromThisAccount = Math.min(remainingToWithdraw, maxWithdrawable);
 
         const withdrawalAllocation = this.getAllocationForWithdrawal(withdrawFromThisAccount);
+        const simDate = this.simulationState.time.date;
+        const currentDate = formatISODate({
+          year: simDate.getFullYear(),
+          month: simDate.getMonth() + 1,
+          day: simDate.getDate(),
+        });
         const {
           realizedGains: realizedGainsFromThisAccount,
           earningsWithdrawn: earningsWithdrawnFromThisAccount,
+          unseasonedConversionsWithdrawn: unseasonedConversionsFromThisAccount,
           ...withdrawnAssets
-        } = account.applyWithdrawal(withdrawFromThisAccount, 'regular', withdrawalAllocation);
+        } = account.applyWithdrawal(withdrawFromThisAccount, 'regular', withdrawalAllocation, {
+          date: currentDate,
+          age: this.simulationState.time.age,
+        });
 
         realizedGainsByAccount[account.getAccountID()] =
           (realizedGainsByAccount[account.getAccountID()] ?? 0) + realizedGainsFromThisAccount;
@@ -437,6 +466,12 @@ export class PortfolioProcessor {
         earningsWithdrawnByAccount[account.getAccountID()] =
           (earningsWithdrawnByAccount[account.getAccountID()] ?? 0) + earningsWithdrawnFromThisAccount;
         earningsWithdrawn += earningsWithdrawnFromThisAccount;
+
+        if (unseasonedConversionsFromThisAccount && unseasonedConversionsFromThisAccount > 0) {
+          unseasonedConversionsWithdrawnByAccount[account.getAccountID()] =
+            (unseasonedConversionsWithdrawnByAccount[account.getAccountID()] ?? 0) + unseasonedConversionsFromThisAccount;
+          unseasonedConversionsWithdrawn += unseasonedConversionsFromThisAccount;
+        }
 
         byAccount[account.getAccountID()] = addFlows(byAccount[account.getAccountID()] ?? zeroFlows(), withdrawnAssets);
         remainingToWithdraw -= withdrawFromThisAccount;
@@ -468,6 +503,8 @@ export class PortfolioProcessor {
       realizedGainsByAccount,
       earningsWithdrawn,
       earningsWithdrawnByAccount,
+      unseasonedConversionsWithdrawn,
+      unseasonedConversionsWithdrawnByAccount,
       shortfall,
     };
   }
@@ -670,7 +707,8 @@ export class PortfolioProcessor {
     withdrawalsByAccount: Record<string, AssetFlows>,
     realizedGainsByAccount: Record<string, number>,
     earningsWithdrawnByAccount: Record<string, number>,
-    rmdsByAccount: Record<string, number>
+    rmdsByAccount: Record<string, number>,
+    unseasonedConversionsByAccount: Record<string, number> = {}
   ): Record<string, AccountDataWithFlows> {
     const addToBaseNumber = (accountID: string, field: keyof AccountDataWithFlows, value: number) => {
       return ((baseAccountData[accountID]?.[field] as number) ?? 0) + value;
@@ -685,6 +723,11 @@ export class PortfolioProcessor {
       this.simulationState.portfolio.getAccounts().map((account) => {
         const accountID = account.getAccountID();
         const accountData = account.getAccountData();
+        const totalUnseasoned = addToBaseNumber(
+          accountID,
+          'unseasonedConversionsWithdrawn',
+          unseasonedConversionsByAccount[accountID] ?? 0
+        );
 
         return [
           accountID,
@@ -697,6 +740,7 @@ export class PortfolioProcessor {
             earningsWithdrawn: addToBaseNumber(accountID, 'earningsWithdrawn', earningsWithdrawnByAccount[accountID] ?? 0),
             rmds: addToBaseNumber(accountID, 'rmds', rmdsByAccount[accountID] ?? 0),
             ...((baseAccountData[accountID]?.conversions as number) > 0 ? { conversions: baseAccountData[accountID]?.conversions } : {}),
+            ...(totalUnseasoned > 0 ? { unseasonedConversionsWithdrawn: totalUnseasoned } : {}),
           },
         ];
       })
@@ -714,6 +758,7 @@ export class PortfolioProcessor {
       shortfall: number;
       shortfallRepaid: number;
       conversions?: number;
+      unseasonedConversionsWithdrawn?: number;
     },
     perAccountData: Record<string, AccountDataWithFlows>
   ): PortfolioData {
@@ -826,10 +871,15 @@ export class PortfolioProcessor {
           if (curr.conversions && curr.conversions > 0) {
             acc.conversions = (acc.conversions ?? 0) + curr.conversions;
           }
+          if (curr.unseasonedConversionsWithdrawn && curr.unseasonedConversionsWithdrawn > 0) {
+            acc.unseasonedConversionsWithdrawn = (acc.unseasonedConversionsWithdrawn ?? 0) + curr.unseasonedConversionsWithdrawn;
+          }
 
           for (const [accountID, accountData] of Object.entries(curr.perAccountData)) {
             const existing = acc.perAccountData[accountID];
             const totalAccountConversions = (existing?.conversions ?? 0) + (accountData.conversions ?? 0);
+            const totalAccountUnseasoned =
+              (existing?.unseasonedConversionsWithdrawn ?? 0) + (accountData.unseasonedConversionsWithdrawn ?? 0);
             acc.perAccountData[accountID] = {
               ...accountData,
               contributions: addFlows(existing?.contributions ?? zeroFlows(), accountData.contributions),
@@ -839,6 +889,7 @@ export class PortfolioProcessor {
               earningsWithdrawn: (existing?.earningsWithdrawn ?? 0) + accountData.earningsWithdrawn,
               rmds: (existing?.rmds ?? 0) + accountData.rmds,
               ...(totalAccountConversions > 0 ? { conversions: totalAccountConversions } : {}),
+              ...(totalAccountUnseasoned > 0 ? { unseasonedConversionsWithdrawn: totalAccountUnseasoned } : {}),
             };
           }
 
@@ -860,6 +911,9 @@ export class PortfolioProcessor {
 
     if (!result.conversions) {
       delete result.conversions;
+    }
+    if (!result.unseasonedConversionsWithdrawn) {
+      delete result.unseasonedConversionsWithdrawn;
     }
 
     return result;
@@ -1024,6 +1078,7 @@ interface PortfolioFlowData {
   shortfall: number;
   shortfallRepaid: number;
   conversions?: number;
+  unseasonedConversionsWithdrawn?: number;
   perAccountData: Record<string, AccountDataWithFlows>;
 }
 

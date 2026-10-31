@@ -8,7 +8,7 @@
 
 import type { AccountInputs, InvestmentAccountType } from '@/lib/schemas/inputs/account-form-schema';
 import type { ISODateString } from './clock';
-import type { RothEvent } from './retirement-rules/roth-five-year';
+import { conversionSeasonsOn, type RothEvent } from './retirement-rules/roth-five-year';
 
 import {
   type AssetReturnRates,
@@ -75,6 +75,7 @@ export interface AccountDataWithFlows extends AccountData {
   earningsWithdrawn: number;
   rmds: number;
   conversions?: number;
+  unseasonedConversionsWithdrawn?: number;
 }
 
 /** Base class for all account types with shared cumulative tracking */
@@ -158,8 +159,9 @@ export abstract class Account {
   abstract applyWithdrawal(
     amount: number,
     type: WithdrawalType,
-    withdrawalAllocation: AssetAllocation
-  ): AssetFlows & { realizedGains: number; earningsWithdrawn: number };
+    withdrawalAllocation: AssetAllocation,
+    context?: { date?: ISODateString; age?: number }
+  ): AssetFlows & { realizedGains: number; earningsWithdrawn: number; unseasonedConversionsWithdrawn?: number };
   abstract applyConversionOut(amount: number): AssetFlows;
   abstract applyConversionIn(amount: number, date?: ISODateString): AssetFlows;
 }
@@ -594,6 +596,7 @@ export class TaxFreeAccount extends InvestmentAccount {
 
   private contributionBasis: number;
   private rothEvents: RothEvent[] = [];
+  private conversions: Array<{ date: ISODateString; amount: number }> = [];
 
   constructor(data: AccountInputs & { type: 'rothIra' | 'roth401k' | 'roth403b' }) {
     super(data);
@@ -610,10 +613,15 @@ export class TaxFreeAccount extends InvestmentAccount {
 
   override applyConversionIn(amount: number, date?: ISODateString): AssetFlows {
     const flows = super.applyConversionIn(amount, date);
-    if (date && amount > 0) {
+    if (amount > 0) {
+      const convDate = date ?? '2026-01-01';
       this.rothEvents.push({
-        date,
+        date: convDate,
         kind: 'conversion',
+        amount,
+      });
+      this.conversions.push({
+        date: convDate,
         amount,
       });
     }
@@ -629,17 +637,45 @@ export class TaxFreeAccount extends InvestmentAccount {
   applyWithdrawal(
     amount: number,
     type: WithdrawalType,
-    withdrawalAllocation: AssetAllocation
-  ): AssetFlows & { realizedGains: number; earningsWithdrawn: number } {
-    // Roth ordering: contributions withdrawn first (tax-free), then earnings
+    withdrawalAllocation: AssetAllocation,
+    context?: { date?: ISODateString; age?: number }
+  ): AssetFlows & { realizedGains: number; earningsWithdrawn: number; unseasonedConversionsWithdrawn?: number } {
+    // IRC §408A(d)(1) Roth ordering:
+    // 1. Contributions withdrawn first (tax-free and penalty-free)
     const contributionWithdrawn = Math.min(amount, this.contributionBasis);
     this.contributionBasis -= contributionWithdrawn;
+    let remaining = amount - contributionWithdrawn;
 
-    const earningsWithdrawn = amount - contributionWithdrawn;
+    // 2. Converted principal (FIFO in date order, tax-free, 10% penalty if unseasoned and under 59.5)
+    let unseasonedConversionsWithdrawn = 0;
+    const withdrawalDate = context?.date;
+    const age = context?.age;
+
+    for (const conv of this.conversions) {
+      if (remaining <= 0) break;
+      const taken = Math.min(remaining, conv.amount);
+      if (taken <= 0) continue;
+      conv.amount -= taken;
+      remaining -= taken;
+
+      if (age === undefined || age < 59.5) {
+        if (!withdrawalDate || withdrawalDate <= conversionSeasonsOn(conv.date)) {
+          unseasonedConversionsWithdrawn += taken;
+        }
+      }
+    }
+
+    // 3. Earnings
+    const earningsWithdrawn = remaining;
     this.cumulativeEarningsWithdrawn += earningsWithdrawn;
 
     const withdrawn = super.applyWithdrawalShared(amount, type, withdrawalAllocation);
 
-    return { ...withdrawn, earningsWithdrawn, realizedGains: 0 };
+    return {
+      ...withdrawn,
+      earningsWithdrawn,
+      realizedGains: 0,
+      ...(unseasonedConversionsWithdrawn > 0 ? { unseasonedConversionsWithdrawn } : {}),
+    };
   }
 }

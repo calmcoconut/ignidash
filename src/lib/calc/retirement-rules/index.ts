@@ -56,6 +56,7 @@ export {
 
 export {
   ROTH_FIRST_TIME_HOMEBUYER_LIMIT,
+  conversionSeasonsOn,
   hasMetRothFiveYearRule,
   rothFiveYearPeriodEnd,
   rothFiveYearPeriodStart,

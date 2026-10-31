@@ -92,7 +92,7 @@ export interface RothWithdrawalResult {
 const EARLY_DISTRIBUTION_PENALTY_RATE = 0.1;
 
 /** The date five years after a conversion, after which its dollars are seasoned. */
-function conversionSeasonsOn(date: ISODateString): ISODateString {
+export function conversionSeasonsOn(date: ISODateString): ISODateString {
   const { year, month, day } = parseISODateString(date);
 
   return formatISODate({ year: year + 5, month, day });
