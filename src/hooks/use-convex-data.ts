@@ -16,6 +16,7 @@ import {
   baseContributionFromConvex,
   glidePathFromConvex,
   milestonesFromConvex,
+  conversionsFromConvex,
   seppFromConvex,
 } from '@/lib/utils/data-transformers';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
@@ -199,6 +200,18 @@ export const useSeppData = () => {
   const q = useQuery(api.sepp.get, { planId });
   return {
     data: useMemo(() => (q ? (seppFromConvex(q) ?? []) : []), [q]),
+    isLoading: q === undefined,
+  };
+};
+
+// Roth conversions (P3-P5). The same shape once more: absent means "no conversions", and the editor
+// is handed a list to render either way. `EXPORT_SCHEMA_VERSION` 14 defined the absent field as no
+// conversions, so the query's `[]` and the plan's missing key mean the same thing to every reader.
+export const useConversionsData = () => {
+  const planId = useSelectedPlanId();
+  const q = useQuery(api.conversion.get, { planId });
+  return {
+    data: useMemo(() => (q ? (conversionsFromConvex(q) ?? []) : []), [q]),
     isLoading: q === undefined,
   };
 };

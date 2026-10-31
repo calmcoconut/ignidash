@@ -8,6 +8,7 @@ import {
   BanknoteXIcon,
   HourglassIcon,
   CalendarClockIcon,
+  ArrowRightLeftIcon,
   WandSparklesIcon,
   MessageCircleMoreIcon,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ import {
   useTimelineData,
   useSimulationSettingsData,
   useSeppData,
+  useConversionsData,
   useAccountsData,
 } from '@/hooks/use-convex-data';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
@@ -40,6 +42,7 @@ const ExpectedReturnsDrawer = lazy(() => import('./inputs/drawers/expected-retur
 const TaxSettingsDrawer = lazy(() => import('./inputs/drawers/tax-settings-drawer'));
 const TimelineDrawer = lazy(() => import('./inputs/drawers/timeline-drawer'));
 const SeppDialog = lazy(() => import('./inputs/dialogs/sepp-dialog'));
+const ConversionDialog = lazy(() => import('./inputs/dialogs/conversion-dialog'));
 const AIChatDrawer = lazy(() => import('./outputs/drawers/ai-chat-drawer'));
 const SimulationSettingsDrawer = lazy(() => import('./outputs/drawers/simulation-settings-drawer'));
 
@@ -62,6 +65,7 @@ export default function SectionSelector({ activeSection, setActiveSection }: Sec
   const [taxSettingsOpen, setTaxSettingsOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [seppOpen, setSeppOpen] = useState(false);
+  const [conversionsOpen, setConversionsOpen] = useState(false);
 
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [simulationSettingsOpen, setSimulationSettingsOpen] = useState(false);
@@ -72,6 +76,7 @@ export default function SectionSelector({ activeSection, setActiveSection }: Sec
   const timeline = useTimelineData();
   const simulationSettings = useSimulationSettingsData();
   const { data: sepp } = useSeppData();
+  const { data: conversions } = useConversionsData();
   const { data: accounts } = useAccountsData();
 
   const { icon, label, handleClick, isDisabled } = useRegenSimulation();
@@ -171,6 +176,12 @@ export default function SectionSelector({ activeSection, setActiveSection }: Sec
               />
               <IconButton icon={HourglassIcon} label="Timeline" onClick={() => setTimelineOpen(true)} surfaceColor="emphasized" />
               <IconButton icon={CalendarClockIcon} label="SEPP" onClick={() => setSeppOpen(true)} surfaceColor="emphasized" />
+              <IconButton
+                icon={ArrowRightLeftIcon}
+                label="Roth conversions"
+                onClick={() => setConversionsOpen(true)}
+                surfaceColor="emphasized"
+              />
             </div>
           )}
           {activeSection === 'results' && (
@@ -226,6 +237,13 @@ export default function SectionSelector({ activeSection, setActiveSection }: Sec
       <Dialog size="2xl" open={seppOpen} onClose={() => setSeppOpen(false)}>
         <Suspense fallback={<PageLoading message="Loading SEPP schedules" />}>
           <SeppDialog sepp={sepp} accounts={Object.values(accounts)} onClose={() => setSeppOpen(false)} />
+        </Suspense>
+      </Dialog>
+      {/* The mobile duplicate of the numbers-column-header slot, for the same reason: a plan-level
+          list saved whole, so a dialog with one Save rather than a drawer. */}
+      <Dialog size="2xl" open={conversionsOpen} onClose={() => setConversionsOpen(false)}>
+        <Suspense fallback={<PageLoading message="Loading Roth conversions" />}>
+          <ConversionDialog conversions={conversions} accounts={Object.values(accounts)} onClose={() => setConversionsOpen(false)} />
         </Suspense>
       </Dialog>
       <Drawer open={aiChatOpen} setOpen={setAiChatOpen} title={aiChatTitleComponent} size="large">

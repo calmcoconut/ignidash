@@ -12,6 +12,10 @@ import type * as account from "../account.js";
 import type * as app_data from "../app_data.js";
 import type * as auth from "../auth.js";
 import type * as contribution_rule from "../contribution_rule.js";
+// HAND-MAINTAINED, unlike the rest of this file: `conversion` (the Roth conversion schedule, P3-P5)
+// is a live Convex module and codegen has still not run here. These are the two declarations codegen
+// emits for a module, and the key is the module *path* — `api.conversion.*`.
+import type * as conversion from "../conversion.js";
 import type * as conversations from "../conversations.js";
 import type * as crons from "../crons.js";
 import type * as debt from "../debt.js";
@@ -91,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   app_data: typeof app_data;
   auth: typeof auth;
   contribution_rule: typeof contribution_rule;
+  conversion: typeof conversion;
   conversations: typeof conversations;
   crons: typeof crons;
   debt: typeof debt;

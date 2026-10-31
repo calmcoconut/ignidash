@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, lazy, Suspense } from 'react';
-import { CalculatorIcon, TrendingUpIcon, BanknoteXIcon, HourglassIcon, CalendarClockIcon } from 'lucide-react';
+import { CalculatorIcon, TrendingUpIcon, BanknoteXIcon, HourglassIcon, CalendarClockIcon, ArrowRightLeftIcon } from 'lucide-react';
 
 import IconButton from '@/components/ui/icon-button';
 import PageLoading from '@/components/ui/page-loading';
@@ -15,6 +15,7 @@ import {
   useTaxSettingsData,
   useTimelineData,
   useSeppData,
+  useConversionsData,
   useAccountsData,
 } from '@/hooks/use-convex-data';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
@@ -24,6 +25,7 @@ const ExpectedReturnsDrawer = lazy(() => import('./drawers/expected-returns-draw
 const TaxSettingsDrawer = lazy(() => import('./drawers/tax-settings-drawer'));
 const TimelineDrawer = lazy(() => import('./drawers/timeline-drawer'));
 const SeppDialog = lazy(() => import('./dialogs/sepp-dialog'));
+const ConversionDialog = lazy(() => import('./dialogs/conversion-dialog'));
 
 export default function NumbersColumnHeader() {
   const planId = useSelectedPlanId();
@@ -33,11 +35,13 @@ export default function NumbersColumnHeader() {
   const [taxSettingsOpen, setTaxSettingsOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [seppOpen, setSeppOpen] = useState(false);
+  const [conversionsOpen, setConversionsOpen] = useState(false);
 
   const marketAssumptions = useMarketAssumptionsData();
   const taxSettings = useTaxSettingsData();
   const timeline = useTimelineData();
   const { data: sepp } = useSeppData();
+  const { data: conversions } = useConversionsData();
   const { data: accounts } = useAccountsData();
 
   const expectedReturnsTitleComponent = (
@@ -86,6 +90,12 @@ export default function NumbersColumnHeader() {
             />
             <IconButton icon={HourglassIcon} label="Timeline" onClick={() => setTimelineOpen(true)} surfaceColor="emphasized" />
             <IconButton icon={CalendarClockIcon} label="SEPP" onClick={() => setSeppOpen(true)} surfaceColor="emphasized" />
+            <IconButton
+              icon={ArrowRightLeftIcon}
+              label="Roth conversions"
+              onClick={() => setConversionsOpen(true)}
+              surfaceColor="emphasized"
+            />
           </div>
         }
         className="left-76 w-96 border-r group-data-[state=collapsed]/sidebar:left-20"
@@ -111,6 +121,13 @@ export default function NumbersColumnHeader() {
       <Dialog size="2xl" open={seppOpen} onClose={() => setSeppOpen(false)}>
         <Suspense fallback={<PageLoading message="Loading SEPP schedules" />}>
           <SeppDialog sepp={sepp} accounts={Object.values(accounts)} onClose={() => setSeppOpen(false)} />
+        </Suspense>
+      </Dialog>
+      {/* A Roth conversion schedule is the same kind of value: a plan-level list saved whole, so one
+          dialog with one Save. */}
+      <Dialog size="2xl" open={conversionsOpen} onClose={() => setConversionsOpen(false)}>
+        <Suspense fallback={<PageLoading message="Loading Roth conversions" />}>
+          <ConversionDialog conversions={conversions} accounts={Object.values(accounts)} onClose={() => setConversionsOpen(false)} />
         </Suspense>
       </Dialog>
     </>
