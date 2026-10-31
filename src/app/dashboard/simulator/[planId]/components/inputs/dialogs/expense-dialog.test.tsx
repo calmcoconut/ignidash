@@ -29,9 +29,7 @@ const renderDialog = () =>
 const essentialSwitch = () => screen.getByRole('switch', { name: 'Essential spending' });
 
 const fillAmountAndSave = (amount = '24000') => {
-  // `Amount` and `Amount Basis` share an accessible name under Headless UI's field context, so the
-  // query is pinned to the amount input itself.
-  fireEvent.change(screen.getByLabelText('Amount', { selector: 'input' }), { target: { value: amount } });
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: amount } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 };
 
@@ -42,6 +40,35 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe('the amount labels', () => {
+  it('names the amount input and the basis select separately', () => {
+    renderDialog();
+
+    // A bare `getByLabelText('Amount')` only works while exactly one control answers to that name: the
+    // amount input and the basis select used to sit in one `Field`, which made Headless UI label both of
+    // them "Amount Amount Basis" and made this query match two elements.
+    const amountInput = screen.getByLabelText('Amount');
+    expect(amountInput.id).toBe('amount');
+    expect(amountInput.tagName).toBe('INPUT');
+
+    // Role queries resolve the computed accessible name, so these fail if the names ever merge again.
+    expect(screen.getByRole('textbox', { name: 'Amount' }).id).toBe('amount');
+    const basisSelect = screen.getByRole('combobox', { name: 'Amount Basis' });
+    expect(basisSelect.id).toBe('amountBasis');
+    expect(basisSelect.tagName).toBe('SELECT');
+    expect(basisSelect).not.toBe(amountInput);
+
+    // The mechanism itself: the two controls must not be named by any label in common.
+    const labelledBy = (element: Element) => (element.getAttribute('aria-labelledby') ?? '').split(' ').filter(Boolean);
+    expect(labelledBy(amountInput)).not.toHaveLength(0);
+    expect(labelledBy(basisSelect).filter((id) => labelledBy(amountInput).includes(id))).toEqual([]);
+
+    // Neither control may answer to the other's name.
+    expect(screen.queryByRole('combobox', { name: 'Amount' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Amount Basis' })).toBeNull();
+  });
 });
 
 describe('the essential spending switch', () => {

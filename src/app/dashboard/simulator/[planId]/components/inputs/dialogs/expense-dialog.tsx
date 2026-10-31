@@ -242,41 +242,47 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
                   />
                   {errors.name && <ErrorMessage>{errors.name?.message}</ErrorMessage>}
                 </Field>
-                <Field>
-                  <Label htmlFor="amount">Amount</Label>
-                  <NumberInput
-                    name="amount"
-                    control={control}
-                    id="amount"
-                    inputMode="decimal"
-                    placeholder={formatCurrencyPlaceholder(50000)}
-                    prefix={getCurrencySymbol()}
-                    autoFocus
-                  />
-                  <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
-                    <span className="whitespace-nowrap">Amount Basis</span>
-                    <Tooltip>
-                      <TooltipTrigger className="text-muted-foreground">
-                        <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {AMOUNT_BASIS_HINTS.map((hint) => (
-                          <p key={hint}>{hint}</p>
-                        ))}
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
-                    {AMOUNT_BASIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                  {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
-                  {errors.amount && <ErrorMessage>{errors.amount?.message}</ErrorMessage>}
-                  {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
-                </Field>
+                <div>
+                  {/* Two Fields, one per control: Headless UI hands every label registered inside a Field to the
+                      controls in it as `aria-labelledby`, so one shared Field named both "Amount Amount Basis". */}
+                  <Field>
+                    <Label htmlFor="amount">Amount</Label>
+                    <NumberInput
+                      name="amount"
+                      control={control}
+                      id="amount"
+                      inputMode="decimal"
+                      placeholder={formatCurrencyPlaceholder(50000)}
+                      prefix={getCurrencySymbol()}
+                      autoFocus
+                    />
+                    {errors.amount && <ErrorMessage>{errors.amount?.message}</ErrorMessage>}
+                  </Field>
+                  <Field>
+                    <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
+                      <span className="whitespace-nowrap">Amount Basis</span>
+                      <Tooltip>
+                        <TooltipTrigger className="text-muted-foreground">
+                          <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {AMOUNT_BASIS_HINTS.map((hint) => (
+                            <p key={hint}>{hint}</p>
+                          ))}
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
+                      {AMOUNT_BASIS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
+                    {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
+                  </Field>
+                </div>
                 <Field>
                   <Label htmlFor="frequency">Frequency</Label>
                   <Select {...register('frequency')} id="frequency" name="frequency">
