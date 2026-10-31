@@ -122,6 +122,8 @@ export function expenseFromConvex(expense: Doc<'plans'>['expenses'][number]): Ex
     timeframe: { start: expense.timeframe.start, end: expense.timeframe.end },
     growth: expense.growth,
     disabled: expense.disabled ?? false,
+    // Absent in the document means `false`: before the flag existed, no expense was essential.
+    essential: expense.essential ?? false,
   };
 }
 
@@ -332,6 +334,8 @@ export function expenseToConvex(expense: ExpenseInputs): Doc<'plans'>['expenses'
     timeframe: { start: expense.timeframe.start, end: expense.timeframe.end },
     growth: expense.growth,
     disabled: expense.disabled ?? false,
+    // Stored only when it is a real statement, so an untouched expense keeps the document it had.
+    ...(expense.essential === true ? { essential: true } : {}),
   };
 }
 

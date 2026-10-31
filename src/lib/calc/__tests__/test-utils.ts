@@ -163,6 +163,7 @@ export const createLivingExpense = (overrides?: {
   timeframe?: ExpenseInputs['timeframe'];
   growth?: ExpenseInputs['growth'];
   disabled?: boolean;
+  essential?: boolean;
 }): ExpenseInputs => ({
   id: overrides?.id ?? 'expense-1',
   name: overrides?.name ?? 'Living Expenses',
@@ -174,6 +175,7 @@ export const createLivingExpense = (overrides?: {
   },
   growth: overrides?.growth,
   disabled: overrides?.disabled ?? false,
+  essential: overrides?.essential ?? false,
 });
 
 // ============================================================================

@@ -44,6 +44,9 @@ export const expenseValidator = v.object({
   // Whose item this is (P1-P2). Absent means `primary`.
   owner: v.optional(ownerValidator),
   propertyRegime: v.optional(propertyRegimeValidator),
+  // Essential spending (P1-P4). Optional so plans saved before it keep loading; absent means
+  // `false`, which is what every expense was before the flag existed.
+  essential: v.optional(v.boolean()),
   disabled: v.boolean(),
 });
 

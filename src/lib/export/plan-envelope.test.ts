@@ -5,7 +5,8 @@ import { planDataFields } from '../../../convex/validators/plan_data_fields';
 import { basicTemplate } from '../../../convex/templates/basic';
 import { earlyRetirementTemplate } from '../../../convex/templates/early_retirement';
 import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inputs/household-schema';
-import { taxSettingsFromConvex } from '@/lib/utils/data-transformers';
+import { getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
+import { expenseFromConvex, simulationSettingsFromConvex, taxSettingsFromConvex } from '@/lib/utils/data-transformers';
 
 import {
   EXPORT_SCHEMA_VERSION,
@@ -206,8 +207,7 @@ const VERSION_7_FIELDS = ['itemizedDeductions', 'spouseQualifiesForSeniorDeducti
 /** What the v8 bump (P3-P8) added: the state-residency flag inside `taxSettings`. */
 const VERSION_8_FIELDS = ['stateResidency'];
 
-/**
- * What the v9 bump (P3-P1b) added: a fourth `taxSettings.filingStatus` value, `'marriedFilingSeparately'`.
+/** What the v9 bump (P3-P1b) added: a fourth `taxSettings.filingStatus` value, `'marriedFilingSeparately'`.
  *
  * It is a **value**, not a key, which is why the older-version fixtures below cannot use
  * `stripFields`: `filingStatus` is required in every version (deleting it would fabricate a file no
@@ -215,6 +215,15 @@ const VERSION_8_FIELDS = ['stateResidency'];
  */
 const VERSION_9_FILING_STATUS = 'marriedFilingSeparately';
 const FILING_STATUS_A_V8_BUILD_WRITES = 'marriedFilingJointly';
+
+/**
+ * What the v10 bump (P1-P4) added: `simulationSettings.withdrawalStrategy` and `expenses[*].essential`.
+ *
+ * Both are keys inside the payload — a strategy inside the settings block, a flag on an expense — so
+ * unlike v9's enum widening a v9 fixture is made by deleting them, and the deletion is counted in
+ * both directions.
+ */
+const VERSION_10_FIELDS = ['withdrawalStrategy', 'essential'];
 
 /**
  * Visits every household member in a payload, wherever the envelope keeps it.
@@ -455,8 +464,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 9 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // an older file fails here, not in a support thread. Adding version 10 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -876,6 +885,74 @@ describe('malformed files report the exact field paths', () => {
     // A joint return in a v8 file is still a joint return: one return, not two.
     expect(taxSettings).toHaveProperty('filingStatus', FILING_STATUS_A_V8_BUILD_WRITES);
     expect(taxSettingsFromConvex(taxSettings as never).filingStatus).toBe(FILING_STATUS_A_V8_BUILD_WRITES);
+  });
+
+  /**
+   * A plan carrying both v10 additions: a strategy chosen inside the settings block, and an expense
+   * marked essential. Returned as a document so the round-trip and the v9 strip can share it.
+   */
+  const makeVersion10Plan = () =>
+    makePlanDoc({
+      simulationSettings: { ...basicTemplate.simulationSettings, withdrawalStrategy: 'guytonKlinger' as const },
+      expenses: [{ ...basicTemplate.expenses[0], essential: true }, basicTemplate.expenses[1]],
+    });
+
+  it('round-trips the withdrawal strategy and the essential flag, the two values version 10 adds', () => {
+    const plan = makeVersion10Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
+    // Both really are in the payload: a strategy inside the settings block, a flag on one expense.
+    expect(countFields(envelope, VERSION_10_FIELDS)).toBe(2);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.simulationSettings).toHaveProperty('withdrawalStrategy', 'guytonKlinger');
+    expect(restored.plan.expenses[0]).toHaveProperty('essential', true);
+    expect(restored.plan.expenses[1]).not.toHaveProperty('essential');
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+  });
+
+  it('imports a version 9 plan as ordered and non-essential without inventing either field', () => {
+    // v10 adds the two fields, so no v9 build ever wrote them. The strip is a **value deletion**: the
+    // strategy is a key inside `simulationSettings`, the flag a key on an expense, and both counts
+    // are asserted so the fixture cannot pass without having had work to do.
+    const envelope = createPlanEnvelope({ plan: makeVersion10Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v9 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v9.schemaVersion = 9;
+
+    expect(countFields(v9, VERSION_10_FIELDS)).toBe(2);
+    stripFields(v9, VERSION_10_FIELDS);
+    expect(countFields(v9, VERSION_10_FIELDS)).toBe(0);
+    // The v9 fields are still there: this is a v9 file, not an older one.
+    expect((v9.plan as Record<string, unknown>).taxSettings).toHaveProperty('stateResidency', 'none');
+
+    const parsed = parseEnvelope(JSON.stringify(v9));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(9);
+    // Nothing invented on the way in: a re-export of an untouched v9 plan still states no strategy.
+    expect(parsed.envelope).toStrictEqual(v9);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan.simulationSettings).not.toHaveProperty('withdrawalStrategy');
+    expect(importedPlan.expenses[0]).not.toHaveProperty('essential');
+
+    // The readers answer with the defaults that make a v9 plan keep its numbers: `ordered`, which is
+    // the sequence it was simulated with, and an expense a cap may cut.
+    expect(getWithdrawalStrategy(simulationSettingsFromConvex(importedPlan.simulationSettings).withdrawalStrategy).id).toBe('ordered');
+    expect(expenseFromConvex(importedPlan.expenses[0]).essential).toBe(false);
   });
 
   it('warns about a v7 file that states no state residency, and still imports it', () => {

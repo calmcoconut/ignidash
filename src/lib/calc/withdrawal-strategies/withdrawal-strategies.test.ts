@@ -2,15 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import { ContributionRules } from '../contribution-rules';
 import { Portfolio, PortfolioProcessor } from '../portfolio';
+import { simulate } from '../simulate';
+import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import {
   create401kAccount,
+  createDefaultTimeline,
   createEmptyDebtsData,
   createEmptyExpensesData,
   createEmptyIncomesData,
   createEmptyPhysicalAssetsData,
+  createLivingExpense,
   createMockSimulationState,
   createSavingsAccount,
   createSimulationContext,
+  createSimulatorInputs,
 } from '../__tests__/test-utils';
 
 import {
@@ -373,5 +378,189 @@ describe('Guyton-Klinger through the processor', () => {
     const thirdWithdrawn =
       third.portfolioData.withdrawals.stocks + third.portfolioData.withdrawals.bonds + third.portfolioData.withdrawals.cash;
     expect(thirdWithdrawn).toBeCloseTo(12_100, 6);
+  });
+});
+
+// ============================================================================
+// The essential flag through the cap (P1-P4)
+// ============================================================================
+
+/** A capped draw that also says how much of the deficit is essential spending. */
+const drawWithEssentials = (processor: PortfolioProcessor, expenses: number, essentialSpending: number) =>
+  processor.processContributionsAndWithdrawals(
+    createEmptyIncomesData(),
+    createEmptyExpensesData({ totalExpenses: expenses }),
+    createEmptyDebtsData(),
+    createEmptyPhysicalAssetsData(),
+    essentialSpending
+  );
+
+const withdrawnTotal = (portfolioData: { withdrawals: { stocks: number; bonds: number; cash: number } }) =>
+  portfolioData.withdrawals.stocks + portfolioData.withdrawals.bonds + portfolioData.withdrawals.cash;
+
+describe('spending marked essential is not cut by the cap', () => {
+  it('funds essential spending through a cap it exceeds, and only the rest becomes shortfall', () => {
+    // 4 % of $300,000 is a $12,000 allowance against a $50,000 deficit. $30,000 of that deficit is
+    // essential, which the cap may not cut: the whole $30,000 is withdrawn and the discretionary
+    // $20,000 is what goes unfunded.
+    const { portfolioData } = drawWithEssentials(makeProcessor(createXPercentRuleStrategy(4)).processor, 50_000, 30_000);
+
+    expect(withdrawnTotal(portfolioData)).toBeCloseTo(30_000, 6);
+    expect(portfolioData.shortfall).toBeCloseTo(20_000, 6);
+  });
+
+  it('does not raise the year`s budget past the cap: the floor is a one-month exception', () => {
+    // The essential floor lifts the *month*, not the year: after the first essential-funded draw the
+    // year's allowance is spent down, so a second, discretionary-only deficit gets nothing.
+    const { processor } = makeProcessor(createXPercentRuleStrategy(4));
+
+    drawWithEssentials(processor, 50_000, 30_000);
+    const second = drawWithEssentials(processor, 50_000, 0);
+
+    expect(withdrawnTotal(second.portfolioData)).toBe(0);
+    expect(second.portfolioData.shortfall).toBeCloseTo(50_000, 6);
+  });
+
+  it('caps as before when the essential total is zero or covers the whole deficit', () => {
+    const withZero = drawWithEssentials(makeProcessor(createXPercentRuleStrategy(4)).processor, 50_000, 0);
+    const uncappedByEssentials = drawWithEssentials(makeProcessor(createXPercentRuleStrategy(4)).processor, 50_000, 50_000);
+
+    // Zero essential spending is exactly the pre-essential behaviour.
+    expect(withdrawnTotal(withZero.portfolioData)).toBeCloseTo(12_000, 6);
+    expect(withZero.portfolioData.shortfall).toBeCloseTo(38_000, 6);
+    // All of it essential: nothing may be cut, so the whole deficit is funded.
+    expect(withdrawnTotal(uncappedByEssentials.portfolioData)).toBeCloseTo(50_000, 6);
+    expect(uncappedByEssentials.portfolioData.shortfall).toBeCloseTo(0, 6);
+  });
+
+  it('never lets the floor exceed what the month actually needs', () => {
+    // More "essential spending" than the deficit cannot withdraw money the plan is not spending.
+    const { portfolioData } = drawWithEssentials(makeProcessor(createXPercentRuleStrategy(4)).processor, 5_000, 90_000);
+
+    expect(withdrawnTotal(portfolioData)).toBeCloseTo(5_000, 6);
+    expect(portfolioData.shortfall).toBeCloseTo(0, 6);
+  });
+
+  it('is inert for the ordered default, which declares no cap', () => {
+    // The essential floor only exists to raise a cap. With `ordered` there is no ceiling to raise,
+    // so the run is byte-identical whether or not an expense is marked essential — which is why the
+    // flag cannot move the frozen corpus.
+    const withEssentials = drawWithEssentials(makeProcessor().processor, 50_000, 30_000);
+    const withoutEssentials = draw(makeProcessor().processor, 50_000);
+
+    expect(withEssentials.portfolioData).toStrictEqual(withoutEssentials.portfolioData);
+  });
+});
+
+// ============================================================================
+// The plan setting reaches the engine (P1-P4)
+// ============================================================================
+
+/**
+ * A retired plan that must fund $60,000 of spending from a $1,000,000 savings account, split so an
+ * essential half and a discretionary half can be told apart by the shortfall a cap produces.
+ */
+const strategyPlan = (options?: { withdrawalStrategy?: WithdrawalStrategyId; essential?: boolean }): SimulatorInputs =>
+  createSimulatorInputs({
+    timeline: { ...createDefaultTimeline(), birthMonth: 6, birthYear: 1960, lifeExpectancy: 90 },
+    accounts: { 'savings-1': createSavingsAccount({ id: 'savings-1', balance: 1_000_000 }) },
+    expenses: {
+      'expense-1': createLivingExpense({ id: 'expense-1', name: 'Essentials', amount: 40_000, essential: options?.essential ?? false }),
+      'expense-2': createLivingExpense({ id: 'expense-2', name: 'Extras', amount: 20_000 }),
+    },
+    simulationSettings: {
+      simulationSeed: 12345,
+      simulationMode: 'fixedReturns',
+      ...(options?.withdrawalStrategy === undefined ? {} : { withdrawalStrategy: options.withdrawalStrategy }),
+    },
+  });
+
+/** The first settled year: row 0 is the plan's starting point, not a period. */
+const firstYearOf = (inputs: SimulatorInputs) => {
+  const { result } = simulate(inputs, { mode: 'fixedReturns', seed: inputs.simulationSettings.simulationSeed, asOf: '2026-03-15' });
+  const row = result.data[1];
+  if (!row?.expenses || !row.taxes) throw new Error('expected a settled year');
+
+  const { withdrawals, shortfall } = row.portfolio;
+  const withdrawn = withdrawals.stocks + withdrawals.bonds + withdrawals.cash;
+
+  return {
+    // The tax settlement is an uncapped liability, not spending, so take it back out to compare
+    // the spending withdrawal with the $60,000 the plan actually spends.
+    spending: withdrawn - row.taxes.totalTaxLiability,
+    withdrawn,
+    shortfall,
+    taxes: row.taxes.totalTaxLiability,
+    totalExpenses: row.expenses.totalExpenses,
+    row,
+  };
+};
+
+describe('the plan setting selects the strategy', () => {
+  it('treats an absent strategy as ordered: the runs are deep-equal', () => {
+    // This is the frozen-corpus property. Every corpus fixture states no strategy, so the default
+    // has to be `ordered` exactly — not "similar to it" — or the corpus would have moved.
+    const absent = simulate(strategyPlan(), { mode: 'fixedReturns', seed: 12345, asOf: '2026-03-15' }).result;
+    const explicit = simulate(strategyPlan({ withdrawalStrategy: 'ordered' }), {
+      mode: 'fixedReturns',
+      seed: 12345,
+      asOf: '2026-03-15',
+    }).result;
+
+    expect(explicit).toStrictEqual(absent);
+  });
+
+  it('funds the whole $60,000 of spending under ordered, with no shortfall', () => {
+    const year = firstYearOf(strategyPlan({ withdrawalStrategy: 'ordered' }));
+
+    expect(year.spending).toBeCloseTo(60_000, 6);
+    expect(year.shortfall).toBe(0);
+    expect(year.totalExpenses).toBeCloseTo(60_000, 6);
+  });
+
+  it('changes the withdrawal schedule when the plan names a capping strategy', () => {
+    // 4 % of roughly $1,000,000 is a $40,000 allowance against $60,000 of spending: the withdrawal
+    // schedule moves, and the $20,000 the cap refuses is recorded as shortfall rather than
+    // withdrawn. The identity below is the point — spending is funded by a withdrawal or reported
+    // as shortfall, never both and never neither.
+    const capped = firstYearOf(strategyPlan({ withdrawalStrategy: 'xPercentRule' }));
+
+    expect(capped.spending).toBeCloseTo(40_000, 2);
+    expect(capped.shortfall).toBeCloseTo(20_000, 2);
+    expect(capped.spending + capped.shortfall).toBeCloseTo(60_000, 2);
+    expect(capped.totalExpenses).toBeCloseTo(60_000, 6);
+  });
+
+  it('changes the schedule a second way under Guyton-Klinger', () => {
+    // The first year has no history, so the guardrail rule starts at 5.2 % of the balance: $52,000
+    // against $60,000. A different strategy, a different ceiling, the same identity.
+    const guarded = firstYearOf(strategyPlan({ withdrawalStrategy: 'guytonKlinger' }));
+
+    expect(guarded.shortfall).toBeCloseTo(8_000, 2);
+    expect(guarded.spending + guarded.shortfall).toBeCloseTo(60_000, 2);
+  });
+
+  it('does not cut spending marked essential when a cap is in force', () => {
+    // Same plan, same 4 % cap, but the $40,000 living expense is essential. The cap may only trim
+    // the discretionary $20,000, so the shortfall is exactly the four months of discretionary
+    // spending the year's allowance could not fund: 4 × $1,666.67 = $6,666.67, and the essential
+    // $40,000 plus eight months' worth of everything comes out of the portfolio.
+    const protectedRun = firstYearOf(strategyPlan({ withdrawalStrategy: 'xPercentRule', essential: true }));
+    const unprotectedRun = firstYearOf(strategyPlan({ withdrawalStrategy: 'xPercentRule' }));
+
+    expect(protectedRun.spending).toBeCloseTo(53_333.33, 2);
+    expect(protectedRun.shortfall).toBeCloseTo(6_666.67, 2);
+    // The essential spending really is funded: the withdrawal rose by four months of essential
+    // spending against the unprotected run.
+    expect(protectedRun.spending - unprotectedRun.spending).toBeCloseTo(13_333.33, 2);
+    expect(protectedRun.spending + protectedRun.shortfall).toBeCloseTo(60_000, 2);
+  });
+
+  it('leaves the ordered default untouched by the essential flag, so the corpus cannot move', () => {
+    const withEssentials = firstYearOf(strategyPlan({ withdrawalStrategy: 'ordered', essential: true }));
+    const withoutEssentials = firstYearOf(strategyPlan({ withdrawalStrategy: 'ordered' }));
+
+    expect(withEssentials.withdrawn).toBeCloseTo(withoutEssentials.withdrawn, 6);
+    expect(withEssentials.shortfall).toBe(0);
   });
 });

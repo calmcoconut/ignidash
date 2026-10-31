@@ -291,6 +291,25 @@ describe('upsertExpense', () => {
     });
   });
 
+  it('persists the essential flag (P1-P4) and accepts an expense without it', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await t.run(async (ctx) => {
+      return ctx.db.insert('plans', makePlan({ expenses: [] }));
+    });
+
+    const asUser = t.withIdentity({ subject: TEST_USER });
+    await asUser.mutation(api.expense.upsertExpense, { planId, expense: { ...newExpense, essential: true } });
+    await asUser.mutation(api.expense.upsertExpense, { planId, expense: { ...newExpense, id: 'exp-plain' } });
+
+    await t.run(async (ctx) => {
+      const plan = await ctx.db.get(planId);
+      expect(plan!.expenses.find((e) => e.id === 'exp-new')!.essential).toBe(true);
+      // Absent stays absent in the document: the reader applies `?? false`, so an expense written
+      // before the flag existed keeps its exact shape.
+      expect(plan!.expenses.find((e) => e.id === 'exp-plain')).not.toHaveProperty('essential');
+    });
+  });
+
   it('throws at max 10 expenses on insert', async () => {
     const t = convexTest(schema, modules);
     const expenses = Array.from({ length: 10 }, (_, i) => ({

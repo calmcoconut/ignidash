@@ -27,6 +27,7 @@ import {
   createConvexPhysicalAsset,
 } from './__tests__/test-utils';
 import type { Doc } from '@/convex/_generated/dataModel';
+import { WITHDRAWAL_STRATEGY_IDS, getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
 
 // ============================================================================
 // Account Roundtrips
@@ -171,6 +172,26 @@ describe('Expense transforms', () => {
     const doc = createConvexExpense({ disabled: undefined });
     const zod = expenseFromConvex(doc);
     expect(zod.disabled).toBe(false);
+  });
+
+  it('defaults essential to false, and reads a stored true back', () => {
+    // Absent in the document means every expense a withdrawal cap may cut, which is what every
+    // expense was before P1-P4.
+    expect(expenseFromConvex(createConvexExpense()).essential).toBe(false);
+    expect(expenseFromConvex(createConvexExpense({ essential: true })).essential).toBe(true);
+  });
+
+  it('stores essential only when it is true, so an untouched expense keeps its document', () => {
+    const plain = expenseFromConvex(createConvexExpense());
+    const essential = expenseFromConvex(createConvexExpense({ essential: true }));
+
+    const stored = (value: unknown) => JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+    expect(stored(expenseToConvex(plain))).not.toHaveProperty('essential');
+    expect(stored(expenseToConvex({ ...plain, essential: false }))).not.toHaveProperty('essential');
+    expect(stored(expenseToConvex(essential))).toHaveProperty('essential', true);
+
+    // ...and the true survives the trip back through the reader.
+    expect(expenseFromConvex(expenseToConvex(essential)).essential).toBe(true);
   });
 });
 
@@ -339,6 +360,29 @@ describe('simulationSettingsFromConvex / simulationSettingsToConvex', () => {
 
     expect(zodSettings).toEqual({ simulationSeed: 9521, simulationMode: 'fixedReturns' });
     expect(simulationSettingsToConvex(zodSettings)).toEqual({ simulationSeed: 9521, simulationMode: 'fixedReturns' });
+  });
+
+  it('carries every withdrawal strategy to Convex and back, P1-P4', () => {
+    // Both directions matter: a converter that dropped the field would leave the engine reading
+    // `undefined` (= `ordered`) while the drawer showed the chosen strategy.
+    for (const withdrawalStrategy of WITHDRAWAL_STRATEGY_IDS) {
+      const toConvex = simulationSettingsToConvex({ simulationSeed: 9521, simulationMode: 'fixedReturns', withdrawalStrategy });
+      expect(toConvex.withdrawalStrategy).toBe(withdrawalStrategy);
+
+      const fromConvex = simulationSettingsFromConvex(toConvex as Doc<'plans'>['simulationSettings']);
+      expect(fromConvex.withdrawalStrategy).toBe(withdrawalStrategy);
+    }
+  });
+
+  it('leaves an absent strategy absent, so every earlier plan keeps ordered numbers', () => {
+    const fromConvex = simulationSettingsFromConvex({
+      simulationSeed: 9521,
+      simulationMode: 'fixedReturns',
+    } as Doc<'plans'>['simulationSettings']);
+
+    expect(fromConvex.withdrawalStrategy).toBeUndefined();
+    expect(simulationSettingsToConvex(fromConvex)).not.toHaveProperty('withdrawalStrategy');
+    expect(getWithdrawalStrategy(fromConvex.withdrawalStrategy).id).toBe('ordered');
   });
 });
 

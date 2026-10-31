@@ -8,6 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch } from 'react-hook-form';
 
 import { simulationSettingsToConvex } from '@/lib/utils/data-transformers';
+import { WITHDRAWAL_STRATEGY_IDS } from '@/lib/calc/withdrawal-strategies';
+import type { WithdrawalStrategyId } from '@/lib/calc/withdrawal-strategies';
 import NumberInput from '@/components/ui/number-input';
 import SectionHeader from '@/components/ui/section-header';
 import SectionContainer from '@/components/ui/section-container';
@@ -28,15 +30,47 @@ interface SimulationSettingsDrawerProps {
   simulationSettings: SimulationSettingsInputs | null;
 }
 
+/**
+ * The four strategies, labelled so a user can tell them apart (P1-P4). The order is the registry's,
+ * so a strategy added to the engine appears here or the `satisfies` below fails to compile.
+ *
+ * `ordered` is first because it is the default and the one every existing plan runs.
+ */
+const WITHDRAWAL_STRATEGY_OPTIONS = {
+  ordered: {
+    label: 'Ordered (default)',
+    description: 'Drains accounts in tax-optimised order and withdraws whatever the year needs. No annual limit.',
+  },
+  vpw: {
+    label: 'VPW (variable percentage)',
+    description: 'Each year withdraws a percentage of the balance set so the portfolio lasts to your life expectancy.',
+  },
+  xPercentRule: {
+    label: 'Fixed percentage of balance',
+    description: 'Withdraws 4% of the current balance every year, so spending rises and falls with the portfolio.',
+  },
+  guytonKlinger: {
+    label: 'Guyton-Klinger guardrails',
+    description: 'Starts at 5.2% and only changes the withdrawal by 10% when a 20% guardrail is crossed.',
+  },
+} as const satisfies Record<WithdrawalStrategyId, { label: string; description: string }>;
+
+/** An existing plan stores no strategy until one is chosen; `ordered` is what that means. */
+const withStrategyDefault = (settings: SimulationSettingsInputs): SimulationSettingsInputs => ({
+  ...settings,
+  withdrawalStrategy: settings.withdrawalStrategy ?? 'ordered',
+});
+
 export default function SimulationSettingsDrawer({ setOpen, simulationSettings }: SimulationSettingsDrawerProps) {
   const planId = useSelectedPlanId();
 
   const simulationSettingsDefaultValues = useMemo(
-    () => ({ simulationSeed: 9521, simulationMode: 'fixedReturns' }) as const satisfies SimulationSettingsInputs,
+    () =>
+      ({ simulationSeed: 9521, simulationMode: 'fixedReturns', withdrawalStrategy: 'ordered' }) as const satisfies SimulationSettingsInputs,
     []
   );
 
-  const defaultValues = simulationSettings || simulationSettingsDefaultValues;
+  const defaultValues = withStrategyDefault(simulationSettings || simulationSettingsDefaultValues);
 
   const {
     control,
@@ -51,7 +85,7 @@ export default function SimulationSettingsDrawer({ setOpen, simulationSettings }
   });
 
   useEffect(() => {
-    if (simulationSettings) reset(simulationSettings);
+    if (simulationSettings) reset(withStrategyDefault(simulationSettings));
   }, [simulationSettings, reset]);
 
   const m = useMutation(api.simulation_settings.update);
@@ -69,6 +103,7 @@ export default function SimulationSettingsDrawer({ setOpen, simulationSettings }
   };
 
   const simulationMode = useWatch({ control, name: 'simulationMode' });
+  const withdrawalStrategy = useWatch({ control, name: 'withdrawalStrategy' }) ?? 'ordered';
 
   useEffect(() => {
     if (simulationMode !== 'historicalReturns') {
@@ -144,6 +179,18 @@ export default function SimulationSettingsDrawer({ setOpen, simulationSettings }
                     </Description>
                   </Field>
                 )}
+                <Divider />
+                <Field>
+                  <Label htmlFor="withdrawalStrategy">Withdrawal Strategy</Label>
+                  <Select {...register('withdrawalStrategy')} id="withdrawalStrategy" name="withdrawalStrategy">
+                    {WITHDRAWAL_STRATEGY_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        {WITHDRAWAL_STRATEGY_OPTIONS[id].label}
+                      </option>
+                    ))}
+                  </Select>
+                  <Description>{WITHDRAWAL_STRATEGY_OPTIONS[withdrawalStrategy].description}</Description>
+                </Field>
                 <Divider />
                 {simulationMode === 'historicalReturns' && (
                   <>

@@ -16,6 +16,9 @@ export const expenseFormSchema = z
     propertyRegime: propertyRegimeSchema.optional(),
     growth: growthSchema.optional(),
     disabled: z.boolean().optional(),
+    // Essential spending (P1-P4). Absent means `false`: a withdrawal strategy's annual cap may
+    // only cut spending that is not marked essential, so an untouched plan is unaffected.
+    essential: z.boolean().optional(),
   })
   .extend(frequencyTimeframeSchema.shape)
   .refine(

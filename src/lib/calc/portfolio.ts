@@ -96,13 +96,18 @@ export class PortfolioProcessor {
    * @param expensesData - Monthly expense data
    * @param debtsData - Monthly debt payment data
    * @param physicalAssetsData - Monthly physical asset data
+   * @param essentialSpending - This month's essential spending (P1-P4), already scaled and
+   *   frequency-adjusted by the expenses processor. A strategy's annual cap may not cut it, so it
+   *   raises the month's allowance when the cap would leave it unfunded. Zero by default, which is
+   *   exactly the pre-essential behaviour.
    * @returns Portfolio data and any discretionary expense from surplus
    */
   processContributionsAndWithdrawals(
     incomesData: IncomesData,
     expensesData: ExpensesData,
     debtsData: DebtsData,
-    physicalAssetsData: PhysicalAssetsData
+    physicalAssetsData: PhysicalAssetsData,
+    essentialSpending = 0
   ): { portfolioData: PortfolioData; discretionaryExpense: number } {
     const debtAndLoanPayments = debtsData.totalPayment + physicalAssetsData.totalLoanPayment;
 
@@ -133,7 +138,10 @@ export class PortfolioProcessor {
       earningsWithdrawn,
       earningsWithdrawnByAccount,
       shortfall,
-    } = this.processWithdrawals(netCashFlow, this.currentYearWithdrawalAllowance());
+    } = this.processWithdrawals(
+      netCashFlow,
+      this.currentYearWithdrawalAllowance(this.essentialWithdrawalFloor(netCashFlow, essentialSpending))
+    );
 
     const { realizedGainsFromRebalance, realizedGainsByAccountFromRebalance } = this.processRebalance();
 
@@ -441,7 +449,10 @@ export class PortfolioProcessor {
     this.outstandingShortfall += shortfall;
 
     if (annualAllowance !== undefined) {
-      this.remainingAllowance = Math.max(0, annualAllowance - withdrawnTotal);
+      // Decrement what was actually taken rather than recomputing from this call's allowance: the
+      // allowance may have been raised by the essential floor, and that raise is a one-month
+      // exception, not new budget for the rest of the year.
+      this.remainingAllowance = Math.max(0, (this.remainingAllowance ?? annualAllowance) - withdrawnTotal);
       this.annualWithdrawnTotal += withdrawnTotal;
     }
 
@@ -630,6 +641,21 @@ export class PortfolioProcessor {
   }
 
   /**
+   * The floor a strategy's cap may not go below: what this month's essential spending needs from the
+   * portfolio (P1-P4).
+   *
+   * Only the part of essential spending this month's cash flow does not already cover needs a
+   * withdrawal, so the floor is the smaller of the month's deficit and the essential total. It can
+   * never exceed the deficit — the plan does not spend on essential items it is not paying for —
+   * which is what keeps a cap's shortfall arithmetic honest.
+   */
+  private essentialWithdrawalFloor(netCashFlow: number, essentialSpending: number): number {
+    if (!(essentialSpending > 0)) return 0;
+
+    return Math.min(Math.max(0, -netCashFlow), essentialSpending);
+  }
+
+  /**
    * What the injected strategy still allows the current simulation year to withdraw for spending.
    *
    * `undefined` for a strategy that declares no cap — which is the `ordered` default — so the
@@ -638,8 +664,12 @@ export class PortfolioProcessor {
    * The cap is computed once per simulation year, from the portfolio's value at that moment, with
    * the previous year's spending withdrawals as the history Guyton-Klinger reads. It is clamped to
    * what the portfolio actually holds, so no strategy can propose withdrawing more than exists.
+   *
+   * @param essentialFloor - The month's essential spending that needs funding (see
+   *   `essentialWithdrawalFloor`). Spending marked essential is never cut by the cap, so the
+   *   month's allowance is the larger of what is left of the year's budget and this floor.
    */
-  private currentYearWithdrawalAllowance(): number | undefined {
+  private currentYearWithdrawalAllowance(essentialFloor = 0): number | undefined {
     if (this.withdrawalStrategy.getAnnualCap === undefined) return undefined;
 
     const yearIndex = Math.ceil(this.simulationState.time.month / 12);
@@ -659,7 +689,9 @@ export class PortfolioProcessor {
       this.remainingAllowance = cap === undefined ? undefined : Math.max(0, Math.min(cap, portfolioValue));
     }
 
-    return this.remainingAllowance;
+    if (this.remainingAllowance === undefined) return undefined;
+
+    return Math.max(this.remainingAllowance, essentialFloor);
   }
 
   /**

@@ -29,6 +29,7 @@ import { StochasticReturnsProvider } from './returns-providers/stochastic-return
 import { LcgHistoricalBacktestReturnsProvider } from './returns-providers/lcg-historical-backtest-returns-provider';
 
 import { Portfolio, type PortfolioData, PortfolioProcessor } from './portfolio';
+import { getWithdrawalStrategy } from './withdrawal-strategies';
 import { type AccountDataWithFlows, TaxableBrokerageAccount } from './account';
 import { ContributionRules } from './contribution-rules';
 import { PhaseIdentifier, type PhaseData } from './phase';
@@ -324,7 +325,15 @@ export class FinancialSimulationEngine {
     const expensesProcessor = new ExpensesProcessor(simulationState, expenses);
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
-    const portfolioProcessor = new PortfolioProcessor(simulationState, simulationContext, contributionRules, this.inputs.glidePath);
+    const portfolioProcessor = new PortfolioProcessor(
+      simulationState,
+      simulationContext,
+      contributionRules,
+      this.inputs.glidePath,
+      // The plan's withdrawal strategy (P1-P4). Absent means `ordered`: the pre-strategy sequence
+      // with no annual ceiling, so a plan that never chose one simulates exactly as it did before.
+      getWithdrawalStrategy(this.inputs.simulationSettings.withdrawalStrategy)
+    );
     // The tax year is explicit: the ruleset (bracket thresholds, deductions, §86 tiers) is resolved
     // for the year being settled, never from a module-level constant. The year comes from the same
     // timezone-free calendar arithmetic as the result dates, not from a Date getter (a locally built
@@ -385,7 +394,11 @@ export class FinancialSimulationEngine {
         incomesData,
         expensesData,
         debtsData,
-        physicalAssetsData
+        physicalAssetsData,
+        // Spending the plan marks essential (P1-P4) is funded first: a strategy's annual cap may
+        // only trim the rest. Zero when no expense is marked essential, so a plan that never used
+        // the flag withdraws exactly what it did before the strategies existed.
+        expensesProcessor.getMonthlyEssentialExpenses()
       );
       if (monthlyDiscretionaryExpense) expensesProcessor.processDiscretionaryExpense(monthlyDiscretionaryExpense);
 

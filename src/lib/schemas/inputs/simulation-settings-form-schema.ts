@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { isISODateString } from '@/lib/calc/clock';
+import { WITHDRAWAL_STRATEGY_IDS } from '@/lib/calc/withdrawal-strategies';
 import { coerceNumber, optionalCoerceNumber } from '@/lib/utils/zod-utils';
 
 /**
@@ -33,6 +34,15 @@ export const historicalBacktestModes = ['looping', 'truncate'] as const;
 
 export type HistoricalBacktestMode = (typeof historicalBacktestModes)[number];
 
+/**
+ * How decumulation drains the portfolio (P1-P4), by the id the strategy registry uses.
+ *
+ * The ids are not restated here: they come from the registry (`WITHDRAWAL_STRATEGY_IDS`), so the
+ * plan field can only accept a strategy the engine actually has, and adding a strategy is one
+ * edit in the module rather than two that can drift apart.
+ */
+export const withdrawalStrategies = WITHDRAWAL_STRATEGY_IDS;
+
 export const simulationSettingsSchema = z
   .object({
     simulationSeed: coerceNumber(z.number().positive('Seed must be greater than 0').max(99999, 'Seed must be less than or equal to 99999')),
@@ -54,6 +64,11 @@ export const simulationSettingsSchema = z
      * setting existed keep their old (wrapping) behaviour; only the historical modes read it.
      */
     historicalBacktest: z.object({ mode: z.enum(historicalBacktestModes) }).optional(),
+    /**
+     * The withdrawal strategy (P1-P4). Absent means `ordered` — today's tax-optimised sequence with
+     * no annual ceiling — so a plan saved before the setting existed keeps its numbers exactly.
+     */
+    withdrawalStrategy: z.enum(withdrawalStrategies).optional(),
   })
   .refine(
     (data) => {

@@ -63,6 +63,8 @@ export const createConvexExpense = (overrides?: Partial<ConvexExpense>): ConvexE
   timeframe: overrides?.timeframe ?? { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
   growth: overrides?.growth,
   disabled: overrides?.disabled ?? false,
+  // Absent unless a test asks for it, which is the shape of every document written before P1-P4.
+  essential: overrides?.essential,
 });
 
 export const createConvexDebt = (overrides?: Partial<ConvexDebt>): ConvexDebt => ({

@@ -14,6 +14,12 @@ import type { SimulationState } from './simulation-engine';
 /** Processes all active expenses each month and aggregates annual totals */
 export class ExpensesProcessor {
   private monthlyData: ExpensesData[] = [];
+  /**
+   * Essential spending for the month `process()` last ran (P1-P4), which a withdrawal cap may not
+   * cut. Kept off `ExpensesData` because that object is part of every frozen result row: a new key
+   * there would move the golden corpus for a value the engine, not the readouts, consumes.
+   */
+  private currentEssentialExpenses = 0;
 
   constructor(
     private simulationState: SimulationState,
@@ -27,7 +33,11 @@ export class ExpensesProcessor {
   process(): ExpensesData {
     const activeExpenses = this.expenses.getActiveExpensesByTimeFrame(this.simulationState);
 
-    const processedExpenses = activeExpenses.map((expense) => expense.processMonthlyAmount(this.simulationState.time.year));
+    const processed = activeExpenses.map((expense) => ({
+      data: expense.processMonthlyAmount(this.simulationState.time.year),
+      essential: expense.getIsEssential(),
+    }));
+    const processedExpenses = processed.map((entry) => entry.data);
 
     const totals = processedExpenses.reduce(
       (acc, curr) => {
@@ -36,6 +46,7 @@ export class ExpensesProcessor {
       },
       { totalExpenses: 0 }
     );
+    this.currentEssentialExpenses = processed.reduce((acc, entry) => acc + (entry.essential ? entry.data.expense : 0), 0);
     const perExpenseData = Object.fromEntries(processedExpenses.map((expense) => [expense.id, expense]));
 
     const result = { ...totals, perExpenseData };
@@ -82,6 +93,18 @@ export class ExpensesProcessor {
 
   resetMonthlyData(): void {
     this.monthlyData = [];
+    this.currentEssentialExpenses = 0;
+  }
+
+  /**
+   * Essential spending this month, as `process()` computed it.
+   *
+   * A withdrawal strategy's annual cap trims discretionary spending; spending the plan marks
+   * essential is funded first, whatever the cap says. Zero before the first month and after a reset,
+   * which is also what a plan with no essential expense reports.
+   */
+  getMonthlyEssentialExpenses(): number {
+    return this.currentEssentialExpenses;
   }
 
   getAnnualData(): ExpensesData {
@@ -142,6 +165,8 @@ export class Expense {
   private growthLimit: number | undefined;
   private binding: TimeBinding;
   private frequency: 'yearly' | 'oneTime' | 'quarterly' | 'monthly' | 'biweekly' | 'weekly';
+  /** Whether a withdrawal cap may cut this expense (P1-P4). Absent means no. */
+  private essential: boolean;
   private lastYear: number = 0;
   /** Occurrence year the one-time expense last fired, so a recurrence can fire once per year. */
   private oneTimeOccurrenceIndex: number | null = null;
@@ -165,6 +190,12 @@ export class Expense {
     this.growthRate = data.growth?.growthRate;
     this.growthLimit = data.growth?.growthLimit === undefined ? undefined : data.growth.growthLimit * amountScale;
     this.frequency = data.frequency;
+    this.essential = data.essential ?? false;
+  }
+
+  /** Whether this expense is essential spending, which no withdrawal strategy may cut. */
+  getIsEssential(): boolean {
+    return this.essential;
   }
 
   processMonthlyAmount(year: number): ExpenseData {

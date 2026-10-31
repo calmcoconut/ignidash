@@ -754,6 +754,9 @@
           "disabled": {
             "type": "boolean"
           },
+          "essential": {
+            "type": "boolean"
+          },
           "frequency": {
             "type": "string",
             "enum": [
@@ -1542,6 +1545,15 @@
           },
           "required": [
             "mode"
+          ]
+        },
+        "withdrawalStrategy": {
+          "type": "string",
+          "enum": [
+            "ordered",
+            "vpw",
+            "xPercentRule",
+            "guytonKlinger"
           ]
         }
       },

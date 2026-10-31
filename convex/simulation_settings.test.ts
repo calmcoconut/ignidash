@@ -88,6 +88,38 @@ describe('simulation_settings.update asOfDate', () => {
     ).rejects.toThrow();
   });
 
+  it('persists a withdrawal strategy and rejects one the engine does not have (P1-P4)', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await createPlan(t);
+    const asUser = t.withIdentity({ subject: TEST_USER });
+
+    await asUser.mutation(api.simulation_settings.update, {
+      planId,
+      simulationSettings: { ...basicTemplate.simulationSettings, withdrawalStrategy: 'guytonKlinger' },
+    });
+
+    const stored = await t.run(async (ctx) => (await ctx.db.get(planId))!.simulationSettings);
+    expect((stored as { withdrawalStrategy?: string }).withdrawalStrategy).toBe('guytonKlinger');
+    await expect(asUser.query(api.simulation_settings.get, { planId })).resolves.toMatchObject({ withdrawalStrategy: 'guytonKlinger' });
+
+    // Absent is the default (`ordered`), so settings written before the field existed still store.
+    await asUser.mutation(api.simulation_settings.update, {
+      planId,
+      simulationSettings: { ...basicTemplate.simulationSettings },
+    });
+    expect(await t.run(async (ctx) => (await ctx.db.get(planId))!.simulationSettings)).not.toHaveProperty('withdrawalStrategy');
+
+    await expect(
+      asUser.mutation(api.simulation_settings.update, {
+        planId,
+        simulationSettings: {
+          ...basicTemplate.simulationSettings,
+          withdrawalStrategy: 'static' as unknown as 'ordered',
+        },
+      })
+    ).rejects.toThrow();
+  });
+
   it('rejects a non-string as-of date', async () => {
     const t = convexTest(schema, modules);
     const planId = await createPlan(t);

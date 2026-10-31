@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 
-import { simulationSettingsSchema } from './simulation-settings-form-schema';
+import { WITHDRAWAL_STRATEGY_IDS, WITHDRAWAL_STRATEGIES } from '@/lib/calc/withdrawal-strategies';
+
+import { simulationSettingsSchema, withdrawalStrategies } from './simulation-settings-form-schema';
 
 const validSettings = {
   simulationSeed: 9521,
@@ -48,6 +50,38 @@ describe('simulationSettingsSchema asOfDate', () => {
     for (const mode of ['wrap', 'truncated', '', null]) {
       const result = simulationSettingsSchema.safeParse({ ...validSettings, historicalBacktest: { mode } });
       expect(result.success, String(mode)).toBe(false);
+    }
+  });
+});
+
+describe('simulationSettingsSchema withdrawalStrategy', () => {
+  it('is optional, and absence stays absence: absent means ordered, not a stored value', () => {
+    const result = simulationSettingsSchema.parse(validSettings);
+
+    // Not defaulted into the plan: a plan saved before P1-P4 is read as `ordered` by the engine
+    // (`getWithdrawalStrategy(undefined)`), so its numbers do not move and no value is invented.
+    expect('withdrawalStrategy' in result).toBe(false);
+    expect(result.withdrawalStrategy).toBeUndefined();
+  });
+
+  it('accepts exactly the strategies the engine ships, and nothing else', () => {
+    // The enum is the registry's id list, so this pins the two together rather than restating it.
+    expect(withdrawalStrategies).toStrictEqual(WITHDRAWAL_STRATEGY_IDS);
+    expect([...withdrawalStrategies]).toStrictEqual(['ordered', 'vpw', 'xPercentRule', 'guytonKlinger']);
+
+    for (const strategy of withdrawalStrategies) {
+      const result = simulationSettingsSchema.safeParse({ ...validSettings, withdrawalStrategy: strategy });
+      expect(result.success, strategy).toBe(true);
+      expect(result.data?.withdrawalStrategy).toBe(strategy);
+      // Every accepted id names a strategy the engine can actually resolve.
+      expect(WITHDRAWAL_STRATEGIES[strategy].id).toBe(strategy);
+    }
+  });
+
+  it('rejects a strategy id the engine does not have', () => {
+    for (const withdrawalStrategy of ['static', 'ordered ', 'VPW', '', null]) {
+      const result = simulationSettingsSchema.safeParse({ ...validSettings, withdrawalStrategy });
+      expect(result.success, String(withdrawalStrategy)).toBe(false);
     }
   });
 });

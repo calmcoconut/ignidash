@@ -34,7 +34,8 @@ import {
 } from '@/lib/utils/time-binding-inputs';
 import { DialogTitle, DialogDescription, DialogBody, DialogActions } from '@/components/catalyst/dialog';
 import NumberInput from '@/components/ui/number-input';
-import { Field, Fieldset, FieldGroup, Label, ErrorMessage } from '@/components/catalyst/fieldset';
+import { Field, Fieldset, FieldGroup, Label, ErrorMessage, Description } from '@/components/catalyst/fieldset';
+import { Switch, SwitchField } from '@/components/catalyst/switch';
 import ErrorMessageCard from '@/components/ui/error-message-card';
 import { Combobox, ComboboxLabel, ComboboxOption } from '@/components/catalyst/combobox';
 import { Select } from '@/components/catalyst/select';
@@ -290,6 +291,21 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
                 </Field>
                 <OwnershipFields control={control} register={register} errors={errors} />
               </div>
+              <SwitchField>
+                <Label>Essential spending</Label>
+                <Description>
+                  Withdrawal strategies limit how much leaves the portfolio each year. Spending marked essential is excluded from that
+                  limit, so it is funded first.
+                </Description>
+                <Controller
+                  name="essential"
+                  defaultValue={false}
+                  control={control}
+                  render={({ field: { onChange, value, name } }) => (
+                    <Switch name={name} checked={value ?? false} onChange={onChange} color="rose" />
+                  )}
+                />
+              </SwitchField>
               <Disclosure as="div" className="border-border/25 border-t pt-4">
                 {({ open, close }) => (
                   <>

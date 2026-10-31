@@ -19,4 +19,8 @@ export const simulationSettingsValidator = v.object({
   // means `'looping'` (the pre-P2-P4 behaviour). This validator is part of the export envelope's
   // shape, so the field is only writable *and* importable once it is here.
   historicalBacktest: v.optional(v.object({ mode: v.union(v.literal('looping'), v.literal('truncate')) })),
+  // P1-P4 withdrawal strategy. Optional so plans saved before it keep loading, and absent means
+  // `'ordered'` (the pre-P1-P4 behaviour, with no annual ceiling). The ids are the strategy
+  // registry's (`WITHDRAWAL_STRATEGY_IDS`); `simulationSettingsSchema` is the reader's enum.
+  withdrawalStrategy: v.optional(v.union(v.literal('ordered'), v.literal('vpw'), v.literal('xPercentRule'), v.literal('guytonKlinger'))),
 });

@@ -44,13 +44,13 @@ export type { ImportIssue };
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 9 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8
- * and P3-P1b).
+ * Export/import envelope, version 10 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8,
+ * P3-P1b and P1-P4).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 9, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 9, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 10, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 10, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -123,6 +123,25 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       older-version fixtures below therefore make a v8 file by *substituting* a known status for the
  *       new one rather than by deleting the key — see `substituteFilingStatus`.
  *
+ *   10 — P1-P4 withdrawal strategies: optional `simulationSettings.withdrawalStrategy`
+ *        (`'ordered' | 'vpw' | 'xPercentRule' | 'guytonKlinger'`) and optional `expenses[*].essential`.
+ *        A version 9 file cannot carry either, because the bump lands in the change that adds them.
+ *
+ *        Absent `withdrawalStrategy` means **`ordered`**: the tax-optimised sequence every earlier
+ *        build ran, with no annual ceiling. A v9 plan therefore re-simulates to exactly the numbers it
+ *        had, and the importer preserves the absence rather than writing `'ordered'` into the file —
+ *        `getWithdrawalStrategy(undefined)` is the same object as `getWithdrawalStrategy('ordered')`,
+ *        and `withdrawal-strategies.test.ts` asserts the two runs deep-equal. Stating `'ordered'`
+ *        explicitly is a stored preference, not a second behaviour.
+ *
+ *        Absent `essential` means **`false`**: before the flag existed no expense was essential, so a
+ *        v9 expense is one a withdrawal cap may cut, exactly as it was. `expenseFromConvex` applies
+ *        that default, and `expenseToConvex` stores the flag only when it is `true`.
+ *
+ *        Neither field is a new top-level block: the strategy sits inside `simulationSettings` and the
+ *        flag on each expense, so a v9 file is made by *deleting* those two keys, and the v9 fixture
+ *        in `plan-envelope.test.ts` counts them before and after so the strip cannot pass vacuously.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -134,7 +153,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 9;
+export const EXPORT_SCHEMA_VERSION = 10;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;
