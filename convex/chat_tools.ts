@@ -8,6 +8,10 @@ import { evaluateSuccess } from '../src/lib/calc/success';
 import { SimulationDataExtractor } from '../src/lib/calc/data-extractors/simulation-data-extractor';
 import { simulate } from '../src/lib/calc/simulate';
 import { StatsUtils } from '../src/lib/utils/stats-utils';
+import { oneAtATimeSensitivity } from '../src/lib/calc/sensitivity';
+import { compareHousing, type HousingChoice } from '../src/lib/calc/housing-comparison';
+import { computeLoanPayment } from '../src/lib/calc/amortization-schedule';
+import type { PhysicalAssetInputs } from '../src/lib/schemas/inputs/physical-asset-form-schema';
 
 /**
  * The tools the chat agent can call (§7-A1), executed against the pure engine on the server.
@@ -108,6 +112,61 @@ export const CHAT_TOOL_DEFINITIONS: ChatToolDefinition[] = [
           year: { type: 'number', description: 'Calendar year to analyse, e.g. 2029, as shown in the projection.' },
         },
         required: ['year'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'runSensitivityAnalysis',
+      description:
+        'Run one-at-a-time sensitivity sweeps over returns, inflation, retirement age, or spending (P1-P6). Evaluates final portfolio net worth sensitivity across parameterized variations.',
+      parameters: {
+        type: 'object',
+        properties: {
+          variables: {
+            type: 'array',
+            items: {
+              type: 'string',
+              enum: ['returns', 'inflation', 'retirementAge', 'spending'],
+            },
+            description: 'Which variables to sweep. If omitted or empty, sweeps all four variables.',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'compareHousing',
+      description:
+        'Run a rent-vs-own comparison from the baseline plan (P1-P6). Compares buying a residence with a mortgage vs renting, reporting the break-even year, winner, net worth deltas, and lifetime housing costs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          residencePrice: { type: 'number', description: 'Purchase price of the residence.' },
+          downPaymentPercent: { type: 'number', description: 'Down payment as percentage of purchase price, e.g. 20 for 20%.' },
+          interestRatePercent: { type: 'number', description: 'Annual mortgage interest rate as percentage, e.g. 6.5 for 6.5%.' },
+          termMonths: { type: 'number', description: 'Mortgage loan term in months (defaults to 360 for 30 years).' },
+          monthlyRent: { type: 'number', description: 'Monthly rent for the rental alternative.' },
+          rentRealGrowthRatePercent: { type: 'number', description: 'Annual real growth rate of rent in percent (defaults to 0).' },
+          propertyTaxRatePercent: {
+            type: 'number',
+            description: 'Annual property tax as percentage of residence value (defaults to 1.25%).',
+          },
+          maintenanceRatePercent: {
+            type: 'number',
+            description: 'Annual maintenance and insurance as percentage of residence value (defaults to 1%).',
+          },
+          appreciationRatePercent: {
+            type: 'number',
+            description: 'Annual real appreciation rate of the home in percent (defaults to 3%).',
+          },
+        },
+        required: ['residencePrice', 'monthlyRent'],
         additionalProperties: false,
       },
     },
@@ -436,6 +495,109 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
     });
   };
 
+  const runSensitivity = (args: Json): string => {
+    const report = oneAtATimeSensitivity(baseline, {
+      asOf,
+    });
+
+    const requestedVars = Array.isArray(args.variables) && args.variables.length > 0 ? (args.variables as string[]) : null;
+    const entries = requestedVars ? report.entries.filter((entry) => requestedVars.includes(entry.variable)) : report.entries;
+
+    return JSON.stringify({
+      metric: report.metric,
+      baseOutcome: report.baseOutcome,
+      sweeps: report.sweeps,
+      entries: entries.map((entry) => ({
+        variable: entry.variable,
+        effect: entry.effect,
+        low: entry.low,
+        high: entry.high,
+      })),
+    });
+  };
+
+  const runCompareHousing = (args: Json): string => {
+    const residencePrice = Number(args.residencePrice);
+    if (!Number.isFinite(residencePrice) || residencePrice <= 0) {
+      return error('residencePrice must be a positive number.');
+    }
+
+    const monthlyRent = Number(args.monthlyRent);
+    if (!Number.isFinite(monthlyRent) || monthlyRent <= 0) {
+      return error('monthlyRent must be a positive number.');
+    }
+
+    const downPaymentPercent = args.downPaymentPercent !== undefined ? Number(args.downPaymentPercent) : 20;
+    const interestRatePercent = args.interestRatePercent !== undefined ? Number(args.interestRatePercent) : 6.5;
+    const termMonths = args.termMonths !== undefined ? Number(args.termMonths) : 360;
+    const downPayment = (downPaymentPercent / 100) * residencePrice;
+    const loanBalance = Math.max(0, residencePrice - downPayment);
+    const monthlyPayment =
+      loanBalance > 0
+        ? computeLoanPayment({
+            principal: loanBalance,
+            annualRatePercent: interestRatePercent,
+            termMonths,
+          })
+        : 0;
+
+    const residence: PhysicalAssetInputs = {
+      id: 'chat-comparison-residence',
+      name: 'Primary Residence',
+      assetType: 'primaryResidence',
+      purchaseDate: { type: 'now' },
+      purchasePrice: residencePrice,
+      appreciationRate: args.appreciationRatePercent !== undefined ? Number(args.appreciationRatePercent) : 3,
+      paymentMethod:
+        loanBalance > 0
+          ? {
+              type: 'loan',
+              downPayment,
+              loanBalance,
+              apr: interestRatePercent,
+              monthlyPayment,
+              termMonths,
+            }
+          : { type: 'cash' },
+      saleDate: { type: 'atLifeExpectancy' },
+    };
+
+    const choice: HousingChoice = {
+      residence,
+      monthlyRent,
+      propertyTaxRatePercent: args.propertyTaxRatePercent !== undefined ? Number(args.propertyTaxRatePercent) : undefined,
+      maintenanceRatePercent: args.maintenanceRatePercent !== undefined ? Number(args.maintenanceRatePercent) : undefined,
+      rentRealGrowthRatePercent: args.rentRealGrowthRatePercent !== undefined ? Number(args.rentRealGrowthRatePercent) : undefined,
+    };
+
+    const report = compareHousing(baseline, choice, {
+      asOf,
+      seed,
+      mode: 'fixedReturns',
+    });
+
+    return JSON.stringify({
+      finalWinner: report.finalWinner,
+      finalLiquidationWinner: report.finalLiquidationWinner,
+      breakEven: report.breakEven,
+      firstAhead: report.firstAhead,
+      liquidationBreakEven: report.liquidationBreakEven,
+      finalDeltaNetWorth: report.finalDeltaNetWorth,
+      finalDeltaLiquidationValue: report.finalDeltaLiquidationValue,
+      deltaMeaning: report.deltaMeaning,
+      headlineDeltas: [5, 10, 20, 30]
+        .map((y) => report.years.find((row) => row.yearIndex === y))
+        .filter((row): row is NonNullable<typeof row> => row !== undefined)
+        .map((row) => ({
+          yearIndex: row.yearIndex,
+          calendarYear: row.calendarYear,
+          deltaNetWorth: row.deltaNetWorth,
+          deltaPortfolio: row.deltaPortfolio,
+          deltaLiquidationValue: row.deltaLiquidationValue,
+        })),
+    });
+  };
+
   const execute = (name: string, args: unknown): string => {
     if (calls >= MAX_TOOL_CALLS_PER_TURN) {
       return error(`Tool budget exhausted: at most ${MAX_TOOL_CALLS_PER_TURN} tool calls per turn. Call nothing further and answer.`);
@@ -454,6 +616,10 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
           return compareToBaseline(parsedArgs);
         case 'getTaxAnalytics':
           return getTaxAnalytics(parsedArgs);
+        case 'runSensitivityAnalysis':
+          return runSensitivity(parsedArgs);
+        case 'compareHousing':
+          return runCompareHousing(parsedArgs);
         default:
           return error(`Unknown tool "${name}".`);
       }

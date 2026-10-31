@@ -244,12 +244,14 @@ describe('chat tools', () => {
     expect(typeof result.lifetimeTaxes?.total).toBe('number');
   });
 
-  it('exposes exactly the four tools the plan specifies', () => {
+  it('exposes exactly the tools the plan specifies', () => {
     expect(CHAT_TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual([
       'getPlanSummary',
       'simulateVariant',
       'compareToBaseline',
       'getTaxAnalytics',
+      'runSensitivityAnalysis',
+      'compareHousing',
     ]);
   });
 
@@ -394,6 +396,57 @@ describe('getTaxAnalytics (§7-A3, P3-P6)', () => {
     // ACA premium credits are P3-P7b: the analytics returns `supported: false`, so the description
     // must not promise a distance to a cliff the tool cannot measure.
     expect(description).toMatch(/ACA cliff comes back as not evaluated/);
+  });
+});
+
+describe('sensitivity and housing comparison tools (R9)', () => {
+  async function setupToolkit(t: ReturnType<typeof convexTest>) {
+    const planId = await insertPlan(t);
+    const inputs = await t.run(async (ctx) => {
+      const plan = await ctx.db.get(planId);
+      if (!plan) throw new Error('plan missing');
+      const loaded = simulatorFromConvex(plan);
+      // Give the plan sufficient capital to fund the housing comparison
+      const firstAccountId = Object.keys(loaded.accounts)[0];
+      if (firstAccountId) {
+        loaded.accounts[firstAccountId] = {
+          ...loaded.accounts[firstAccountId],
+          balance: 1_000_000,
+        };
+      }
+      return loaded;
+    });
+    return createChatToolkit({ inputs, asOf: AS_OF });
+  }
+
+  it('runs one-at-a-time sensitivity analysis through runSensitivityAnalysis', async () => {
+    const t = convexTest(schema, modules);
+    const toolkit = await setupToolkit(t);
+
+    const raw = toolkit.execute('runSensitivityAnalysis', { variables: ['returns', 'inflation'] });
+    const parsed = JSON.parse(raw);
+    expect(parsed.baseOutcome).toBeGreaterThanOrEqual(0);
+    expect(parsed.entries).toHaveLength(2);
+    expect(parsed.entries[0].variable).toBe('returns');
+    expect(parsed.entries[1].variable).toBe('inflation');
+    expect(parsed.entries[0].effect).toBeGreaterThanOrEqual(0);
+  });
+
+  it('runs rent-vs-own comparison through compareHousing', async () => {
+    const t = convexTest(schema, modules);
+    const toolkit = await setupToolkit(t);
+
+    const raw = toolkit.execute('compareHousing', {
+      residencePrice: 500000,
+      downPaymentPercent: 20,
+      interestRatePercent: 6.5,
+      monthlyRent: 2500,
+    });
+    const parsed = JSON.parse(raw);
+    expect(parsed.error).toBeUndefined();
+    expect(['owning', 'renting', 'tie']).toContain(parsed.finalWinner);
+    expect(parsed.deltaMeaning).toBe('owning - renting');
+    expect(Array.isArray(parsed.headlineDeltas)).toBe(true);
   });
 });
 
