@@ -137,26 +137,49 @@ export default function HelpPage() {
           <div>
             <h2 className="text-xl font-semibold tracking-tight text-gray-900 sm:text-2xl dark:text-white">Known limitations</h2>
             <Text className="mt-2">
-              Ignidash is in beta and actively under development. While the core simulation engine is reliable, there are some features and
-              scenarios not yet supported. I&apos;m working to add these over the coming months. If something critical is missing for your
-              planning needs, please let me know!
+              Ignidash is in beta. The simulation engine is dependable for what it models, and this page lists what it does not, so a
+              missing feature reads as a limit rather than as a bug. Every item below is a deliberate boundary of the model, not a queue of
+              promised work.
             </Text>
           </div>
           <DescriptionList>
-            <DescriptionTerm>Configurable drawdown order</DescriptionTerm>
-            <DescriptionDetails>Q1 2026</DescriptionDetails>
-
-            <DescriptionTerm>State income taxes outside California</DescriptionTerm>
-            <DescriptionDetails>Q1 2026</DescriptionDetails>
+            <DescriptionTerm>Social Security</DescriptionTerm>
+            <DescriptionDetails>
+              An income line you enter, adjusted for its claim age against the earner&apos;s own full retirement age. Spousal, survivor and
+              dependent benefits, and the retirement earnings test, are not modelled.
+            </DescriptionDetails>
 
             <DescriptionTerm>Roth conversions</DescriptionTerm>
-            <DescriptionDetails>Q1 2026</DescriptionDetails>
+            <DescriptionDetails>
+              Taxed in full. Pro-rata basis under §408(d)(2) is not modelled, so the conversion tax shown is an upper bound.
+            </DescriptionDetails>
 
-            <DescriptionTerm>Custom financial goals</DescriptionTerm>
-            <DescriptionDetails>Q2 2026</DescriptionDetails>
+            <DescriptionTerm>State income tax</DescriptionTerm>
+            <DescriptionDetails>California only — no other state, and no part-year residency.</DescriptionDetails>
 
-            <DescriptionTerm>Track NW with real-time data</DescriptionTerm>
-            <DescriptionDetails>Q2 2026</DescriptionDetails>
+            <DescriptionTerm>Estate, trust, business and rental tax</DescriptionTerm>
+            <DescriptionDetails>
+              Not modelled, and neither is future tax law: the vendored rulesets are applied across the projection, with later years
+              projected in today&apos;s dollars.
+            </DescriptionDetails>
+
+            <DescriptionTerm>ACA premium tax credit</DescriptionTerm>
+            <DescriptionDetails>
+              The federal §36B credit only — no Covered California state subsidy, and no Alaska or Hawaii poverty lines.
+            </DescriptionDetails>
+
+            <DescriptionTerm>Medicare premiums</DescriptionTerm>
+            <DescriptionDetails>Only the IRMAA surcharge is a liability line, not the base Part B and Part D premiums.</DescriptionDetails>
+
+            <DescriptionTerm>Net-worth journal</DescriptionTerm>
+            <DescriptionDetails>
+              Manual entry. By design there is no automatic brokerage sync or outside data feed — the deployment makes no outbound calls.
+            </DescriptionDetails>
+
+            <DescriptionTerm>Tax optimization</DescriptionTerm>
+            <DescriptionDetails>
+              No optimizer inside the engine. The AI skill ranks engine-computed variants against a goal you pick and never recommends one.
+            </DescriptionDetails>
           </DescriptionList>
         </div>
       </div>
