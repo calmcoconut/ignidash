@@ -19,7 +19,11 @@
 # Digest-pinned on purpose: the backend applies in-place migrations at startup,
 # so rolling it back is unsafe. Bump deliberately, then `npx convex export`.
 ARG CONVEX_IMAGE=ghcr.io/convex/convex-backend@sha256:207cf95def42f01614b6e3af0af5c20d0dcaa5ff2adf258ee7bc9555576644fa
-ARG NODE_IMAGE=node:22-bookworm-slim
+# Digest-pinned too. The `24-bookworm-slim` tag floats, so a rebuild could
+# silently move the major Node version CI and the app binary run on.
+# .nvmrc is 24 and package.json engines requires ^24.15.0 (jsdom 30's floor).
+# Digest resolved 2026-10-31 for node:24-bookworm-slim (Node 24.22.2).
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 
 # Node toolchain: shared by the two build stages and copied into the runner.
 FROM ${NODE_IMAGE} AS nodejs
@@ -61,7 +65,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Node 22 for the app. The backend image carries its own Node for "use node"
+# Node 24 for the app. The backend image carries its own Node for "use node"
 # actions; this one is for `node server.js`.
 COPY --from=nodejs /usr/local /usr/local
 
