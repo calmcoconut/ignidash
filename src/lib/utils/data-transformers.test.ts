@@ -19,6 +19,8 @@ import {
   milestonesToConvex,
   seppFromConvex,
   seppToConvex,
+  taxSettingsFromConvex,
+  taxSettingsToConvex,
   arrayToRecord,
   recordToArray,
 } from './data-transformers';
@@ -643,6 +645,44 @@ describe('sepp roundtrips', () => {
     expect(seppFromConvex(undefined)).toBeUndefined();
     expect(seppFromConvex([])).toStrictEqual([]);
     expect(seppToConvex([])).toStrictEqual([]);
+  });
+});
+
+describe('taxSettings ACA roundtrips', () => {
+  const acaSettings = {
+    optIn: true,
+    householdSize: 2,
+    slcsp: 12000,
+    actualPremium: 10000,
+  };
+
+  it('should roundtrip ACA settings through both directions', () => {
+    const convexTax = {
+      filingStatus: 'marriedFilingJointly' as const,
+      aca: acaSettings,
+    };
+    const from = taxSettingsFromConvex(convexTax);
+    expect(from.aca).toStrictEqual(acaSettings);
+    const to = taxSettingsToConvex(from);
+    expect(to.aca).toStrictEqual(acaSettings);
+  });
+
+  it('should preserve absent ACA settings', () => {
+    const convexTax = {
+      filingStatus: 'single' as const,
+    };
+    const from = taxSettingsFromConvex(convexTax);
+    expect(from.aca).toBeUndefined();
+    const to = taxSettingsToConvex(from);
+    expect(to.aca).toBeUndefined();
+  });
+
+  it('should omit aca when optIn is false', () => {
+    const to = taxSettingsToConvex({
+      filingStatus: 'single',
+      aca: { optIn: false, slcsp: 10000 },
+    });
+    expect(to.aca).toBeUndefined();
   });
 });
 

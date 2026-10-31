@@ -56,6 +56,24 @@ export const stateResidencySchema = z.enum(['CA', 'none']);
 
 export type StateResidencyInputs = z.infer<typeof stateResidencySchema>;
 
+/**
+ * ACA Premium Tax Credit (IRC §36B) opt-in and benchmark parameters (R8).
+ *
+ * Absent by default, meaning ACA PTC modeling is disabled (`optIn: false`).
+ */
+export const acaSettingsSchema = z.object({
+  /** Whether ACA Premium Tax Credit estimation is enabled for this plan. */
+  optIn: z.boolean(),
+  /** Household size for federal poverty line lookup. If omitted, resolved from household or filing status. */
+  householdSize: z.number().int().min(1).max(20).optional(),
+  /** Benchmark second-lowest-cost silver plan (SLCSP) premium in plan dollars, annual. */
+  slcsp: currencyFieldAllowsZero('SLCSP premium cannot be negative').optional(),
+  /** Actual health insurance premium paid for the coverage year (§36B(b)(2) cap), annual. */
+  actualPremium: currencyFieldAllowsZero('Actual premium cannot be negative').optional(),
+});
+
+export type AcaSettingsInputs = z.infer<typeof acaSettingsSchema>;
+
 export const taxSettingsFormSchema = z.object({
   filingStatus,
   stateResidency: stateResidencySchema.optional(),
@@ -68,6 +86,8 @@ export const taxSettingsFormSchema = z.object({
    * member ages; absent means "the spouse is under 65", which is the conservative reading.
    */
   spouseQualifiesForSeniorDeduction: z.boolean().optional(),
+  /** ACA Premium Tax Credit (IRC §36B) opt-in and benchmark inputs. */
+  aca: acaSettingsSchema.optional(),
 });
 
 export type TaxSettingsInputs = z.infer<typeof taxSettingsFormSchema>;

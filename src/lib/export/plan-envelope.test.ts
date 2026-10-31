@@ -540,7 +540,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1152,8 +1152,8 @@ describe('malformed files report the exact field paths', () => {
 
     // The field really is carried by the newest build: reverting the constant below 13 makes this
     // line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(17);
-    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1230,8 +1230,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion13Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(17);
-    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
     expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1313,8 +1313,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion14Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(17);
-    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
     expect(countFields(envelope, VERSION_14_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1390,8 +1390,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion15Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(17);
-    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
     expect(countFields(envelope, VERSION_15_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1453,8 +1453,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion16Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(17);
-    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
     expect(countFields(envelope, VERSION_16_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1525,8 +1525,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion17Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(17);
-    expect(EXPORT_SCHEMA_VERSION).toBe(17);
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
     expect(countFields(envelope, VERSION_17_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1564,6 +1564,76 @@ describe('malformed files report the exact field paths', () => {
 
     const importedPlan = imported.plans[0];
     expect(importedPlan).not.toHaveProperty('sepp');
+  });
+
+  /**
+   * What the v18 bump (R8) added: `taxSettings.aca`.
+   *
+   * ACA Premium Tax Credit opt-in and benchmark parameters, absent on all prior versions.
+   * Its absence means **ACA modeling is disabled** (optIn: false).
+   */
+  const VERSION_18_FIELDS = ['aca'];
+
+  const makeVersion18Plan = () => {
+    const base = makeVersion17Plan();
+    return {
+      ...base,
+      taxSettings: {
+        ...base.taxSettings,
+        aca: {
+          optIn: true,
+          householdSize: 2,
+          slcsp: 12000,
+          actualPremium: 10000,
+        },
+      },
+    };
+  };
+
+  it('roundtrips a version 18 plan with aca through export and import', () => {
+    const plan = makeVersion18Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(18);
+    expect(EXPORT_SCHEMA_VERSION).toBe(18);
+    expect(countFields(envelope, VERSION_18_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.taxSettings.aca).toBeDefined();
+    expect(restored.plan.taxSettings.aca?.optIn).toBe(true);
+    expect(restored.plan.taxSettings.aca?.slcsp).toBe(12000);
+  });
+
+  it('imports a version 17 plan as having aca absent, and keeps the field absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion18Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v17 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v17.schemaVersion = 17;
+
+    expect(countFields(v17, VERSION_18_FIELDS)).toBe(1);
+    stripFields(v17, VERSION_18_FIELDS);
+    expect(countFields(v17, VERSION_18_FIELDS)).toBe(0);
+    // The v17 sepp field is still there.
+    expect(countFields(v17, VERSION_17_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v17));
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(17);
+    expect(parsed.envelope).toStrictEqual(v17);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan.taxSettings).not.toHaveProperty('aca');
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

@@ -36,7 +36,7 @@
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
-import type { FilingStatus, ItemizedDeductionsInputs } from '@/lib/schemas/inputs/tax-settings-form-schema';
+import type { AcaSettingsInputs, FilingStatus, ItemizedDeductionsInputs } from '@/lib/schemas/inputs/tax-settings-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
 
 import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
@@ -50,6 +50,7 @@ import { type AccountDataWithFlows, taxCategoryForAccountType } from './account'
 import { type AssetFlows, type TaxCategory, sumFlows, sumReturnAmounts, zeroAssetAmounts } from './asset';
 import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
+import { calculatePremiumTaxCredit, type AcaPremiumTaxCreditResult } from './aca-premium-tax-credit';
 import { prorateIraDistribution } from './retirement-rules/ira-basis';
 import { qualifiedCharitableDistribution } from './retirement-rules/qcd';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
@@ -187,6 +188,12 @@ export interface TaxProcessorSettings {
    * dollar is taxable, which is what every plan written before this field computed.
    */
   readonly iraBasisByAccount?: Readonly<Record<string, number>> | undefined;
+  /**
+   * ACA Premium Tax Credit (IRC §36B) opt-in and benchmark inputs (R8).
+   *
+   * Absent means no ACA PTC modeling (disabled), matching earlier behavior.
+   */
+  readonly aca?: AcaSettingsInputs | undefined;
 }
 
 /**
@@ -285,6 +292,8 @@ export interface TaxesData {
   fica: FicaTaxesData;
   /** The state return (P3-P8); `jurisdiction: 'none'` for a non-resident plan. */
   state: StateTaxesData;
+  /** ACA Premium Tax Credit (IRC §36B) refundable credit result, if opted in and benchmark SLCSP is configured. */
+  aca?: AcaPremiumTaxCreditResult;
   incomeSources: IncomeSourcesData;
   /**
    * Everything the year owes, and exactly the sum of its lines:
@@ -830,6 +839,7 @@ function sumSeparateReturns(records: readonly TaxesData[]): TaxesData {
       total: sum(records.map((record) => record.fica.total)),
     },
     state: sumStateTaxes(records.map((record) => record.state)),
+    ...(records.find((record) => record.aca !== undefined)?.aca ? { aca: records.find((record) => record.aca !== undefined)!.aca } : {}),
     incomeSources: sumIncomeSources(records.map((record) => record.incomeSources)),
     totalTaxLiability: sum(records.map((record) => record.totalTaxLiability)),
     totalTaxesDue: sum(records.map((record) => record.totalTaxesDue)),
@@ -1306,7 +1316,26 @@ export class TaxProcessor {
     // Payroll tax on wages was withheld from the paycheque as the year went by, so only the
     // self-employment tax inside `fica` is still owed (plus or minus the income-tax true-up).
     const withheld = annualIncomesData.totalAmountWithheld + fica.wages.total;
-    const difference = totalTaxLiability - withheld;
+
+    let acaResult: AcaPremiumTaxCreditResult | undefined;
+    if (
+      this.filingStatus !== 'marriedFilingSeparately' &&
+      this.deductionSettings.aca?.optIn &&
+      (this.deductionSettings.aca.slcsp ?? 0) > 0
+    ) {
+      const householdSize = this.deductionSettings.aca.householdSize ?? (this.filingStatus === 'marriedFilingJointly' ? 2 : 1);
+      acaResult = calculatePremiumTaxCredit({
+        householdIncome: incomeData.adjustedGrossIncome,
+        householdSize,
+        taxYear: this.taxYear,
+        slcspPremium: this.deductionSettings.aca.slcsp!,
+        actualPremium: this.deductionSettings.aca.actualPremium,
+      });
+    }
+
+    // The ACA Premium Tax Credit (IRC §36B) is a refundable tax credit reducing taxes due or increasing refund.
+    const acaCredit = acaResult?.credit ?? 0;
+    const difference = totalTaxLiability - (withheld + acaCredit);
 
     return {
       federalIncomeTaxes,
@@ -1318,6 +1347,7 @@ export class TaxProcessor {
       socialSecurityTaxes,
       fica,
       state,
+      ...(acaResult !== undefined ? { aca: acaResult } : {}),
       incomeSources: incomeData,
       totalTaxLiability,
       totalTaxesDue: difference > 0 ? difference : 0,

@@ -322,6 +322,24 @@ export interface TaxAnalyticsInput {
   inflationRatePercent?: number;
 }
 
+export type AcaCliff =
+  | {
+      readonly supported: false;
+      readonly prerequisites: readonly string[];
+    }
+  | {
+      readonly supported: true;
+      readonly credit: number;
+      readonly householdIncome: number;
+      readonly povertyLine: number;
+      readonly fplPercent: number;
+      readonly applicablePercentage: number;
+      readonly requiredContribution: number;
+      readonly slcspPremium: number;
+      readonly cliffThreshold: number | null;
+      readonly headroom: number | null;
+    };
+
 export interface TaxAnalytics {
   taxYear: TaxYear;
   filingStatus: FilingStatus;
@@ -354,7 +372,7 @@ export interface TaxAnalytics {
     niit: Cliff;
     additionalMedicare: Cliff;
     irmaa: IrmaaLookback;
-    aca: { supported: false; prerequisites: string[] };
+    aca: AcaCliff;
   };
   /** The two returns the engine settles: the federal one, and California's (P3-P8). */
   jurisdictions: {
@@ -960,15 +978,29 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
         projected: projectedIrmaa,
         ...lookback,
       },
-      aca: {
-        supported: false,
-        prerequisites: [
-          'the marketplace second-lowest-cost silver premium (SLCSP) for the coverage year — a plan input that does not exist yet',
-          'the federal poverty line for the household size — the simulation result carries no household size',
-          'the applicable-percentage table for the coverage year — no 2026 schedule is vendored, so `getAcaTable` refuses the year',
-          'whether the enhanced subsidies are in force, which decides whether the 400% FPL cliff exists at all',
-        ],
-      },
+      aca: input.taxes.aca
+        ? {
+            supported: true,
+            credit: input.taxes.aca.credit,
+            householdIncome: input.taxes.aca.householdIncome,
+            povertyLine: input.taxes.aca.povertyLine,
+            fplPercent: input.taxes.aca.fplPercent,
+            applicablePercentage: input.taxes.aca.applicablePercentage,
+            requiredContribution: input.taxes.aca.requiredContribution,
+            slcspPremium: input.taxes.aca.slcspPremium,
+            cliffThreshold: input.taxes.aca.povertyLine * 4,
+            headroom:
+              input.taxes.aca.fplPercent <= 400 ? Math.max(0, input.taxes.aca.povertyLine * 4 - input.taxes.aca.householdIncome) : 0,
+          }
+        : {
+            supported: false,
+            prerequisites: [
+              'the marketplace second-lowest-cost silver premium (SLCSP) for the coverage year — a plan input that does not exist yet',
+              'the federal poverty line for the household size — the simulation result carries no household size',
+              'the applicable-percentage table for the coverage year — no 2026 schedule is vendored, so `getAcaTable` refuses the year',
+              'whether the enhanced subsidies are in force, which decides whether the 400% FPL cliff exists at all',
+            ],
+          },
     },
     jurisdictions: {
       federal: { supported: true, totalTaxLiability: sumLines(baseline.lines.filter((line) => line.jurisdiction === 'federal')) },

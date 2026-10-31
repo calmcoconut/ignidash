@@ -122,6 +122,20 @@ export const PRE_ARPA_APPLICABLE_PERCENTAGE_BANDS = [
   { minFplPercent: 300, maxFplPercent: 400, startRate: 0.095, endRate: 0.095 },
 ] as const satisfies readonly AcaApplicablePercentageBand[];
 
+/**
+ * The pre-ARPA schedule indexed for tax year 2026 under IRC §36B(b)(3)(A)(ii) and IRS Rev. Proc. 2025-25:
+ * 2.10% up to 133%, 3.14% to 4.19% (133–150%), 4.19% to 6.60% (150–200%), 6.60% to 8.44% (200–250%),
+ * 8.44% to 9.96% (250–300%), and 9.96% flat from 300% to the 400% cliff.
+ */
+export const PRE_ARPA_2026_PERCENTAGE_BANDS = [
+  { minFplPercent: 100, maxFplPercent: 133, startRate: 0.021, endRate: 0.021 },
+  { minFplPercent: 133, maxFplPercent: 150, startRate: 0.0314, endRate: 0.0419 },
+  { minFplPercent: 150, maxFplPercent: 200, startRate: 0.0419, endRate: 0.066 },
+  { minFplPercent: 200, maxFplPercent: 250, startRate: 0.066, endRate: 0.0844 },
+  { minFplPercent: 250, maxFplPercent: 300, startRate: 0.0844, endRate: 0.0996 },
+  { minFplPercent: 300, maxFplPercent: 400, startRate: 0.0996, endRate: 0.0996 },
+] as const satisfies readonly AcaApplicablePercentageBand[];
+
 /** The pre-ARPA cliff: eligible from 100 % to 400 % of the FPL inclusive, nothing above it. */
 export const PRE_ARPA_ELIGIBILITY_BOUNDS: AcaEligibilityBounds = { minFplPercent: 100, maxFplPercent: 400 };
 
@@ -141,7 +155,7 @@ export function federalPovertyLinePercent(householdIncome: number, povertyLine: 
  * The years this module can cite. A year not listed has no table and `getAcaTable` refuses it,
  * exactly as `getRules` refuses a tax year nobody has filed yet.
  */
-export const ACA_TABLE_YEARS: readonly TaxYear[] = [2024, 2025];
+export const ACA_TABLE_YEARS: readonly TaxYear[] = [2024, 2025, 2026];
 
 const ACA_TABLES: Record<number, AcaYearTable> = {
   2024: {
@@ -163,6 +177,26 @@ const ACA_TABLES: Record<number, AcaYearTable> = {
     },
     applicablePercentages: { values: ARPA_PERCENTAGE_BANDS, indexing: 'fixed', dollarFields: [], source: ARPA_SOURCE },
     eligibility: { values: { minFplPercent: 100, maxFplPercent: null }, indexing: 'fixed', dollarFields: [], source: ARPA_BOUNDS_SOURCE },
+  },
+  2026: {
+    year: 2026,
+    povertyGuideline: {
+      values: { baseAmount: 15_960, perAdditionalPerson: 5_680 },
+      indexing: 'indexed',
+      source: FPL_SOURCE,
+    },
+    applicablePercentages: {
+      values: PRE_ARPA_2026_PERCENTAGE_BANDS,
+      indexing: 'fixed',
+      dollarFields: [],
+      source: 'IRC §36B(b)(3)(A)(i) and Rev. Proc. 2025-25.',
+    },
+    eligibility: {
+      values: { minFplPercent: 100, maxFplPercent: 400 },
+      indexing: 'fixed',
+      dollarFields: [],
+      source: 'IRC §36B(c)(1)(A) (100 % floor and 400 % ceiling).',
+    },
   },
 };
 

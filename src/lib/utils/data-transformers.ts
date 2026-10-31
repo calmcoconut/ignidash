@@ -101,6 +101,7 @@ export function taxSettingsFromConvex(taxSettings: Doc<'plans'>['taxSettings']):
     stateResidency: taxSettings.stateResidency,
     itemizedDeductions: taxSettings.itemizedDeductions,
     spouseQualifiesForSeniorDeduction: taxSettings.spouseQualifiesForSeniorDeduction,
+    aca: taxSettings.aca,
   };
 }
 
@@ -370,6 +371,7 @@ export function taxSettingsToConvex(taxSettings: TaxSettingsInputs): Doc<'plans'
     ...(taxSettings.stateResidency === 'none' ? { stateResidency: 'none' as const } : {}),
     ...(itemizes ? { itemizedDeductions: entered } : {}),
     ...(taxSettings.spouseQualifiesForSeniorDeduction === true ? { spouseQualifiesForSeniorDeduction: true } : {}),
+    ...(taxSettings.aca?.optIn ? { aca: taxSettings.aca } : {}),
   };
 }
 

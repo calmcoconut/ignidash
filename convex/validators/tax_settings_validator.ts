@@ -11,6 +11,13 @@ export const itemizedDeductionsValidator = v.object({
   medicalExpenses: v.number(),
 });
 
+export const acaSettingsValidator = v.object({
+  optIn: v.boolean(),
+  householdSize: v.optional(v.number()),
+  slcsp: v.optional(v.number()),
+  actualPremium: v.optional(v.number()),
+});
+
 export const taxSettingsValidator = v.object({
   /**
    * The filing status a single return is settled under (IRC §1). `marriedFilingSeparately` (P3-P1b)
@@ -31,4 +38,5 @@ export const taxSettingsValidator = v.object({
   stateResidency: v.optional(v.union(v.literal('CA'), v.literal('none'))),
   itemizedDeductions: v.optional(itemizedDeductionsValidator),
   spouseQualifiesForSeniorDeduction: v.optional(v.boolean()),
+  aca: v.optional(acaSettingsValidator),
 });

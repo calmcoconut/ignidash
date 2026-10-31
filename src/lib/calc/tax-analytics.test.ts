@@ -572,9 +572,34 @@ describe('cliffs', () => {
     const analytics = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, magi: 76100 }));
 
     expect(analytics.cliffs.aca.supported).toBe(false);
+    if (analytics.cliffs.aca.supported) return;
     expect(analytics.cliffs.aca.prerequisites).toHaveLength(4);
     expect(analytics.cliffs.aca.prerequisites.join(' ')).toMatch(/SLCSP/);
     expect(analytics.jurisdictions.federal.supported).toBe(true);
+  });
+
+  it('reports the ACA cliff and credit when ACA modeling is opted in', () => {
+    const acaResult = {
+      eligible: true,
+      householdIncome: 31920,
+      povertyLine: 15960,
+      fplPercent: 200,
+      applicablePercentage: 0.066,
+      requiredContribution: 2106.72,
+      slcspPremium: 8000,
+      creditBeforePremiumCap: 5893.28,
+      credit: 5893.28,
+      cappedByActualPremium: false,
+    };
+    const input = makeInput({ taxableOrdinary: 31920 });
+    input.taxes.aca = acaResult;
+    const analytics = analyzeTaxYear(input);
+
+    expect(analytics.cliffs.aca.supported).toBe(true);
+    if (!analytics.cliffs.aca.supported) return;
+    expect(analytics.cliffs.aca.credit).toBeCloseTo(5893.28, 2);
+    expect(analytics.cliffs.aca.cliffThreshold).toBe(63840);
+    expect(analytics.cliffs.aca.headroom).toBeCloseTo(63840 - 31920, 2);
   });
 
   it('reports the California return the engine settled, rather than calling it pending', () => {

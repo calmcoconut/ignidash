@@ -54,11 +54,11 @@ const PRE_ARPA_ON_2025_FPL: AcaYearTable = {
 
 describe('the tables', () => {
   it('carries exactly the years it can cite, and refuses the rest', () => {
-    expect([...ACA_TABLE_YEARS]).toStrictEqual([2024, 2025]);
+    expect([...ACA_TABLE_YEARS]).toStrictEqual([2024, 2025, 2026]);
 
-    // 2026 is the year the enhanced schedule expires; borrowing either neighbour would be wrong.
-    expect(() => getAcaTable(2026)).toThrow(/No ACA premium-tax-credit table for 2026/);
-    expect(() => credit({ taxYear: 2026 })).toThrow(/No ACA premium-tax-credit table for 2026/);
+    // 2027 has no published table yet; borrowing either neighbour would be wrong.
+    expect(() => getAcaTable(2027)).toThrow(/No ACA premium-tax-credit table for 2027/);
+    expect(() => credit({ taxYear: 2027 })).toThrow(/No ACA premium-tax-credit table for 2027/);
   });
 
   it('declares an indexing mode and a source on every table', () => {
@@ -153,6 +153,33 @@ describe('eligibility bounds', () => {
     expect(overCliff.eligible).toBe(false);
     expect(overCliff.credit).toBe(0);
     expect(overCliff.creditBeforePremiumCap).toBe(0);
+  });
+
+  it('enforces the statutory 2026 table and 400 % cliff from Rev. Proc. 2025-25', () => {
+    // 2026 FPL 1 person = $15,960. 400% = $63,840.
+    // At 400% ($63,840), applicable percentage is 9.96% (0.0996).
+    // Required contribution = 63,840 * 0.0996 = 6,358.464.
+    // SLCSP = 9,000 -> credit = 9,000 - 6,358.464 = 2,641.536.
+    const atCliff2026 = calculatePremiumTaxCredit({
+      householdIncome: 63_840,
+      householdSize: 1,
+      taxYear: 2026,
+      slcspPremium: 9_000,
+    });
+    expect(atCliff2026.eligible).toBe(true);
+    expect(atCliff2026.applicablePercentage).toBeCloseTo(0.0996, 6);
+    expect(atCliff2026.requiredContribution).toBeCloseTo(6_358.464, 3);
+    expect(atCliff2026.credit).toBeCloseTo(2_641.536, 3);
+
+    // Over 400% ($63,841): cliff bites, credit = 0, eligible = false
+    const overCliff2026 = calculatePremiumTaxCredit({
+      householdIncome: 63_841,
+      householdSize: 1,
+      taxYear: 2026,
+      slcspPremium: 9_000,
+    });
+    expect(overCliff2026.eligible).toBe(false);
+    expect(overCliff2026.credit).toBe(0);
   });
 });
 

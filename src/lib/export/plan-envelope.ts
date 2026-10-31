@@ -246,6 +246,17 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v16 file is made by deleting the key. The upgrade test in `plan-envelope.test.ts` asserts
  *        the key is stripped.
  *
+ *   18 — R8 ACA premium tax credit opt-in: optional `taxSettings.aca`
+ *        (`{ optIn, householdSize, slcsp, actualPremium }`).
+ *        A version 17 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `taxSettings.aca` means **ACA modeling is disabled** (`optIn: false`): health coverage
+ *        is not modeled with IRC §36B premium assistance and no premium tax credit offsets taxes due,
+ *        which is what every earlier build computed. The importer preserves the absence.
+ *
+ *        A v17 file is made by deleting the `taxSettings.aca` key. The upgrade test in
+ *        `plan-envelope.test.ts` asserts the key is stripped.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -257,7 +268,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 17;
+export const EXPORT_SCHEMA_VERSION = 18;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;
