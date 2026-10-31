@@ -252,43 +252,49 @@ export default function DebtDialog({ onClose, selectedDebt: _selectedDebt, debts
                   value={syncedFinanceId}
                   onChange={handleSyncChange}
                 />
-                <Field>
-                  <Label htmlFor="balance">Balance</Label>
-                  <NumberInput
-                    name="balance"
-                    control={control}
-                    id="balance"
-                    inputMode="decimal"
-                    placeholder={formatCurrencyPlaceholder(7500)}
-                    prefix={getCurrencySymbol()}
-                    autoFocus={!isSynced}
-                    readOnly={isSynced}
-                  />
-                  <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
-                    <span className="whitespace-nowrap">Amount Basis</span>
-                    <Tooltip>
-                      <TooltipTrigger className="text-muted-foreground">
-                        <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {AMOUNT_BASIS_HINTS.map((hint) => (
-                          <p key={hint}>{hint}</p>
-                        ))}
-                        <p>Applies to the balance and the monthly payment.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis" disabled={isSynced}>
-                    {AMOUNT_BASIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                  {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
-                  {errors.balance && <ErrorMessage>{errors.balance?.message}</ErrorMessage>}
-                  {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
-                </Field>
+                <div>
+                  {/* Two Fields, one per control: Headless UI hands every label registered inside a Field to the
+                      controls in it as `aria-labelledby`, so one shared Field named both "Balance Amount Basis". */}
+                  <Field>
+                    <Label htmlFor="balance">Balance</Label>
+                    <NumberInput
+                      name="balance"
+                      control={control}
+                      id="balance"
+                      inputMode="decimal"
+                      placeholder={formatCurrencyPlaceholder(7500)}
+                      prefix={getCurrencySymbol()}
+                      autoFocus={!isSynced}
+                      readOnly={isSynced}
+                    />
+                    {errors.balance && <ErrorMessage>{errors.balance?.message}</ErrorMessage>}
+                  </Field>
+                  <Field>
+                    <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
+                      <span className="whitespace-nowrap">Amount Basis</span>
+                      <Tooltip>
+                        <TooltipTrigger className="text-muted-foreground">
+                          <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {AMOUNT_BASIS_HINTS.map((hint) => (
+                            <p key={hint}>{hint}</p>
+                          ))}
+                          <p>Applies to the balance and the monthly payment.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis" disabled={isSynced}>
+                      {AMOUNT_BASIS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, startType)}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
+                    {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
+                  </Field>
+                </div>
                 <Field>
                   <Label htmlFor="monthlyPayment">Monthly Payment</Label>
                   <NumberInput

@@ -389,42 +389,48 @@ export default function PhysicalAssetDialog({
                   value={syncedAssetId}
                   onChange={handleAssetSyncChange}
                 />
-                <Field>
-                  <Label htmlFor="purchasePrice">Purchase Price</Label>
-                  <NumberInput
-                    name="purchasePrice"
-                    control={control}
-                    id="purchasePrice"
-                    inputMode="decimal"
-                    placeholder={formatCurrencyPlaceholder(460000)}
-                    prefix={getCurrencySymbol()}
-                    autoFocus
-                  />
-                  <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
-                    <span className="whitespace-nowrap">Amount Basis</span>
-                    <Tooltip>
-                      <TooltipTrigger className="text-muted-foreground">
-                        <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {AMOUNT_BASIS_HINTS.map((hint) => (
-                          <p key={hint}>{hint}</p>
-                        ))}
-                        <p>Applies to the purchase price, market value and loan amounts.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
-                    {AMOUNT_BASIS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, purchaseDateType)}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                  {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
-                  {errors.purchasePrice && <ErrorMessage>{errors.purchasePrice?.message}</ErrorMessage>}
-                  {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
-                </Field>
+                <div>
+                  {/* Two Fields, one per control: Headless UI hands every label registered inside a Field to the
+                      controls in it as `aria-labelledby`, so one shared Field named both "Purchase Price Amount Basis". */}
+                  <Field>
+                    <Label htmlFor="purchasePrice">Purchase Price</Label>
+                    <NumberInput
+                      name="purchasePrice"
+                      control={control}
+                      id="purchasePrice"
+                      inputMode="decimal"
+                      placeholder={formatCurrencyPlaceholder(460000)}
+                      prefix={getCurrencySymbol()}
+                      autoFocus
+                    />
+                    {errors.purchasePrice && <ErrorMessage>{errors.purchasePrice?.message}</ErrorMessage>}
+                  </Field>
+                  <Field>
+                    <Label htmlFor="amountBasis" className="mt-3 flex w-full items-center justify-between">
+                      <span className="whitespace-nowrap">Amount Basis</span>
+                      <Tooltip>
+                        <TooltipTrigger className="text-muted-foreground">
+                          <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {AMOUNT_BASIS_HINTS.map((hint) => (
+                            <p key={hint}>{hint}</p>
+                          ))}
+                          <p>Applies to the purchase price, market value and loan amounts.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Select {...register('amountBasis', amountBasisFieldOptions)} id="amountBasis" name="amountBasis">
+                      {AMOUNT_BASIS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value} disabled={!isAmountBasisSelectable(option.value, purchaseDateType)}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    {amountBasisHint && <p className="text-muted-foreground mt-1 text-sm/6">{amountBasisHint}</p>}
+                    {errors.amountBasis && <ErrorMessage>{errors.amountBasis?.message}</ErrorMessage>}
+                  </Field>
+                </div>
                 <Field>
                   <Label htmlFor="marketValue" className="flex w-full items-center justify-between">
                     <span className="whitespace-nowrap">Market Value</span>
