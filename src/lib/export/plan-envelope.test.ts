@@ -530,7 +530,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1142,8 +1142,8 @@ describe('malformed files report the exact field paths', () => {
 
     // The field really is carried by the newest build: reverting the constant below 13 makes this
     // line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(15);
-    expect(EXPORT_SCHEMA_VERSION).toBe(15);
+    expect(envelope.schemaVersion).toBe(16);
+    expect(EXPORT_SCHEMA_VERSION).toBe(16);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1220,8 +1220,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion13Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(15);
-    expect(EXPORT_SCHEMA_VERSION).toBe(15);
+    expect(envelope.schemaVersion).toBe(16);
+    expect(EXPORT_SCHEMA_VERSION).toBe(16);
     expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1303,8 +1303,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion14Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(15);
-    expect(EXPORT_SCHEMA_VERSION).toBe(15);
+    expect(envelope.schemaVersion).toBe(16);
+    expect(EXPORT_SCHEMA_VERSION).toBe(16);
     expect(countFields(envelope, VERSION_14_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1380,8 +1380,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion15Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(15);
-    expect(EXPORT_SCHEMA_VERSION).toBe(15);
+    expect(envelope.schemaVersion).toBe(16);
+    expect(EXPORT_SCHEMA_VERSION).toBe(16);
     expect(countFields(envelope, VERSION_15_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1420,6 +1420,70 @@ describe('malformed files report the exact field paths', () => {
 
     const importedPlan = imported.plans[0];
     expect(importedPlan.expenses[0]).not.toHaveProperty('qualifiedMedical');
+    expect(expenseFromConvex(importedPlan.expenses[0]).qualifiedMedical).toBe(false);
+  });
+
+  /**
+   * What the v16 bump (R6) added: `satisfyFromIra` on expenses.
+   *
+   * An expense field marking charitable giving satisfied directly from an IRA under IRC §408(d)(8),
+   * absent on all prior versions. Its absence is **false** (standard expense funded from cash flow).
+   */
+  const VERSION_16_FIELDS = ['satisfyFromIra'];
+
+  const makeVersion16Plan = () => {
+    const base = makeVersion15Plan();
+    return {
+      ...base,
+      expenses: base.expenses.map((exp, idx) => (idx === 0 ? { ...exp, satisfyFromIra: true } : exp)),
+    };
+  };
+
+  it('round-trips satisfyFromIra on expenses, the one thing version 16 adds', () => {
+    const plan = makeVersion16Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(16);
+    expect(EXPORT_SCHEMA_VERSION).toBe(16);
+    expect(countFields(envelope, VERSION_16_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.expenses[0]).toHaveProperty('satisfyFromIra', true);
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+  });
+
+  it('imports a version 15 plan as having satisfyFromIra absent, and keeps the field absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion16Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v15 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v15.schemaVersion = 15;
+
+    expect(countFields(v15, VERSION_16_FIELDS)).toBe(1);
+    stripFields(v15, VERSION_16_FIELDS);
+    expect(countFields(v15, VERSION_16_FIELDS)).toBe(0);
+    // The v15 qualifiedMedical field is still there.
+    expect(((v15.plan as Record<string, unknown>).expenses as Record<string, unknown>[])[0]).toHaveProperty('qualifiedMedical', true);
+    expect(countFields(v15, VERSION_15_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v15));
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(15);
+    expect(parsed.envelope).toStrictEqual(v15);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan.expenses[0]).not.toHaveProperty('satisfyFromIra');
+    expect(expenseFromConvex(importedPlan.expenses[0]).satisfyFromIra).toBe(false);
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

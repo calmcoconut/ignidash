@@ -22,6 +22,10 @@ export const expenseFormSchema = z
     // Qualified medical expense (R5). Absent means `false`: withdrawals from an HSA up to the qualified
     // medical expense amount are tax-free federally.
     qualifiedMedical: z.boolean().optional(),
+    // Qualified charitable distribution / satisfy from IRA (R6, IRC §408(d)(8)). When true and the owner is age 70½
+    // or older, this charitable expense is satisfied directly from a traditional IRA, excluded from gross income
+    // up to the statutory limit and counting toward the year's RMD. Absent means `false`.
+    satisfyFromIra: z.boolean().optional(),
   })
   .extend(frequencyTimeframeSchema.shape)
   .refine(

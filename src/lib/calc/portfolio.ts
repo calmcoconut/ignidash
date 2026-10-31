@@ -9,7 +9,7 @@
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
-import { formatISODate, type ISODateString } from './clock';
+import { addMonths, formatISODate, type ISODateString } from './clock';
 
 import {
   type Account,
@@ -443,11 +443,16 @@ export class PortfolioProcessor {
         const withdrawFromThisAccount = Math.min(remainingToWithdraw, maxWithdrawable);
 
         const withdrawalAllocation = this.getAllocationForWithdrawal(withdrawFromThisAccount);
-        const simDate = this.simulationState.time.date;
+        const startCalendarDate = {
+          year: this.simulationContext.startDate.getFullYear(),
+          month: this.simulationContext.startDate.getMonth() + 1,
+          day: 1,
+        };
+        const currentMonthStart = addMonths(startCalendarDate, this.simulationState.time.month - 1);
         const currentDate = formatISODate({
-          year: simDate.getFullYear(),
-          month: simDate.getMonth() + 1,
-          day: simDate.getDate(),
+          year: currentMonthStart.year,
+          month: currentMonthStart.month,
+          day: 1,
         });
         const {
           realizedGains: realizedGainsFromThisAccount,

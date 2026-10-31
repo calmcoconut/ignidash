@@ -57,7 +57,7 @@ prompt tells the agent to quote `jurisdictions.california.reported`, but no case
 state-only lever. Covered California subsidies and California AMT are not modelled, which
 `jurisdictions.california.notModelled` says on every run.
 
-- **SEPP/72(t), QCDs.** Not
+- **SEPP/72(t).** Not
   modelled as transactions.
 - **ACA premium tax credit and its cliff.** `cliffs.aca` returns `supported: false` with its
   prerequisites, so a fixture could only test the refusal — never quote an ACA number.

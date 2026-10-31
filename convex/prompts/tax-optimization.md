@@ -166,9 +166,13 @@ with what the tools accept, trust the tools and say the limit has changed.
      unseasoned converted principal within 5 years by individuals under 59.5 incur the 10% §72(t) penalty.
   5. **Basis recovery**: Conversions from a traditional IRA recover after-tax basis pro-rata
      (Form 8606 / IRC §408(d)(2)) across all traditional IRAs, so only the pre-tax portion is taxable.
-- **Retirement-account rules.** No SEPP/72(t), no qualified charitable distributions. IRA withdrawals
-  **do** recover after-tax basis pro-rata (IRC §408(d)(2), Form 8606) when the account states
-  `nondeductibleBasis`; with none stated the whole distribution is taxable. Qualified medical HSA withdrawals
+- **Retirement-account rules.** No SEPP/72(t). Qualified Charitable Distributions (QCDs)
+  under IRC §408(d)(8) are modelled for IRA owners aged 70½+ via `expenses[*].satisfyFromIra`:
+  distributions from traditional IRAs directly to charity are excluded from gross income up to
+  the statutory indexed limit ($100,000–$108,000) and satisfy required minimum distributions (RMDs)
+  dollar-for-dollar. Traditional IRA withdrawals **do** recover after-tax basis pro-rata
+  (IRC §408(d)(2), Form 8606) when the account states `nondeductibleBasis`; with none stated the whole
+  distribution is taxable. Qualified medical HSA withdrawals
   are modelled (tax-free federally up to qualified medical expenses; non-qualified withdrawals are ordinary
   income, plus a 20% penalty if under 65 per IRC §223(f)(4)). California HSA non-conformity is modelled
   (contributions are not deductible, annual earnings are taxable in CA, and distributions are return of basis;

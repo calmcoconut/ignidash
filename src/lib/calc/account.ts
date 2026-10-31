@@ -659,7 +659,7 @@ export class TaxFreeAccount extends InvestmentAccount {
       remaining -= taken;
 
       if (age === undefined || age < 59.5) {
-        if (!withdrawalDate || withdrawalDate <= conversionSeasonsOn(conv.date)) {
+        if (!withdrawalDate || withdrawalDate < conversionSeasonsOn(conv.date)) {
           unseasonedConversionsWithdrawn += taken;
         }
       }

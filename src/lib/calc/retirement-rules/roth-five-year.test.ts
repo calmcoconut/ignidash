@@ -71,7 +71,7 @@ describe('the ordering rule: contributions first, then conversions, then earning
 
   it('then reaches converted dollars, which are tax-free but inside their own five years', () => {
     // $40,000 = $30,000 contributions + $10,000 of the 2019 conversion.
-    // The conversion seasons on 2024-06-01, so on 2020-07-01 it is unseasoned.
+    // The conversion seasons on 2024-01-01 (IRC §408A(d)(3)(F)), so on 2020-07-01 it is unseasoned.
     // Taxable: $0 (the conversion was already taxed). Penalty: 10 % × $10,000 = $1,000.
     const atFortyFive = rothWithdrawalTreatment({ events, withdrawalDate: '2020-07-01', age: 45, amount: 40_000 });
 
@@ -87,8 +87,8 @@ describe('the ordering rule: contributions first, then conversions, then earning
   });
 
   it('leaves a seasoned conversion alone', () => {
-    // 2024-06-02 is after the 2024-06-01 seasoning date, so the converted dollars are free at 45.
-    const result = rothWithdrawalTreatment({ events, withdrawalDate: '2024-06-02', age: 50, amount: 40_000 });
+    // 2024-01-01 is the seasoning date (tax year 2019 + 5 tax years), so on 2024-01-01 the converted dollars are seasoned at 50.
+    const result = rothWithdrawalTreatment({ events, withdrawalDate: '2024-01-01', age: 50, amount: 40_000 });
 
     expect(result.conversionPortion).toBe(10_000);
     expect(result.unseasonedConversionPortion).toBe(0);

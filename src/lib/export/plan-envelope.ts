@@ -227,6 +227,15 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v14 file is made by deleting the key. The upgrade test in `plan-envelope.test.ts` asserts
  *        the key is stripped.
  *
+ *   16 — R6 Qualified Charitable Distributions (QCDs): optional `expenses[*].satisfyFromIra`.
+ *        A version 15 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent means **false**: the expense is funded normally from cash flow and is not satisfied directly
+ *        from an IRA as an IRC §408(d)(8) Qualified Charitable Distribution.
+ *
+ *        A v15 file is made by deleting the key. The upgrade test in `plan-envelope.test.ts` asserts
+ *        the key is stripped.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -238,7 +247,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 15;
+export const EXPORT_SCHEMA_VERSION = 16;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

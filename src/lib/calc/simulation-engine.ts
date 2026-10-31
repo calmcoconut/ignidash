@@ -423,7 +423,6 @@ export class FinancialSimulationEngine {
 
     const resultData: Array<SimulationDataPoint> = [this.initSimulationDataPoint(simulationState, debts, physicalAssets)];
 
-    // Init simulation processors
     const returnsProcessor = new ReturnsProcessor(simulationState, returnsProvider);
     // Payroll withholding has its own state (year-to-date wages, so the OASDI wage base can stop
     // mid-year), so it is created once and shared: the incomes processor applies each paycheque's
@@ -555,7 +554,6 @@ export class FinancialSimulationEngine {
         }
       }
 
-      // Process one month of simulation
       const { inflationRate: monthlyInflationRate } = returnsProcessor.process();
       const incomesData = incomesProcessor.process();
       const expensesData = expensesProcessor.process();
@@ -636,7 +634,6 @@ export class FinancialSimulationEngine {
           }
         }
 
-        // Get annual data from processors
         const annualPortfolioDataBeforeTaxes = portfolioProcessor.getAnnualData();
         const annualIncomesData = incomesProcessor.getAnnualData();
         const annualReturnsData = returnsProcessor.getAnnualData();
@@ -660,18 +657,17 @@ export class FinancialSimulationEngine {
           annualReturnsData,
           annualPhysicalAssetsData,
           payrollTaxProcessor.getAnnualData(),
-          expensesProcessor.getAnnualQualifiedMedicalExpenses()
+          expensesProcessor.getAnnualQualifiedMedicalExpenses(),
+          expensesProcessor.getAnnualQcdExpenses()
         );
 
         // Process expenses last to account for discretionary expenses from tax refunds
         if (annualDiscretionaryExpense) expensesProcessor.processDiscretionaryExpense(annualDiscretionaryExpense);
         const annualExpensesData = expensesProcessor.getAnnualData();
 
-        // Update simulation state
         simulationState.annualData.expenses.push(annualExpensesData);
         simulationState.phase = phaseIdentifier.getCurrentPhase();
 
-        // Store annual data in results
         resultData.push({
           date: formatISODate(monthStartAfter(startCalendarDate, simulationState.time.month)),
           age: simulationState.time.age,
@@ -783,7 +779,8 @@ export class FinancialSimulationEngine {
     returnsData: ReturnsData,
     physicalAssetsData: PhysicalAssetsData,
     wagePayrollTaxes: WagePayrollTaxes,
-    qualifiedMedicalExpenses = 0
+    qualifiedMedicalExpenses = 0,
+    qcdExpenses = 0
   ): {
     taxesData: TaxesData;
     portfolioData: PortfolioData;
@@ -797,7 +794,8 @@ export class FinancialSimulationEngine {
       returnsData,
       physicalAssetsData,
       wagePayrollTaxes,
-      qualifiedMedicalExpenses
+      qualifiedMedicalExpenses,
+      qcdExpenses
     );
     const { totalTaxesDue, totalTaxesRefund } = initialTaxesData;
 
@@ -820,7 +818,8 @@ export class FinancialSimulationEngine {
           returnsData,
           physicalAssetsData,
           wagePayrollTaxes,
-          qualifiedMedicalExpenses
+          qualifiedMedicalExpenses,
+          qcdExpenses
         );
 
         const remainingTaxesDue = taxesData.totalTaxesDue - totalTaxesPaid;

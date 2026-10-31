@@ -91,11 +91,15 @@ export interface RothWithdrawalResult {
 /** The federal additional tax rate the conversion clock applies. */
 const EARLY_DISTRIBUTION_PENALTY_RATE = 0.1;
 
-/** The date five years after a conversion, after which its dollars are seasoned. */
+/**
+ * The date after which a conversion's principal is seasoned (IRC §408A(d)(3)(F) and Treas. Reg. § 1.408A-6, Q&A-5(b)).
+ * The five-taxable-year clock begins on January 1 of the tax year of the conversion and ends on December 31
+ * of the fifth taxable year. Therefore, on January 1 of year Y + 5, converted dollars are seasoned.
+ */
 export function conversionSeasonsOn(date: ISODateString): ISODateString {
-  const { year, month, day } = parseISODateString(date);
+  const { year } = parseISODateString(date);
 
-  return formatISODate({ year: year + 5, month, day });
+  return formatISODate({ year: year + 5, month: 1, day: 1 });
 }
 
 /**
@@ -146,7 +150,7 @@ export function rothWithdrawalTreatment(inputs: {
     remaining -= taken;
 
     // Each conversion runs its own five-year clock; only the part still inside it is exposed.
-    if (inputs.withdrawalDate <= conversionSeasonsOn(conversion.date)) unseasonedConversionPortion += taken;
+    if (inputs.withdrawalDate < conversionSeasonsOn(conversion.date)) unseasonedConversionPortion += taken;
   }
 
   const earningsPortion = remaining;

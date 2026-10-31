@@ -49,6 +49,8 @@ export const expenseValidator = v.object({
   essential: v.optional(v.boolean()),
   // Qualified medical expense (R5). Optional; absent means `false`.
   qualifiedMedical: v.optional(v.boolean()),
+  // Qualified charitable distribution / satisfy from IRA (R6, IRC §408(d)(8)). Optional; absent means `false`.
+  satisfyFromIra: v.optional(v.boolean()),
   disabled: v.boolean(),
 });
 

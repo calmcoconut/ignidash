@@ -51,6 +51,7 @@ import { type AssetFlows, type TaxCategory, sumFlows, sumReturnAmounts, zeroAsse
 import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { prorateIraDistribution } from './retirement-rules/ira-basis';
+import { qualifiedCharitableDistribution } from './retirement-rules/qcd';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { saltCapFor } from './tax-data/salt-cap';
 import { realDollarsIn } from './tax-data/real-dollars';
@@ -371,6 +372,12 @@ export interface IncomeSourcesData {
   };
   hsaContributions?: number;
   hsaEarnings?: number;
+  qcdData?: {
+    excludedAmount: number;
+    taxableAmount: number;
+    rmdSatisfied: number;
+    rmdRemaining: number;
+  };
 }
 
 // ============================================================================
@@ -604,8 +611,9 @@ function sumRecordOfAmounts(records: readonly Record<string, number>[]): Record<
 
 /** Sums the income-composition block, keeping the one ratio in it a maximum rather than a sum. */
 function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesData {
-  const amount = (key: Exclude<keyof IncomeSourcesData, 'earlyWithdrawals' | 'maxTaxableSocialSecurityPercentage' | 'hsaData'>) =>
-    sum(records.map((record) => (record[key] as number) ?? 0));
+  const amount = (
+    key: Exclude<keyof IncomeSourcesData, 'earlyWithdrawals' | 'maxTaxableSocialSecurityPercentage' | 'hsaData' | 'qcdData'>
+  ) => sum(records.map((record) => (record[key] as number) ?? 0));
 
   return {
     realizedGains: amount('realizedGains'),
@@ -649,6 +657,16 @@ function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesD
           },
           hsaContributions: sum(records.map((r) => r.hsaContributions ?? 0)),
           hsaEarnings: sum(records.map((r) => r.hsaEarnings ?? 0)),
+        }
+      : {}),
+    ...(records.some((r) => r.qcdData !== undefined)
+      ? {
+          qcdData: {
+            excludedAmount: sum(records.map((r) => r.qcdData?.excludedAmount ?? 0)),
+            taxableAmount: sum(records.map((r) => r.qcdData?.taxableAmount ?? 0)),
+            rmdSatisfied: sum(records.map((r) => r.qcdData?.rmdSatisfied ?? 0)),
+            rmdRemaining: sum(records.map((r) => r.qcdData?.rmdRemaining ?? 0)),
+          },
         }
       : {}),
   };
@@ -869,6 +887,7 @@ export class TaxProcessor {
   private ruleset: FederalTaxRuleset;
   /** The state that files a return; absent settings mean California (see `TaxProcessorSettings`). */
   private readonly stateResidency: StateResidency;
+  private lastExcludedQcd = 0;
 
   /**
    * @param taxYear - The tax year to settle, resolved through `getRules(taxYear)`.
@@ -1026,7 +1045,8 @@ export class TaxProcessor {
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
     annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes(),
-    qualifiedMedicalExpenses = 0
+    qualifiedMedicalExpenses = 0,
+    qcdExpenses = 0
   ): TaxesData {
     if (this.filingStatus === 'marriedFilingSeparately') {
       return this.processSeparateReturns(
@@ -1035,7 +1055,8 @@ export class TaxProcessor {
         annualReturnsData,
         annualPhysicalAssetsData,
         annualWagePayrollTaxes,
-        qualifiedMedicalExpenses
+        qualifiedMedicalExpenses,
+        qcdExpenses
       );
     }
 
@@ -1046,7 +1067,8 @@ export class TaxProcessor {
       annualPhysicalAssetsData,
       annualWagePayrollTaxes,
       '',
-      qualifiedMedicalExpenses
+      qualifiedMedicalExpenses,
+      qcdExpenses
     );
   }
 
@@ -1078,19 +1100,17 @@ export class TaxProcessor {
     if (jurisdiction === 'california') {
       const caRules = getRules(this.taxYear, 'CA');
       const brackets = this.inRealDollars(caRules.tables.incomeTaxBrackets, caRules.year)[this.filingStatus];
-      const targetBracket = brackets.find((b) => Math.abs(b.rate - targetRate) < 0.0001);
-      if (!targetBracket) {
-        throw new Error(
-          `Target bracket rate ${targetRate} not found in California brackets for year ${this.taxYear} (${this.filingStatus})`
-        );
-      }
+      const targetBracket =
+        brackets.find((b) => Math.abs(b.rate - targetRate) < 0.0001) ??
+        brackets.reduce((prev, curr) => (Math.abs(curr.rate - targetRate) < Math.abs(prev.rate - targetRate) ? curr : prev), brackets[0]);
+      if (!targetBracket) return 0;
       ceiling = targetBracket.max;
     } else {
       const brackets = this.inRealDollars(this.ruleset.tables.incomeTaxBrackets, this.ruleset.year)[this.filingStatus];
-      const targetBracket = brackets.find((b) => Math.abs(b.rate - targetRate) < 0.0001);
-      if (!targetBracket) {
-        throw new Error(`Target bracket rate ${targetRate} not found in federal brackets for year ${this.taxYear} (${this.filingStatus})`);
-      }
+      const targetBracket =
+        brackets.find((b) => Math.abs(b.rate - targetRate) < 0.0001) ??
+        brackets.reduce((prev, curr) => (Math.abs(curr.rate - targetRate) < Math.abs(prev.rate - targetRate) ? curr : prev), brackets[0]);
+      if (!targetBracket) return 0;
       ceiling = targetBracket.max;
     }
 
@@ -1177,9 +1197,11 @@ export class TaxProcessor {
     annualPhysicalAssetsData: PhysicalAssetsData,
     annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes(),
     returnKey = '',
-    qualifiedMedicalExpenses = 0
+    qualifiedMedicalExpenses = 0,
+    qcdExpenses = 0
   ): TaxesData {
     this.returnKey = returnKey;
+    this.lastExcludedQcd = 0;
 
     const fica = this.processPayrollTaxes(annualIncomesData, annualWagePayrollTaxes);
 
@@ -1189,7 +1211,8 @@ export class TaxProcessor {
       annualReturnsData,
       annualPhysicalAssetsData,
       fica.selfEmployment.halfDeduction,
-      qualifiedMedicalExpenses
+      qualifiedMedicalExpenses,
+      qcdExpenses
     );
 
     const socialSecurityTaxes: SocialSecurityTaxesData = {
@@ -1344,7 +1367,8 @@ export class TaxProcessor {
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
     annualWagePayrollTaxes: WagePayrollTaxes,
-    qualifiedMedicalExpenses = 0
+    qualifiedMedicalExpenses = 0,
+    qcdExpenses = 0
   ): TaxesData {
     // No recorded ownership means every item reads as `primary` — `ownerOf`'s own default — so the
     // partner's return is an empty one. A plan written before ownership existed therefore divides
@@ -1365,7 +1389,8 @@ export class TaxProcessor {
           physicalAssetsForSeparateReturn(annualPhysicalAssetsData, ownership, returnOwner),
           wagePayrollForSeparateReturn(annualWagePayrollTaxes, withheldPayrollShare(annualIncomesData, returnOwner)),
           returnOwner,
-          qualifiedMedicalExpenses * 0.5
+          qualifiedMedicalExpenses * 0.5,
+          qcdExpenses * 0.5
         )
       );
 
@@ -1630,7 +1655,7 @@ export class TaxProcessor {
     const itemizedLines: Record<string, number> = {
       propertyTax: entered?.stateAndLocalTaxes ?? 0,
       mortgageInterest: entered?.mortgageInterest ?? 0,
-      charitable: entered?.charitable ?? 0,
+      charitable: entered ? Math.max(0, entered.charitable - (this.lastExcludedQcd ?? 0)) : 0,
       medicalExpenses: Math.max(0, (entered?.medicalExpenses ?? 0) - conformity.medicalExpenseFloor * agi),
     };
     // The CA high-income limitation: 6% of AGI over the threshold, capped at 80% of the deduction.
@@ -1709,7 +1734,7 @@ export class TaxProcessor {
 
     const lines = {
       mortgageInterest: entered?.mortgageInterest ?? 0,
-      charitable: entered?.charitable ?? 0,
+      charitable: entered ? Math.max(0, entered.charitable - (this.lastExcludedQcd ?? 0)) : 0,
       stateAndLocalTaxes: Math.min(saltBeforeCap, salt.cap),
       medicalExpenses: Math.max(0, (entered?.medicalExpenses ?? 0) - medicalFloor * adjustedGrossIncome),
     };
@@ -1818,7 +1843,8 @@ export class TaxProcessor {
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
     selfEmploymentTaxDeduction: number,
-    qualifiedMedicalExpenses = 0
+    qualifiedMedicalExpenses = 0,
+    qcdExpenses = 0
   ): IncomeSourcesData {
     const age = this.simulationState.time.age;
 
@@ -1911,6 +1937,28 @@ export class TaxProcessor {
     // IRC §223(f)(4): 20% penalty applies to non-qualified distributions before age 65.
     if (age < hsaQualifiedWithdrawalAge) {
       earlyHsaWithdrawals += nonQualifiedHsaWithdrawals;
+    }
+
+    // IRC §408(d)(8): Qualified Charitable Distributions (QCDs)
+    let excludedQcd = 0;
+    let qcdData: IncomeSourcesData['qcdData'] | undefined;
+    if (qcdExpenses > 0 && iraDistributions > 0) {
+      const qcdResult = qualifiedCharitableDistribution({
+        year: Math.max(2013, Math.min(2025, this.taxYear)) as TaxYear,
+        age,
+        distribution: Math.min(iraDistributions, qcdExpenses),
+        rmdRequired: iraDistributions,
+      });
+      excludedQcd = qcdResult.excludedAmount;
+      this.lastExcludedQcd = excludedQcd;
+      taxDeferredWithdrawals = Math.max(0, taxDeferredWithdrawals - excludedQcd);
+      iraDistributions = Math.max(0, iraDistributions - excludedQcd);
+      qcdData = {
+        excludedAmount: qcdResult.excludedAmount,
+        taxableAmount: qcdResult.taxableAmount,
+        rmdSatisfied: qcdResult.rmdSatisfied,
+        rmdRemaining: qcdResult.rmdRemaining,
+      };
     }
 
     // IRC §408(d)(2): one basis is shared by every traditional IRA the owner holds, and every
@@ -2011,6 +2059,7 @@ export class TaxProcessor {
             hsaEarnings,
           }
         : {}),
+      ...(qcdData !== undefined ? { qcdData } : {}),
     };
   }
 

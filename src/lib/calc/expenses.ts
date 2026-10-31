@@ -22,6 +22,8 @@ export class ExpensesProcessor {
   private currentEssentialExpenses = 0;
   private currentQualifiedMedicalExpenses = 0;
   private monthlyQualifiedMedicalExpenses: number[] = [];
+  private currentQcdExpenses = 0;
+  private monthlyQcdExpenses: number[] = [];
 
   constructor(
     private simulationState: SimulationState,
@@ -39,6 +41,7 @@ export class ExpensesProcessor {
       data: expense.processMonthlyAmount(this.simulationState.time.year),
       essential: expense.getIsEssential(),
       qualifiedMedical: expense.getIsQualifiedMedical(),
+      qcd: expense.getIsSatisfyFromIra(),
     }));
     const processedExpenses = processed.map((entry) => entry.data);
 
@@ -52,6 +55,8 @@ export class ExpensesProcessor {
     this.currentEssentialExpenses = processed.reduce((acc, entry) => acc + (entry.essential ? entry.data.expense : 0), 0);
     this.currentQualifiedMedicalExpenses = processed.reduce((acc, entry) => acc + (entry.qualifiedMedical ? entry.data.expense : 0), 0);
     this.monthlyQualifiedMedicalExpenses.push(this.currentQualifiedMedicalExpenses);
+    this.currentQcdExpenses = processed.reduce((acc, entry) => acc + (entry.qcd ? entry.data.expense : 0), 0);
+    this.monthlyQcdExpenses.push(this.currentQcdExpenses);
     const perExpenseData = Object.fromEntries(processedExpenses.map((expense) => [expense.id, expense]));
 
     const result = { ...totals, perExpenseData };
@@ -101,6 +106,8 @@ export class ExpensesProcessor {
     this.currentEssentialExpenses = 0;
     this.currentQualifiedMedicalExpenses = 0;
     this.monthlyQualifiedMedicalExpenses = [];
+    this.currentQcdExpenses = 0;
+    this.monthlyQcdExpenses = [];
   }
 
   /**
@@ -119,6 +126,13 @@ export class ExpensesProcessor {
    */
   getAnnualQualifiedMedicalExpenses(): number {
     return this.monthlyQualifiedMedicalExpenses.reduce((sum, val) => sum + val, 0);
+  }
+
+  /**
+   * Qualified charitable distribution expenses for the whole year, satisfied from IRA (R6).
+   */
+  getAnnualQcdExpenses(): number {
+    return this.monthlyQcdExpenses.reduce((sum, val) => sum + val, 0);
   }
 
   getAnnualData(): ExpensesData {
@@ -183,6 +197,8 @@ export class Expense {
   private essential: boolean;
   /** Whether this expense is qualified medical spending for tax-free HSA withdrawals (R5). */
   private qualifiedMedical: boolean;
+  /** Whether this expense is satisfied from IRA as a Qualified Charitable Distribution (R6, IRC §408(d)(8)). */
+  private satisfyFromIra: boolean;
   private lastYear: number = 0;
   /** Occurrence year the one-time expense last fired, so a recurrence can fire once per year. */
   private oneTimeOccurrenceIndex: number | null = null;
@@ -208,6 +224,7 @@ export class Expense {
     this.frequency = data.frequency;
     this.essential = data.essential ?? false;
     this.qualifiedMedical = data.qualifiedMedical ?? false;
+    this.satisfyFromIra = data.satisfyFromIra ?? false;
   }
 
   /** Whether this expense is essential spending, which no withdrawal strategy may cut. */
@@ -218,6 +235,15 @@ export class Expense {
   /** Whether this expense is qualified medical spending for tax-free HSA withdrawals (R5). */
   getIsQualifiedMedical(): boolean {
     return this.qualifiedMedical;
+  }
+
+  /** Whether this expense is satisfied from IRA as a Qualified Charitable Distribution (R6, IRC §408(d)(8)). */
+  getIsSatisfyFromIra(): boolean {
+    return this.satisfyFromIra;
+  }
+
+  getIsQcd(): boolean {
+    return this.satisfyFromIra;
   }
 
   processMonthlyAmount(year: number): ExpenseData {

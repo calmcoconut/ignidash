@@ -195,6 +195,26 @@ describe('Expense transforms', () => {
     // ...and the true survives the trip back through the reader.
     expect(expenseFromConvex(expenseToConvex(essential)).essential).toBe(true);
   });
+
+  it('defaults qualifiedMedical and satisfyFromIra to false, and reads stored true back', () => {
+    const plain = createConvexExpense();
+    expect(expenseFromConvex(plain).qualifiedMedical).toBe(false);
+    expect(expenseFromConvex(plain).satisfyFromIra).toBe(false);
+
+    expect(expenseFromConvex({ ...plain, qualifiedMedical: true }).qualifiedMedical).toBe(true);
+    expect(expenseFromConvex({ ...plain, satisfyFromIra: true }).satisfyFromIra).toBe(true);
+  });
+
+  it('stores qualifiedMedical and satisfyFromIra only when true', () => {
+    const plain = expenseFromConvex(createConvexExpense());
+    const stored = (value: unknown) => JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+
+    expect(stored(expenseToConvex(plain))).not.toHaveProperty('qualifiedMedical');
+    expect(stored(expenseToConvex(plain))).not.toHaveProperty('satisfyFromIra');
+
+    expect(stored(expenseToConvex({ ...plain, qualifiedMedical: true }))).toHaveProperty('qualifiedMedical', true);
+    expect(stored(expenseToConvex({ ...plain, satisfyFromIra: true }))).toHaveProperty('satisfyFromIra', true);
+  });
 });
 
 // ============================================================================

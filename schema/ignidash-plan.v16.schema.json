@@ -816,6 +816,9 @@
           "qualifiedMedical": {
             "type": "boolean"
           },
+          "satisfyFromIra": {
+            "type": "boolean"
+          },
           "frequency": {
             "type": "string",
             "enum": [

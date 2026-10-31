@@ -34,10 +34,6 @@ import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 
-// ============================================================================
-// CONVEX → ZOD
-// ============================================================================
-
 // percentBonds is optional in Convex (not applicable to savings), but guaranteed by the
 // Zod discriminated union for investment account types — hence the non-null assertions.
 export function accountFromConvex(account: Doc<'plans'>['accounts'][number]): AccountInputs {
@@ -131,6 +127,8 @@ export function expenseFromConvex(expense: Doc<'plans'>['expenses'][number]): Ex
     essential: expense.essential ?? false,
     // Absent in the document means `false`: before the flag existed, no expense was qualified medical.
     qualifiedMedical: expense.qualifiedMedical ?? false,
+    // Absent in the document means `false`: before the flag existed, no expense was satisfied from IRA.
+    satisfyFromIra: expense.satisfyFromIra ?? false,
   };
 }
 
@@ -291,10 +289,6 @@ export function conversionsFromConvex(conversions: Doc<'plans'>['conversions']):
   return conversions ? structuredClone(conversions) : undefined;
 }
 
-// ============================================================================
-// ZOD → CONVEX
-// ============================================================================
-
 export function accountToConvex(account: AccountInputs): Doc<'plans'>['accounts'][number] {
   const base = {
     id: account.id,
@@ -392,6 +386,7 @@ export function expenseToConvex(expense: ExpenseInputs): Doc<'plans'>['expenses'
     // Stored only when it is a real statement, so an untouched expense keeps the document it had.
     ...(expense.essential === true ? { essential: true } : {}),
     ...(expense.qualifiedMedical === true ? { qualifiedMedical: true } : {}),
+    ...(expense.satisfyFromIra === true ? { satisfyFromIra: true } : {}),
   };
 }
 
@@ -519,10 +514,6 @@ export function conversionsToConvex(conversions: ConversionInputs[]): NonNullabl
   return structuredClone(conversions) as NonNullable<Doc<'plans'>['conversions']>;
 }
 
-// ============================================================================
-// SIMULATION RESULT → CONVEX
-// ============================================================================
-
 // Flattens multiple chart data extractors (net worth, cash flow, taxes, contributions,
 // withdrawals, returns) into a single flat row per year for LLM API consumption.
 // Skips the first net worth data point (initial state before year 1).
@@ -545,7 +536,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       age: netWorthData[i].age,
       phaseName: toPhaseLabel(phase?.name),
 
-      // Net Worth
       netWorth: netWorthData[i].netWorth,
       stockHoldings: netWorthData[i].stockHoldings,
       bondHoldings: netWorthData[i].bondHoldings,
@@ -556,7 +546,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       cashSavings: netWorthData[i].cashSavings,
       totalValue: netWorthData[i].stockHoldings + netWorthData[i].bondHoldings + netWorthData[i].cashHoldings,
 
-      // Cash Flow
       earnedIncome: cashFlowData[i].earnedIncome,
       socialSecurityIncome: cashFlowData[i].socialSecurityIncome,
       taxFreeIncome: cashFlowData[i].taxFreeIncome,
@@ -570,7 +559,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       savingsRate: cashFlowData[i].savingsRate,
       netCashFlow: cashFlowData[i].netCashFlow,
 
-      // Taxes
       grossIncome: taxesData[i].grossIncome,
       adjustedGrossIncome: taxesData[i].adjustedGrossIncome,
       taxableIncome: taxesData[i].taxableIncome,
@@ -587,7 +575,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       taxDeductibleContributions: taxesData[i].taxDeductibleContributions,
       capitalLossDeduction: taxesData[i].capitalLossDeduction,
 
-      // Contributions
       totalContributions: contributionsData[i].annualContributions,
       taxableContributions: contributionsData[i].taxableContributions,
       taxDeferredContributions: contributionsData[i].taxDeferredContributions,
@@ -595,7 +582,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       cashContributions: contributionsData[i].cashSavingsContributions,
       employerMatch: contributionsData[i].annualEmployerMatch,
 
-      // Withdrawals
       totalWithdrawals: withdrawalsData[i].annualWithdrawals,
       taxableWithdrawals: withdrawalsData[i].taxableWithdrawals,
       taxDeferredWithdrawals: withdrawalsData[i].taxDeferredWithdrawals,
@@ -606,7 +592,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       rothEarningsWithdrawals: withdrawalsData[i].annualRothEarningsWithdrawals,
       withdrawalRate: withdrawalsData[i].withdrawalRate,
 
-      // Debts
       unsecuredDebtBalance: netWorthData[i].unsecuredDebtBalance,
       securedDebtBalance: netWorthData[i].securedDebtBalance,
       debtPayments: cashFlowData[i].debtPayments,
@@ -614,14 +599,12 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       debtPayoff: netWorthData[i].annualDebtPayoff,
       debtIncurred: netWorthData[i].annualDebtIncurred,
 
-      // Physical Assets
       assetValue: netWorthData[i].assetValue,
       assetEquity: netWorthData[i].assetEquity,
       assetPurchaseOutlay: cashFlowData[i].assetPurchaseOutlay,
       assetSaleProceeds: cashFlowData[i].assetSaleProceeds,
       assetAppreciation: netWorthData[i].annualAssetAppreciation,
 
-      // Returns
       realStockReturnRate: returnsData[i].realStockReturnRate,
       realBondReturnRate: returnsData[i].realBondReturnRate,
       realCashReturnRate: returnsData[i].realCashReturnRate,
@@ -640,10 +623,6 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
 
   return { simulationResult, federalIncomeTaxBrackets, capitalGainsTaxBrackets, standardDeduction, niitThreshold };
 }
-
-// ============================================================================
-// HELPERS
-// ============================================================================
 
 export function arrayToRecord<T extends { id: string }>(items: T[]): Record<string, T> {
   return Object.fromEntries(items.map((item) => [item.id, item]));
