@@ -25,12 +25,18 @@
  *   by the engine and `jurisdictions.california` reports it verbatim, with the questions the state
  *   return still cannot answer (Covered California subsidies, California AMT, the HSA
  *   non-conformity) named separately in `jurisdictions.california.notModelled`.
- * - **ACA premium tax credit** — P3-P7b. The tables and the arithmetic shipped
- *   (`tax-data/aca` vendors the federal poverty line and the applicable-percentage schedule for
- *   2024–2025; `aca-premium-tax-credit` computes the credit and the cliff over them), but no credit
- *   is in the result: no SLCSP premium input exists, `SimulationResult` carries no household size,
- *   there is no `TaxesData` line, and `getAcaTable(2026)` refuses the current tax year. It is
- *   reported as a prerequisite, never approximated.
+ * - **ACA premium tax credit** — P3-P7b. Only half of it is on this list: the credit itself *is*
+ *   computed. `tax-data/aca` vendors the poverty guidelines and applicable-percentage schedule for
+ *   coverage years 2024–2027, `aca-premium-tax-credit` computes the credit and the 400 % cliff over
+ *   them, the plan opts in through `taxSettings.aca` (SLCSP premium, household size, live premium),
+ *   and the settled return returns it as `taxes.aca` — a refundable credit, so it is in
+ *   `totalTaxesRefund`/`totalTaxesDue` rather than in a liability line. What this module reports for
+ *   a year whose plan did **not** opt in is the prerequisite list, never an approximation; and what
+ *   is not modelled at all is the Covered California state subsidy on top of the federal credit.
+ *   `cliffs.aca` reports whichever of the two applies, and for the credit it reports the coverage
+ *   year's own cliff — a dollar threshold, or `null` where §36B(i) suspends it (2024–2025) — plus the
+ *   year whose law priced the credit, because a coverage year past the last vendored table is priced
+ *   from the nearest prior row (`tax-data/aca` `getAcaTable`).
  * - **AMT credit machinery beyond the simplified §53 limit** — the engine charges the AMT top-up and
  *   applies a credit against it, but the deferral-item refinement of Form 8801 Part III is not
  *   modelled (Plan 3: "no full AMT credit machinery").
@@ -68,10 +74,12 @@
 
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
+import type { AcaPremiumTaxCreditResult } from './aca-premium-tax-credit';
 import { parseISODateString } from './clock';
 import { computeSelfEmploymentTaxes, computeWagePayrollTaxes } from './payroll-taxes';
 import type { SimulationDataPoint } from './simulation-engine';
 import { getRules } from './tax-data';
+import { getAcaTable } from './tax-data/aca';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { realDollarsIn } from './tax-data/real-dollars';
 import type { CapitalGainsTaxBracket, ProgressiveBracket, TableMeta, TaxRuleset, TaxYear } from './tax-data/types';
@@ -322,23 +330,42 @@ export interface TaxAnalyticsInput {
   inflationRatePercent?: number;
 }
 
-export type AcaCliff =
-  | {
-      readonly supported: false;
-      readonly prerequisites: readonly string[];
-    }
-  | {
-      readonly supported: true;
-      readonly credit: number;
-      readonly householdIncome: number;
-      readonly povertyLine: number;
-      readonly fplPercent: number;
-      readonly applicablePercentage: number;
-      readonly requiredContribution: number;
-      readonly slcspPremium: number;
-      readonly cliffThreshold: number | null;
-      readonly headroom: number | null;
-    };
+export type AcaCliff = AcaCliffUnsupported | AcaCliffReported;
+
+/**
+ * The ACA block for a year whose plan did not opt in (or filed married-filing-separately): what is
+ * missing, never a number.
+ */
+export interface AcaCliffUnsupported {
+  readonly supported: false;
+  readonly prerequisites: readonly string[];
+}
+
+/** The ACA block for a settled credit: the credit, the coverage year's own cliff, and the year that priced it. */
+export interface AcaCliffReported {
+  readonly supported: true;
+  readonly credit: number;
+  /**
+   * The coverage year whose table priced the credit. Older than the return's tax year when the
+   * engine asked for a year newer than the last vendored row, so a consumer quotes 2027 law for a
+   * 2029 return instead of implying 2029 law exists in this module.
+   */
+  readonly resolvedYear: TaxYear;
+  readonly householdIncome: number;
+  readonly povertyLine: number;
+  readonly fplPercent: number;
+  readonly applicablePercentage: number;
+  readonly requiredContribution: number;
+  readonly slcspPremium: number;
+  /**
+   * The coverage year's upper cliff applied to `povertyLine`, or `null` when that year has no upper
+   * cliff: §36B(i) suspends the 400 % ceiling for tax years 2021–2025, so the 2024 and 2025 rows
+   * carry `maxFplPercent: null` and 4 × the FPL is not a threshold at all in those years.
+   */
+  readonly cliffThreshold: number | null;
+  /** Distance in income to `cliffThreshold`; `null` when there is no cliff to reach. */
+  readonly headroom: number | null;
+}
 
 export interface TaxAnalytics {
   taxYear: TaxYear;
@@ -755,7 +782,7 @@ function headroomTargets(taxable: number, brackets: readonly ProgressiveBracket[
 
 /** The clause that keeps a consumer from claiming more than this module can support. */
 const NOT_COMPUTED = [
-  'ACA premium tax credit and its cliff — P3-P7b. The tables and the arithmetic shipped: `tax-data/aca` vendors the federal poverty line and the applicable-percentage schedule, and `aca-premium-tax-credit` computes the credit and the cliff over them. What is missing is the wiring — no SLCSP premium input exists anywhere, the result carries no household size, there is no `TaxesData` line, and `getAcaTable(2026)` throws, so a 2026 return cannot be priced at all.',
+  'ACA premium tax credit and its cliff — P3-P7b. The credit itself is computed: `tax-data/aca` vendors the poverty guidelines and indexed applicable percentages for coverage years 2024–2027, `aca-premium-tax-credit` computes the credit and the 400 % cliff over them, and a plan that opts in (`taxSettings.aca`) gets the refundable credit on its settled return as `taxes.aca`. What is *not* modelled, and all this entry can claim: the Covered California state subsidy on top of the federal credit, the Alaska and Hawaii poverty lines, and the 138 %-of-FPL Medi-Cal floor — so the credit reported is the federal §36B amount only. `cliffs.aca` falls back to a prerequisite list, never a number, for a year whose plan did not opt in (or filed married-filing-separately, which §36B(c)(1)(C) makes ineligible).',
   'The AMT credit beyond the simplified §53 limit — the deferral-item refinement of Form 8801 Part III is not modelled (P3-P7a).',
   'The non-income-related Medicare Part B and Part D premiums — only the IRMAA surcharge is a liability line.',
   'The marginal effect of an itemized deduction — the engine applies the four entered itemized lines (with the §164 SALT cap and its MAGI phase-down and the §213 7.5%-of-AGI medical floor) and takes the larger of the two deductions, but this analysis reads the deduction the settled return took and never re-derives it: a dollar that would move the SALT phase-down or the medical floor is priced against a fixed deduction. The entered lines also carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap — they are taken as entered.',
@@ -771,7 +798,7 @@ const NOT_COMPUTED = [
  * return is complete.
  */
 const CALIFORNIA_NOT_MODELLED = [
-  'Covered California premium subsidies — the state assistance on top of the federal premium tax credit, which is not modelled either (P3-P7b); no subsidy figure exists on the federal or the state return.',
+  'Covered California premium subsidies — the state assistance layered on top of the federal §36B premium tax credit. The federal credit itself *is* modelled (`tax-data/aca`, `aca-premium-tax-credit`), so what is missing here is only the state subsidy (P3-P7b); no subsidy figure exists on either the federal or the state return.',
   'California AMT — the state alternative minimum tax (RTC §17062) is not computed, so the state figure is the regular tax plus the Behavioral Health Services Tax, less the exemption credits.',
 ] as const;
 
@@ -856,6 +883,40 @@ function resolveIrmaaLookback(input: TaxAnalyticsInput): {
 }
 
 /**
+ * The ACA cliff block for one settled credit, derived from the coverage year's own table.
+ *
+ * The threshold is the table's `eligibility.maxFplPercent` applied to the poverty line the credit
+ * used — not a hard-coded 400 %. IRC §36B(i) suspends the 400 % ceiling for tax years 2021–2025, so
+ * the 2024 and 2025 rows carry `maxFplPercent: null` and those years report a `null` threshold and a
+ * `null` headroom: there is no cliff to cross, and 4 × the FPL would name one the law does not have.
+ *
+ * It reads the table that *priced* the credit (`resolvedYear`), not the return's tax year, because a
+ * coverage year past the last vendored row is priced from the nearest prior row; that year is
+ * reported alongside, so no consumer has to infer it.
+ *
+ * Exported because the suspension cannot be exercised through `analyzeTaxYear`: the engine has no
+ * federal ruleset before 2026 (`getRules` throws), so no ARPA coverage year can be settled today.
+ */
+export function acaCliffFor(aca: AcaPremiumTaxCreditResult): AcaCliffReported {
+  const { maxFplPercent } = getAcaTable(aca.resolvedYear).eligibility.values;
+  const cliffThreshold = maxFplPercent === null ? null : aca.povertyLine * (maxFplPercent / 100);
+
+  return {
+    supported: true,
+    credit: aca.credit,
+    resolvedYear: aca.resolvedYear,
+    householdIncome: aca.householdIncome,
+    povertyLine: aca.povertyLine,
+    fplPercent: aca.fplPercent,
+    applicablePercentage: aca.applicablePercentage,
+    requiredContribution: aca.requiredContribution,
+    slcspPremium: aca.slcspPremium,
+    cliffThreshold,
+    headroom: cliffThreshold === null ? null : Math.max(0, cliffThreshold - aca.householdIncome),
+  };
+}
+
+/**
  * Answers the P3-P6 questions for one settled year.
  *
  * @example
@@ -916,6 +977,7 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
     inflationRatePercent: input.inflationRatePercent ?? 0,
   });
   const lookback = resolveIrmaaLookback(input);
+  const acaCliff = input.taxes.aca === undefined ? undefined : acaCliffFor(input.taxes.aca);
 
   return {
     taxYear: input.taxYear,
@@ -978,29 +1040,15 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
         projected: projectedIrmaa,
         ...lookback,
       },
-      aca: input.taxes.aca
-        ? {
-            supported: true,
-            credit: input.taxes.aca.credit,
-            householdIncome: input.taxes.aca.householdIncome,
-            povertyLine: input.taxes.aca.povertyLine,
-            fplPercent: input.taxes.aca.fplPercent,
-            applicablePercentage: input.taxes.aca.applicablePercentage,
-            requiredContribution: input.taxes.aca.requiredContribution,
-            slcspPremium: input.taxes.aca.slcspPremium,
-            cliffThreshold: input.taxes.aca.povertyLine * 4,
-            headroom:
-              input.taxes.aca.fplPercent <= 400 ? Math.max(0, input.taxes.aca.povertyLine * 4 - input.taxes.aca.householdIncome) : 0,
-          }
-        : {
-            supported: false,
-            prerequisites: [
-              'the marketplace second-lowest-cost silver premium (SLCSP) for the coverage year — a plan input that does not exist yet',
-              'the federal poverty line for the household size — the simulation result carries no household size',
-              'the applicable-percentage table for the coverage year — no 2026 schedule is vendored, so `getAcaTable` refuses the year',
-              'whether the enhanced subsidies are in force, which decides whether the 400% FPL cliff exists at all',
-            ],
-          },
+      aca: acaCliff ?? {
+        supported: false,
+        prerequisites: [
+          'the plan opting in — `taxSettings.aca.optIn`, which no year sets on its own, so a plan without it has no credit to report',
+          'the marketplace second-lowest-cost silver premium (SLCSP) for the coverage year — the optional plan input `taxSettings.aca.slcsp`, which must be greater than zero',
+          'the household size for the coverage year — optional, `taxSettings.aca.householdSize`, defaulting to 2 on a joint return and 1 otherwise',
+          'whether the enhanced subsidies are in force, which decides whether the 400% FPL cliff exists at all — the vendored tables answer that for coverage years 2024–2027',
+        ],
+      },
     },
     jurisdictions: {
       federal: { supported: true, totalTaxLiability: sumLines(baseline.lines.filter((line) => line.jurisdiction === 'federal')) },

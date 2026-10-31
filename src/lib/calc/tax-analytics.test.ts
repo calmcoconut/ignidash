@@ -25,12 +25,14 @@ import { createZeroAmtData, createZeroDeductionData, createZeroIrmaaData, create
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
 import { parseISODateString } from './clock';
+import type { AcaPremiumTaxCreditResult } from './aca-premium-tax-credit';
 import { computeSelfEmploymentTaxes, computeWagePayrollTaxes } from './payroll-taxes';
 import { simulate } from './simulate';
 import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import {
   analyzeSimulationTaxYear,
   analyzeTaxYear,
+  acaCliffFor,
   decomposeNextDollar,
   irmaaCliff,
   type MarginalIncomeType,
@@ -568,38 +570,110 @@ describe('cliffs', () => {
     expect(analytics.cliffs.additionalMedicare.costOfCrossing).toBeCloseTo(0.009);
   });
 
-  it('marks the ACA cliff as not computed, with the reason', () => {
+  it('reports the ACA prerequisites, not a number, when the plan has not opted in', () => {
     const analytics = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, magi: 76100 }));
 
     expect(analytics.cliffs.aca.supported).toBe(false);
     if (analytics.cliffs.aca.supported) return;
     expect(analytics.cliffs.aca.prerequisites).toHaveLength(4);
     expect(analytics.cliffs.aca.prerequisites.join(' ')).toMatch(/SLCSP/);
+    // The prerequisite is the plan's own opt-in, not a missing table: `tax-data/aca` ships coverage
+    // years 2024–2027 and the engine prices the credit when `taxSettings.aca` asks for it.
+    expect(analytics.cliffs.aca.prerequisites.join(' ')).toMatch(/opt/i);
+    expect(analytics.cliffs.aca.prerequisites.join(' ')).not.toMatch(/no 2026 schedule|refuses the year|does not exist yet/);
     expect(analytics.jurisdictions.federal.supported).toBe(true);
   });
 
   it('reports the ACA cliff and credit when ACA modeling is opted in', () => {
+    // Coverage year 2026 → the 2025 guidelines: one person = $15,650, so 200 % = $31,300 and the
+    // 400 % cliff = $62,600. At 200 % the 2026 table's share is 6.60 % → contribution $2,065.80.
     const acaResult = {
       eligible: true,
-      householdIncome: 31920,
-      povertyLine: 15960,
+      resolvedYear: 2026,
+      householdIncome: 31300,
+      povertyLine: 15650,
       fplPercent: 200,
       applicablePercentage: 0.066,
-      requiredContribution: 2106.72,
+      requiredContribution: 2065.8,
       slcspPremium: 8000,
-      creditBeforePremiumCap: 5893.28,
-      credit: 5893.28,
+      creditBeforePremiumCap: 5934.2,
+      credit: 5934.2,
       cappedByActualPremium: false,
     };
-    const input = makeInput({ taxableOrdinary: 31920 });
+    const input = makeInput({ taxableOrdinary: 31300 });
     input.taxes.aca = acaResult;
     const analytics = analyzeTaxYear(input);
 
     expect(analytics.cliffs.aca.supported).toBe(true);
     if (!analytics.cliffs.aca.supported) return;
-    expect(analytics.cliffs.aca.credit).toBeCloseTo(5893.28, 2);
+    expect(analytics.cliffs.aca.credit).toBeCloseTo(5934.2, 2);
+    expect(analytics.cliffs.aca.cliffThreshold).toBe(62600);
+    expect(analytics.cliffs.aca.headroom).toBeCloseTo(62600 - 31300, 2);
+    // The coverage year has a table of its own, so the law that priced the credit is its own year.
+    expect(analytics.cliffs.aca.resolvedYear).toBe(2026);
+  });
+
+  it('reports no ACA cliff at all for an ARPA coverage year, because §36B(i) suspends it', () => {
+    // Coverage year 2025 → the 2024 guidelines: one person = $15,060. The enhanced schedule is in
+    // force and §36B(i) suspends the 400 % ceiling, so the row's `eligibility.maxFplPercent` is `null`:
+    // there is no threshold to cross and no headroom to report. Reporting 4 × 15,060 = $60,240 would
+    // invent a cliff the law does not have in that year — a household above 400 % of the FPL still gets
+    // a credit (see the 2025 cases in `aca-premium-tax-credit.test.ts`).
+    //
+    // Exercised at the derivation rather than through `analyzeTaxYear`: the engine has no federal
+    // ruleset before 2026 (`getRules` throws), so no pre-2026 return can be settled to feed it.
+    const acaResult: AcaPremiumTaxCreditResult = {
+      eligible: true,
+      resolvedYear: 2025,
+      householdIncome: 30120, // 200 % of $15,060
+      povertyLine: 15060,
+      fplPercent: 200,
+      applicablePercentage: 0.02,
+      requiredContribution: 602.4, // 0.02 × 30,120
+      slcspPremium: 8000,
+      creditBeforePremiumCap: 7397.6,
+      credit: 7397.6, // 8,000 − 602.40
+      cappedByActualPremium: false,
+    };
+
+    const cliff = acaCliffFor(acaResult);
+    expect(cliff.resolvedYear).toBe(2025);
+    expect(cliff.cliffThreshold).toBeNull();
+    expect(cliff.headroom).toBeNull();
+    // A suspended cliff is not a missing credit: the credit is still reported.
+    expect(cliff.credit).toBeCloseTo(7397.6, 2);
+    expect(cliff.fplPercent).toBeCloseTo(200, 6);
+
+    // The same shape for 2024, the other ARPA year: 4 × $14,580 = $58,320 is not a threshold there.
+    expect(acaCliffFor({ ...acaResult, resolvedYear: 2024, povertyLine: 14580 }).cliffThreshold).toBeNull();
+  });
+
+  it('discloses the year whose law priced the credit when the coverage year ran past the last table', () => {
+    // A 2029 return: `getAcaTable` resolves the nearest prior row (2027), whose one-person poverty line
+    // is the 2026 guideline ($15,960) — so the cliff is 4 × 15,960 = $63,840 and the disclosure says
+    // 2027 priced it, not law this module does not have for 2029.
+    const acaResult = {
+      eligible: true,
+      resolvedYear: 2027,
+      householdIncome: 63840,
+      povertyLine: 15960,
+      fplPercent: 400,
+      applicablePercentage: 0.1022,
+      requiredContribution: 6524.448, // 0.1022 × 63,840
+      slcspPremium: 9000,
+      creditBeforePremiumCap: 2475.552,
+      credit: 2475.552, // 9,000 − 6,524.448
+      cappedByActualPremium: false,
+    };
+    const input = makeInput({ taxableOrdinary: 40000, taxYear: 2029 });
+    input.taxes.aca = acaResult;
+    const analytics = analyzeTaxYear(input);
+
+    expect(analytics.cliffs.aca.supported).toBe(true);
+    if (!analytics.cliffs.aca.supported) return;
+    expect(analytics.cliffs.aca.resolvedYear).toBe(2027);
     expect(analytics.cliffs.aca.cliffThreshold).toBe(63840);
-    expect(analytics.cliffs.aca.headroom).toBeCloseTo(63840 - 31920, 2);
+    expect(analytics.cliffs.aca.headroom).toBe(0); // income is already at the cliff
   });
 
   it('reports the California return the engine settled, rather than calling it pending', () => {
@@ -627,6 +701,10 @@ describe('cliffs', () => {
     // What the analytics still cannot answer about the state is named, and it is not "the return".
     const notModelled = analytics.jurisdictions.california.notModelled.join(' ');
     expect(notModelled).toMatch(/Covered California/);
+    // Only the *state* subsidy is missing. The federal §36B credit is computed, so an entry that calls
+    // the credit unmodelled would tell the agent no ACA number exists on a return that carries one.
+    expect(notModelled).toMatch(/federal credit itself \*is\* modelled/);
+    expect(notModelled).not.toMatch(/premium tax credit, which is not modelled/i);
     expect(notModelled).toMatch(/California AMT/);
     expect(notModelled).not.toMatch(/HSA non-conformity/);
     // The state return is no longer on the global "cannot answer" list.

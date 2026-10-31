@@ -23,12 +23,16 @@
  * presents the number.
  *
  * `SLCSP` is an input, not a setting: the plan does not know what a silver plan costs in the
- * household's rating area, and inventing a premium would be worse than requiring one. The wiring
- * item supplies it; nothing here reads a plan field, a clock or the network.
+ * household's rating area, and inventing a premium would be worse than requiring one. The caller
+ * supplies it — `TaxProcessor.process` reads it from `taxSettings.aca` — and nothing here reads a
+ * plan field, a clock or the network.
  *
- * Out of scope here (and stated for whoever wires it): Covered California's state subsidies — the
- * federal credit is all that is modelled, and the UI must say so — plus the opt-in flag, the
- * `TaxesData` line, and every UI surface.
+ * The wiring lives elsewhere, and it has shipped: the opt-in flag and the SLCSP / household-size /
+ * live-premium inputs are plan fields (`taxSettings.aca`), the settled return carries this result as
+ * `TaxesData.aca` and folds the credit into `totalTaxesRefund`/`totalTaxesDue` (it is refundable, so
+ * it is not a liability line), and the tax-settings drawer renders the controls. What is still not
+ * modelled — and must be said wherever the credit is shown — is Covered California's state subsidy
+ * on top of the federal credit.
  */
 
 import {
@@ -56,6 +60,13 @@ export interface AcaPremiumTaxCreditInputs {
 /** The yearly credit, with the intermediate figures a table or a tool needs to show its work. */
 export interface AcaPremiumTaxCreditResult {
   readonly eligible: boolean;
+  /**
+   * The coverage year whose law priced this result. Equal to the requested tax year whenever the
+   * module has that year's table, and older than it when the request ran past the last vendored
+   * row — `getAcaTable` resolves the nearest prior year, and this field is how a consumer discloses
+   * that instead of implying later law applies (see `cliffs.aca.resolvedYear`).
+   */
+  readonly resolvedYear: number;
   readonly householdIncome: number;
   readonly povertyLine: number;
   readonly fplPercent: number;
@@ -102,8 +113,8 @@ export function applicablePercentageAt(bands: readonly AcaApplicablePercentageBa
  *
  * @param inputs - Income, household size, year, and the two premiums.
  * @param ruleset - Test-only override of the year table (the same escape hatch `TaxProcessor` has).
- *   Production callers resolve through `getAcaTable(inputs.taxYear)`, which throws for a year with
- *   no vendored table rather than borrowing a neighbour's.
+ *   Production callers resolve through `getAcaTable(inputs.taxYear)`, which falls back to the
+ *   nearest prior coverage year and reports that year back as `resolvedYear`.
  */
 export function calculatePremiumTaxCredit(inputs: AcaPremiumTaxCreditInputs, ruleset?: AcaYearTable): AcaPremiumTaxCreditResult {
   const table = ruleset ?? getAcaTable(inputs.taxYear);
@@ -125,6 +136,7 @@ export function calculatePremiumTaxCredit(inputs: AcaPremiumTaxCreditInputs, rul
 
   return {
     eligible,
+    resolvedYear: table.year,
     householdIncome,
     povertyLine,
     fplPercent,
