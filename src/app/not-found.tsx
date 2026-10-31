@@ -18,12 +18,6 @@ export default function NotFound() {
           >
             Go back home
           </Link>
-          <a
-            href="mailto:joe@schelske.dev?subject=Support Request&body=Hello, I need help with..."
-            className="text-sm font-semibold text-stone-900 dark:text-white"
-          >
-            Contact support <span aria-hidden="true">&rarr;</span>
-          </a>
         </div>
       </div>
     </main>

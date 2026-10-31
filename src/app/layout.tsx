@@ -25,13 +25,11 @@ const geist = Geist({
 const siteConfig = {
   name: 'Ignidash',
   description: 'Plan your path to Financial Independence and Early Retirement with AI-powered insights and comprehensive simulations.',
-  url: 'https://www.ignidash.com',
-  ogImage: 'https://www.ignidash.com/og-image.png',
-  author: {
-    name: 'Joe Schelske',
-    url: 'https://www.linkedin.com/in/scheljos/',
-  },
+  ogImage: '/og-image.webp',
 };
+
+/** Absolute base for metadata URLs. A self-hosted deployment sets SITE_URL; localhost otherwise. */
+const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
 
 export const metadata: Metadata = {
   title: {
@@ -39,18 +37,15 @@ export const metadata: Metadata = {
     template: `%s | ${siteConfig.name}`,
   },
   description: siteConfig.description,
-  authors: [{ name: siteConfig.author.name, url: siteConfig.author.url }],
-  creator: siteConfig.author.name,
   publisher: siteConfig.name,
   manifest: '/site.webmanifest',
-  metadataBase: new URL(siteConfig.url),
+  metadataBase: new URL(siteUrl),
   alternates: {
     canonical: '/',
   },
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: siteConfig.url,
     siteName: siteConfig.name,
     title: `${siteConfig.name} - AI-Powered FIRE Calculator`,
     description: siteConfig.description,
@@ -68,7 +63,6 @@ export const metadata: Metadata = {
     title: `${siteConfig.name} - AI-Powered FIRE Calculator`,
     description: siteConfig.description,
     images: [siteConfig.ogImage],
-    creator: '@schelskedevco',
   },
   robots: {
     index: true,
@@ -83,9 +77,6 @@ export const metadata: Metadata = {
   },
   applicationName: siteConfig.name,
   category: 'personal finance',
-  verification: {
-    google: 'XGNdzog5t00jFc67gLOj-3wxBzTUXPos2gRlAj7rFgI',
-  },
   formatDetection: {
     email: false,
     address: false,
@@ -107,26 +98,11 @@ const jsonLd = {
   '@context': 'https://schema.org',
   '@graph': [
     {
-      '@type': 'Organization',
-      '@id': 'https://www.ignidash.com/#organization',
-      name: 'Ignidash',
-      url: 'https://www.ignidash.com',
-      logo: 'https://www.ignidash.com/logo.svg',
-      founder: { '@type': 'Person', name: 'Joe Schelske', url: 'https://www.linkedin.com/in/scheljos/' },
-      sameAs: ['https://x.com/schelskedevco'],
-    },
-    {
       '@type': 'WebApplication',
-      '@id': 'https://www.ignidash.com/#application',
       name: 'Ignidash',
       description: 'Plan your path to Financial Independence and Early Retirement with AI-powered insights and comprehensive simulations.',
-      url: 'https://www.ignidash.com',
       applicationCategory: 'FinanceApplication',
       operatingSystem: 'Web',
-      offers: [
-        { '@type': 'Offer', name: 'Starter', price: '0', priceCurrency: 'USD' },
-        { '@type': 'Offer', name: 'Pro', price: '12', priceCurrency: 'USD' },
-      ],
       featureList: ['Monte Carlo simulations', 'Historical backtesting', 'Tax estimation', 'AI-powered insights', 'AI chat'],
     },
   ],
