@@ -57,7 +57,7 @@ prompt tells the agent to quote `jurisdictions.california.reported`, but no case
 state-only lever. Covered California subsidies and California AMT are not modelled, which
 `jurisdictions.california.notModelled` says on every run.
 
-- **Roth conversions, SEPP/72(t), QCDs, five-year rules, qualified-medical HSA withdrawals.** Not
+- **SEPP/72(t), QCDs, qualified-medical HSA withdrawals.** Not
   modelled as transactions.
 - **ACA premium tax credit and its cliff.** `cliffs.aca` returns `supported: false` with its
   prerequisites, so a fixture could only test the refusal — never quote an ACA number.
@@ -65,8 +65,10 @@ state-only lever. Covered California subsidies and California AMT are not modell
 
 Not on this list, because the engine computes them: **itemized deductions** (the four entered lines
 under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), **the §164 SALT cap with
-its MAGI phase-down**, **AMT**, **IRMAA**, and **pro-rata IRA basis on a withdrawal** — a traditional
-IRA carries `nondeductibleBasis`, and Form 8606's fraction is what decides the tax-free part. An answer that calls any of those unmodelled is wrong,
+its MAGI phase-down**, **AMT**, **IRMAA**, **Roth conversions and ladders** (via `conversions` with
+five-year clocks and Form 8606 pro-rata basis recovery), and **pro-rata IRA basis on a withdrawal** — a
+traditional IRA carries `nondeductibleBasis`, and Form 8606's fraction is what decides the tax-free part.
+An answer that calls any of those unmodelled is wrong,
 and `refused-patches` must not be scored as a pass for one. What the analytics still cannot do is the
 _marginal_ effect of an itemized deduction — `notComputed` names that, the AMT credit beyond the
 simplified §53 limit, and the non-income-related Part B and Part D premiums — but the deduction

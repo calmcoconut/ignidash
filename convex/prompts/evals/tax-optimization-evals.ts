@@ -14,16 +14,15 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  * Deliberately **not** covered:
  * - **California state-tax planning.** The state return is computed (P3-P8) and reported, but no case
  *   turns on it: there is no state-specific lever, and Covered California subsidies and CA AMT are not modelled.
- * - **Roth conversions, SEPP, QCDs, ACA credits, Social Security claiming.** The skill may be
+ * - **SEPP, QCDs, ACA credits, Social Security claiming.** The skill may be
  *   *asked* about these; the correct behaviour is to say the lever is not modelled, which is what the
  *   refused-patch check looks at.
  * - **Not on that list: the levers the engine does model.** Itemized deductions (the four entered
  *   lines under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), the §164 SALT
- *   cap with its MAGI phase-down, AMT and IRMAA are computed and reported, so refusing one of them
- *   is the false answer now. **Pro-rata IRA basis is on that list too** (R3): a traditional IRA
- *   carries a `nondeductibleBasis` field, Form 8606 apportions it across the aggregate of a return's
- *   IRAs, and the tax-free share of a withdrawal is what the engine computes. A conversion dollar is
- *   still fully taxable, which is why conversions stay on the list above. What is still missing about the deductions is the *marginal* effect
+ *   cap with its MAGI phase-down, AMT, IRMAA, Roth conversions (with fixed amounts or bracket-filling,
+ *   five-year clocks, and Form 8606 pro-rata basis recovery through `conversions`), and pro-rata IRA
+ *   basis on withdrawals through `nondeductibleBasis` are computed and reported, so refusing one of them
+ *   is the false answer now. What is still missing about the deductions is the *marginal* effect
  *   (`notComputed` names it), not the deduction; and of the AMT and Medicare machinery only the
  *   credit beyond §53 and the non-income-related Part B and D premiums remain unmodelled. ACA is
  *   genuinely absent — `cliffs.aca.supported` is `false` — so it stays on the list above.
@@ -562,7 +561,7 @@ export const TAX_OPTIMIZATION_EVAL_CHECKS: readonly EvalCheck[] = [
   {
     id: 'refused-patches',
     property:
-      'Asking for a lever the engine does not model (for example a Roth conversion) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, and pro-rata IRA basis on a withdrawal through `nondeductibleBasis` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
+      'Asking for a lever the engine does not model (for example SEPP, QCDs, or ACA credits) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, Roth conversions through `conversions`, and pro-rata IRA basis on a withdrawal through `nondeductibleBasis` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
   },
   {
     id: 'no-writes',

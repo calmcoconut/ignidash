@@ -38,6 +38,8 @@ interface ToolResult {
   error?: string;
   issues?: Array<{ path: string; message: string }>;
   variantId?: string;
+  patchApplied?: boolean;
+  lifetimeTaxes?: { total: number };
   finalPortfolioValue?: number;
   retirementAge?: number | null;
   perYearTaxes?: Array<{ year: number }>;
@@ -46,7 +48,7 @@ interface ToolResult {
   seed?: number;
   metrics?: Array<{ id: string; delta: number | null }>;
   yearly?: Array<{ delta: number }>;
-  plan?: { asOf: string; seed: number; counts: { accounts: number } };
+  plan?: { asOf: string; seed: number; counts: { accounts: number; conversions?: number } };
   baseline?: { finalPortfolioValue: number };
 }
 
@@ -208,10 +210,38 @@ describe('chat tools', () => {
     expect(summary.plan?.asOf).toBe(AS_OF);
     expect(summary.plan?.seed).toBe(TOOL_SEED);
     expect(summary.plan?.counts.accounts ?? 0).toBeGreaterThan(0);
+    expect(summary.plan?.counts.conversions).toBe(0);
     expect(typeof summary.baseline?.finalPortfolioValue).toBe('number');
 
     const plan = await t.run(async (ctx) => ctx.db.get(planId));
     expect(plan?.name).toBe('Tool Plan');
+  });
+
+  it('allows patching conversions in simulateVariant', async () => {
+    const t = convexTest(schema, modules);
+    const toolkit = await createToolkit(t, await insertPlan(t));
+
+    const result = parse(
+      toolkit.execute('simulateVariant', {
+        variantId: 'conversion-ladder',
+        planPatch: {
+          conversions: [
+            {
+              id: 'c1',
+              fromAccountId: 'account-1',
+              toAccountId: 'account-2',
+              year: 2026,
+              fillToBracket: { targetBracketRate: 0.22, jurisdiction: 'federal' },
+            },
+          ],
+        },
+      })
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.patchApplied).toBe(true);
+    expect(result.variantId).toBe('conversion-ladder');
+    expect(typeof result.lifetimeTaxes?.total).toBe('number');
   });
 
   it('exposes exactly the four tools the plan specifies', () => {

@@ -334,7 +334,7 @@ describe('tax-optimization eval set: what it says the engine cannot compute', ()
 
     // A reviewer reads this property to score the transcript: it has to say that a refusal is
     // wrong for the levers the engine computes, or the old answer keeps scoring as a pass.
-    expect(check.property).toContain('Roth conversion');
+    expect(check.property).toContain('Roth conversions through `conversions`');
     expect(check.property).toContain('is never such a refusal');
     expect(check.property).toContain('`taxSettings.itemizedDeductions`');
     expect(check.property).toContain('`nondeductibleBasis`');

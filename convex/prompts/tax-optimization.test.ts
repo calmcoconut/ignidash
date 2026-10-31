@@ -129,8 +129,10 @@ describe('tax-optimization prompt: what the engine does not model', () => {
     expect(markdown).toContain('**IRMAA is modelled**');
     expect(markdown).toContain('**ACA premium credits are not modelled**');
     expect(markdown).toContain('never report an ACA number');
-    // A conversion still cannot be run; only its next dollar can be priced.
-    expect(markdown).toContain('**Roth conversions are not modelled as a transaction.**');
+    // Roth conversions and ladders are modelled as transactions with five-year clocks and IRMAA lookahead.
+    expect(markdown).toContain('**Roth conversions and the Roth ladder are modelled as transactions.**');
+    expect(markdown).toContain('Five-year clocks');
+    expect(markdown).toContain('cliffs.irmaa.projected');
     expect(markdown).toContain('marginalRates.rothConversion');
   });
 });
@@ -165,9 +167,7 @@ describe('tax-optimization prompt: the analytics lever (§7-A3)', () => {
   });
 
   it('promises only the tools that exist', () => {
-    // The conversion-schedule lever is deferred until P3-P5 is wired; naming it here would send the
-    // agent looking for a tool it cannot call.
+    // getConversionSchedule is not a tool; conversions are patched through planPatch.
     expect(markdown).not.toContain('getConversionSchedule');
-    expect(markdown).not.toContain('conversion schedule');
   });
 });

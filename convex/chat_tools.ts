@@ -50,7 +50,7 @@ export const CHAT_TOOL_DEFINITIONS: ChatToolDefinition[] = [
     function: {
       name: 'getPlanSummary',
       description:
-        "Describe the baseline plan as the engine sees it: timeline, how many incomes/accounts/expenses/debts/assets it has, and the deterministic projection's headline numbers. Call this first to ground the rest of the turn.",
+        "Describe the baseline plan as the engine sees it: timeline, how many incomes/accounts/expenses/debts/assets/conversions it has, and the deterministic projection's headline numbers. Call this first to ground the rest of the turn.",
       parameters: { type: 'object', properties: {}, additionalProperties: false },
     },
   },
@@ -67,7 +67,7 @@ export const CHAT_TOOL_DEFINITIONS: ChatToolDefinition[] = [
           planPatch: {
             type: 'object',
             description:
-              'Deep partial of the plan inputs to override, e.g. {"timeline":{"retirementStrategy":{"type":"fixedAge","retirementAge":67}}}. simulationSettings cannot be patched: the tool pins the clock, mode and seed.',
+              'Deep partial of the plan inputs to override, e.g. {"timeline":{"retirementStrategy":{"type":"fixedAge","retirementAge":67}}} or {"conversions":[{"id":"c1","fromAccountId":"account-1","toAccountId":"account-2","year":2026,"fillToBracket":{"targetBracketRate":0.22,"jurisdiction":"federal"}}]}. simulationSettings cannot be patched: the tool pins the clock, mode and seed.',
           },
           includeMonteCarlo: {
             type: 'boolean',
@@ -300,6 +300,7 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
           debts: Object.keys(baseline.debts).length,
           physicalAssets: Object.keys(baseline.physicalAssets).length,
           contributionRules: Object.keys(baseline.contributionRules).length,
+          conversions: (baseline.conversions ?? []).length,
         },
       },
       baseline: {

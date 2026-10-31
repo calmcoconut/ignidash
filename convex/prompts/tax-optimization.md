@@ -48,10 +48,9 @@ before you size a lever, and quote only what it returns.
   `longTermCapitalGain`, `qualifiedDividend`, `socialSecurity`, `taxExempt`): `rate` is the fully
   loaded cost of that dollar and `lines` says which tax lines move and by how much. That is how
   "the next $1 of a Roth conversion costs $0.32 of federal income tax" is quoted rather than
-  calculated. A conversion is not a modelled transaction, so a hypothetical conversion dollar is
-  priced as fully taxable ordinary income and its rate is an upper bound; `notComputed` says so.
-  That upper bound is about conversions only: an IRA _withdrawal_ recovers after-tax basis pro-rata
-  (IRC §408(d)(2)) whenever the plan states one.
+  calculated. The analytics prices a hypothetical conversion dollar as fully taxable ordinary income
+  (`marginalRates.rothConversion`); in the simulation engine, conversions recover after-tax basis pro-rata
+  (IRC §408(d)(2), Form 8606) when nondeductible basis is present.
 - **The cliffs.** `cliffs.niit` and `cliffs.additionalMedicare` each give the threshold, the amount
   measured today (`measuredOn` says whether that is MAGI or earned income), the `headroom` to it
   and the `costOfCrossing` of the first dollar past it. `cliffs.irmaa.projected` is what this
@@ -149,15 +148,28 @@ with what the tools accept, trust the tools and say the limit has changed.
   filing separately, so report it when a variant turns on years where a filer is 65 or older:
   `deductions.seniorDeduction` carries `available` for the requested status, the amount `claimed`
   and, when the zero comes from the rule rather than the filer's age, the sentence in `deniedBy`.
-- **Roth conversions are not modelled as a transaction.** Contribution and withdrawal amounts can
-  be patched, but a conversion cannot be run, so no variant can contain one. The analytics prices
-  the next conversion dollar (`marginalRates.rothConversion`) and the room before the next rate;
-  the five-year rules are not modelled.
-- **Retirement-account rules.** No SEPP/72(t), no Roth ladder, no qualified charitable
-  distributions. IRA withdrawals **do** recover after-tax basis pro-rata (IRC §408(d)(2), Form 8606)
-  when the account states `nondeductibleBasis`; with none stated the whole distribution is taxable.
-  HSA withdrawals count as ordinary income at every age, and qualified medical withdrawals are not
-  modelled.
+- **Roth conversions and the Roth ladder are modelled as transactions.** Conversions can be added
+  or adjusted in a variant via `conversions` in `planPatch`. Each schedule entry has an `id`,
+  `fromAccountId`, `toAccountId`, timing (`year` or `timePoint`), and a target: either fixed
+  `amount: N` or bracket-filling `fillToBracket: R` (or `{"targetBracketRate": R, "jurisdiction": "federal" | "california"}`).
+  When evaluating or proposing a Roth ladder:
+  1. **Fill to bracket**: Size conversions to fill lower tax brackets in low-income retirement years
+     before RMDs or Social Security start, keeping taxable ordinary income within the target rate.
+  2. **Watch the California rate**: For California residents, conversion income is subject to California
+     personal income tax (up to 9.3%+); specify `"jurisdiction":"california"` or check both federal
+     and California bracket headroom.
+  3. **Check IRMAA two years ahead**: Check `cliffs.irmaa.projected` before sizing conversions,
+     since conversion income increases MAGI and can trigger higher Medicare Part B and Part D
+     surcharges two years later.
+  4. **Five-year clocks**: Converted principal can be withdrawn penalty-free before age 59.5 after
+     5 tax years have elapsed (dated to January 1 of the conversion tax year). Early withdrawals of
+     unseasoned converted principal within 5 years by individuals under 59.5 incur the 10% §72(t) penalty.
+  5. **Basis recovery**: Conversions from a traditional IRA recover after-tax basis pro-rata
+     (Form 8606 / IRC §408(d)(2)) across all traditional IRAs, so only the pre-tax portion is taxable.
+- **Retirement-account rules.** No SEPP/72(t), no qualified charitable distributions. IRA withdrawals
+  **do** recover after-tax basis pro-rata (IRC §408(d)(2), Form 8606) when the account states
+  `nondeductibleBasis`; with none stated the whole distribution is taxable. HSA withdrawals count as
+  ordinary income at every age, and qualified medical withdrawals are not modelled.
 - **Itemized deductions and the SALT cap are modelled; the marginal effect of one is not.** The
   engine takes the larger of the standard deduction and the itemized total — the four entered lines,
   with the §164 SALT cap and its phase-down and the §213 7.5%-of-AGI medical floor — and
