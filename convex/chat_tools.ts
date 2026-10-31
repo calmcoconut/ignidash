@@ -405,6 +405,7 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
       taxYear: analytics.taxYear,
       filingStatus: analytics.filingStatus,
       reported: analytics.reported,
+      deductions: analytics.deductions,
       bracketFill: analytics.bracketFill,
       conversionHeadroom: analytics.conversionHeadroom,
       marginalRates: analytics.marginalRates,

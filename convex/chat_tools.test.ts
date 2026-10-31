@@ -276,6 +276,9 @@ describe('getTaxAnalytics (§7-A3, P3-P6)', () => {
     expect(result.error).toBeUndefined();
     expect(result.year).toBe(year);
     expect(result.reported).toStrictEqual(expected.reported);
+    // The deduction block goes through unchanged, so the senior-deduction forfeiture is quotable
+    // from the tool result itself rather than inferred from the smaller total it causes.
+    expect(result.deductions).toStrictEqual(expected.deductions);
     expect(result.bracketFill).toStrictEqual(expected.bracketFill);
     expect(result.conversionHeadroom).toStrictEqual(expected.conversionHeadroom);
     expect(result.marginalRates).toStrictEqual(expected.marginalRates);

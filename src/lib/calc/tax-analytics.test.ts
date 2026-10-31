@@ -626,6 +626,101 @@ describe('cliffs', () => {
 });
 
 // ============================================================================
+// The deduction the return took, and the rule that can deny part of it
+// ============================================================================
+
+describe('deductions and the senior deduction', () => {
+  it('answers for every filing status the type allows, from the ruleset table', () => {
+    // `available` is the table's own flag, not a branch on one status's name: the loop is over the
+    // table's keys, so a status added to `FilingStatus` and to the table is answered here already.
+    const table = getRules(TAX_YEAR).tables.seniorDeduction.values;
+    const statuses = Object.keys(table.eligible) as FilingStatus[];
+
+    expect(statuses).toHaveLength(4);
+    for (const filingStatus of statuses) {
+      const analytics = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, filingStatus }));
+      expect(analytics.deductions.seniorDeduction.available).toBe(table.eligible[filingStatus]);
+      expect(analytics.deductions.seniorDeduction.resolvedYear).toBe(TAX_YEAR);
+      expect(analytics.deductions.seniorDeduction.inForce).toBe(true);
+      // A status the table allows carries no denial; one it refuses carries a quotable sentence.
+      expect(analytics.deductions.seniorDeduction.deniedBy === null).toBe(table.eligible[filingStatus]);
+    }
+  });
+
+  it('states that a separate return forfeits the senior deduction, instead of leaving it to a smaller total', () => {
+    const joint = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, filingStatus: 'marriedFilingJointly' }));
+    const separate = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, filingStatus: 'marriedFilingSeparately' }));
+
+    expect(joint.deductions.seniorDeduction).toMatchObject({ available: true, inForce: true, claimed: 0, deniedBy: null });
+    expect(separate.deductions.seniorDeduction).toMatchObject({ available: false, inForce: true, claimed: 0 });
+
+    // The reason names the rule and the status, so an agent can quote it rather than infer it.
+    const deniedBy = separate.deductions.seniorDeduction.deniedBy ?? '';
+    expect(deniedBy).toMatch(/^Denied by rule:/);
+    expect(deniedBy).toContain('marriedFilingSeparately');
+    expect(deniedBy).toMatch(/spouse/);
+    expect(deniedBy).toContain('claims nothing for it, not a smaller amount');
+    // Every other status in the same year is allowed, so the denial is about the status, not the year.
+    expect(joint.deductions.seniorDeduction.deniedBy).toBeNull();
+  });
+
+  it('copies what the settled return claimed, and reports the deduction it took', () => {
+    const base = makeInput({ taxableOrdinary: 60000 });
+    const analytics = analyzeTaxYear({
+      ...base,
+      taxes: {
+        ...base.taxes,
+        deduction: { ...base.taxes.deduction, type: 'itemized', seniorDeduction: 5700, total: 2857 + 5700 },
+      },
+    });
+
+    // 2026 single, age 67, MAGI $80,000: 6,000 − 6% × (80,000 − 75,000) = $5,700 (the engine's own
+    // hand check in `seniorDeductionFor`). The analytics copies it; it does not recompute it.
+    expect(analytics.deductions).toStrictEqual({
+      type: 'itemized',
+      total: 8557,
+      seniorDeduction: { available: true, inForce: true, claimed: 5700, deniedBy: null, resolvedYear: TAX_YEAR },
+    });
+
+    // A year the statute has left behind is denied by the sunset, not by the status.
+    const afterSunset = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, taxYear: 2029 }));
+    expect(afterSunset.deductions.seniorDeduction).toMatchObject({ available: true, inForce: false, claimed: 0 });
+    expect(afterSunset.deductions.seniorDeduction.deniedBy).toContain('does not exist for tax year 2029');
+    expect(afterSunset.deductions.seniorDeduction.deniedBy).toContain('2028');
+  });
+});
+
+describe('the analytics list of what it cannot answer', () => {
+  const notComputed = analyzeTaxYear(makeInput({ taxableOrdinary: 60000 })).notComputed.join(' ');
+
+  it('no longer calls itemized deductions and the SALT cap unmodelled', () => {
+    // P3-P3 shipped: the engine applies the four itemized lines with the §164 cap and the §213 floor.
+    // What is left is the marginal question — the analytics reads the settled deduction, so it cannot
+    // price a dollar that would move the cap's phase-down or the medical floor.
+    expect(notComputed).not.toMatch(/engine applies the standard deduction only/);
+    expect(notComputed).not.toMatch(/Itemized deductions and the SALT cap/);
+    expect(notComputed).toMatch(/marginal effect of an itemized deduction/);
+    expect(notComputed).toMatch(/SALT cap/);
+    expect(notComputed).toMatch(/7\.5%-of-AGI medical floor/);
+    expect(notComputed).toMatch(/\u00a7170 charitable AGI limit/);
+    expect(notComputed).toMatch(/\u00a7163\(h\)\(3\) mortgage-debt cap/);
+  });
+
+  it('keeps every limit that is still true, so the list does not quietly shrink', () => {
+    const analytics = analyzeTaxYear(makeInput({ taxableOrdinary: 60000 }));
+
+    expect(analytics.notComputed).toHaveLength(6);
+    expect(notComputed).toMatch(/ACA premium tax credit/);
+    expect(notComputed).toMatch(/Form 8801 Part III/);
+    expect(notComputed).toMatch(/Part B and Part D premiums/);
+    expect(notComputed).toMatch(/\u00a7223\(f\)\(4\) 20% HSA tax/);
+    expect(notComputed).toMatch(/Pro-rata basis on a Roth conversion/);
+    // California is settled by the engine, so it is not on this list either (P3-P8).
+    expect(notComputed).not.toMatch(/California income tax/);
+  });
+});
+
+// ============================================================================
 // Engine equivalence: the recomputation must agree with what the engine charged
 // ============================================================================
 

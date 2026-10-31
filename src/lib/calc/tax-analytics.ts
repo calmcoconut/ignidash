@@ -31,11 +31,24 @@
  * - **AMT credit machinery beyond the simplified §53 limit** — the engine charges the AMT top-up and
  *   applies a credit against it, but the deferral-item refinement of Form 8801 Part III is not
  *   modelled (Plan 3: "no full AMT credit machinery").
- * - **Itemized deductions and the SALT cap** — P3-P3. The engine applies the standard deduction
- *   only, so the analytics reads the taxable income it produced rather than assuming one.
+ * - **The marginal effect of an itemized deduction** — P3-P3 shipped, so the engine applies the four
+ *   entered itemized lines (the §164 SALT cap with its MAGI phase-down, the §213 7.5%-of-AGI medical
+ *   floor) and takes the larger of the two deductions. What is still missing is the *marginal*
+ *   answer: this module reads the deduction the year's return took rather than re-deriving it, so a
+ *   hypothetical dollar that would move the SALT phase-down or the medical floor is priced against a
+ *   fixed deduction. What the return did deduct is reported in `deductions`.
  * - **The §72(t) additional tax on an early withdrawal** — the engine charges it from the account's
  *   age and type, not from a marginal rate, so a "next dollar of tax-deferred withdrawal" here is
  *   the income tax only. The list is returned per year in `notComputed`, so a consumer can say so.
+ *
+ * ## The senior deduction (a rule, not an amount)
+ *
+ * §151(d)(5)(C) allows the deduction per qualified individual, and the ruleset declares which filing
+ * statuses may claim it at all (`tables.seniorDeduction.values.eligible`). The analytics reports
+ * that flag for the requested status as `deductions.seniorDeduction.available`, with `deniedBy`
+ * carrying the rule when the answer is no: on a separate return the deduction is forfeited outright,
+ * and a smaller total deduction is not the whole statement. The flag is read from the table, so a
+ * filing status added to the union is answered by the ruleset rather than by a branch here.
  *
  * ## The IRMAA table
  *
@@ -248,6 +261,30 @@ export interface MarginalRate {
   lines: Array<{ id: TaxLineId; label: string; jurisdiction: 'federal' | 'CA'; rate: number }>;
 }
 
+/**
+ * Whether the return may claim the §151(d)(5)(C) senior deduction at all, and why not when it may not.
+ *
+ * A zero `claimed` is not one statement: a filer under 65 claims nothing because of age, a return for
+ * a status the ruleset declares ineligible claims nothing because of the rule, and after the statute's
+ * sunset no return claims anything. This block separates those, so an agent does not have to infer a
+ * forfeiture from a total that came out smaller.
+ */
+export interface SeniorDeductionAvailability {
+  /** Whether this filing status may claim it at all — `tables.seniorDeduction.values.eligible`. */
+  available: boolean;
+  /** Whether the deduction exists in `taxYear` at all: the statute sunsets it after `lastTaxYear`. */
+  inForce: boolean;
+  /** What the year's settled return claimed — copied from `TaxesData.deduction.seniorDeduction`. */
+  claimed: number;
+  /**
+   * The rule that denies the deduction, as a sentence a consumer can quote; `null` when this status
+   * may claim it in this year. Present when `available` is false or the year is past the sunset.
+   */
+  deniedBy: string | null;
+  /** The ruleset year whose table decided `available` and `inForce`. */
+  resolvedYear: TaxYear;
+}
+
 export interface TaxAnalyticsInput {
   /** The year being settled; resolves the ruleset. */
   taxYear: TaxYear;
@@ -277,6 +314,18 @@ export interface TaxAnalytics {
   };
   /** What the ruleset produces for the same taxable income. Equal to `reported`; the test pins it. */
   baseline: TaxLine[];
+  /**
+   * The deduction the year's return took, read from the result rather than re-derived: which of the
+   * two won, what the return deducted in total, and whether the senior deduction was allowed to this
+   * filing status at all.
+   */
+  deductions: {
+    /** The larger of the two deductions, a tie going to the standard deduction. */
+    type: 'standard' | 'itemized';
+    /** `max(standardDeduction, itemized.total) + seniorDeduction`, summed across the returns filed. */
+    total: number;
+    seniorDeduction: SeniorDeductionAvailability;
+  };
   bracketFill: BracketFill;
   conversionHeadroom: ConversionHeadroom;
   marginalRates: Record<MarginalIncomeType, MarginalRate>;
@@ -658,7 +707,7 @@ const NOT_COMPUTED = [
   'ACA premium tax credit and its cliff — P3-P7b. Needs the SLCSP premium, the federal poverty line for the household size and the applicable-percentage table; none is in the result.',
   'The AMT credit beyond the simplified §53 limit — the deferral-item refinement of Form 8801 Part III is not modelled (P3-P7a).',
   'The non-income-related Medicare Part B and Part D premiums — only the IRMAA surcharge is a liability line.',
-  'Itemized deductions and the SALT cap — P3-P3. The engine applies the standard deduction only.',
+  'The marginal effect of an itemized deduction — the engine applies the four entered itemized lines (with the §164 SALT cap and its MAGI phase-down and the §213 7.5%-of-AGI medical floor) and takes the larger of the two deductions, but this analysis reads the deduction the settled return took and never re-derives it: a dollar that would move the SALT phase-down or the medical floor is priced against a fixed deduction. The entered lines also carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap — they are taken as entered.',
   'The §72(t) 10% additional tax and the §223(f)(4) 20% HSA tax on a marginal early withdrawal — the engine charges those from the account type and age, not from a marginal rate.',
   'Pro-rata basis on a Roth conversion (§408(d)(2)) — P3-P5. A conversion dollar here is fully taxable, so its rate is an upper bound.',
 ] as const;
@@ -675,6 +724,37 @@ const CALIFORNIA_NOT_MODELLED = [
   'California AMT — the state alternative minimum tax (RTC §17062) is not computed, so the state figure is the regular tax plus the Behavioral Health Services Tax, less the exemption credits.',
   'The HSA non-conformity — California does not recognise HSAs, so no California basis is tracked and no separate California tax on HSA earnings is charged; the state return prices the income lines the engine already recognises.',
 ] as const;
+
+/**
+ * The senior deduction as the ruleset declares it for one filing status (§151(d)(5)(C), P3-P1b).
+ *
+ * Both facts come from the table, never from a comparison against one status's name: `available` is
+ * `tables.seniorDeduction.values.eligible[filingStatus]` and `inForce` is the statute's sunset
+ * (`lastTaxYear`, which `TaxProcessor.seniorDeductionFor` also reads). `claimed` is the return's own
+ * figure, copied — so "the rule denies it" and "the year allows it but nothing was claimed" stay
+ * distinguishable in one object.
+ */
+function seniorDeductionAvailability(taxYear: TaxYear, filingStatus: FilingStatus, claimed: number): SeniorDeductionAvailability {
+  const rules = getRules(taxYear);
+  const table = rules.tables.seniorDeduction.values;
+  const available = table.eligible[filingStatus];
+  const inForce = taxYear <= table.lastTaxYear;
+
+  let deniedBy: string | null = null;
+  if (!inForce) {
+    deniedBy =
+      `Denied by rule: the §151(d)(5)(C) senior deduction does not exist for tax year ${taxYear} — the statute allows it ` +
+      `only through ${table.lastTaxYear}, so the return claims nothing for it.`;
+  } else if (!available) {
+    deniedBy =
+      `Denied by rule: the federal ${rules.year} ruleset declares the ${filingStatus} filing status ineligible for the ` +
+      `§151(d)(5)(C) senior deduction (\`eligible.${filingStatus}\` is false). The paragraph allows it per qualified ` +
+      'individual and denies it where the individual’s spouse also claims it, and the engine prices one return at a ' +
+      'time, so it cannot check the spouse’s: the return claims nothing for it, not a smaller amount.';
+  }
+
+  return { available, inForce, claimed, deniedBy, resolvedYear: rules.year };
+}
 
 /**
  * The IRMAA tier *charged* this year, derived from the MAGI of two years earlier.
@@ -776,6 +856,11 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
       totalTaxLiability: input.taxes.totalTaxLiability,
     },
     baseline: baseline.lines,
+    deductions: {
+      type: input.taxes.deduction.type,
+      total: input.taxes.deduction.total,
+      seniorDeduction: seniorDeductionAvailability(input.taxYear, input.filingStatus, input.taxes.deduction.seniorDeduction),
+    },
     bracketFill: {
       ordinary: { brackets: ordinaryRows, taxableIncome: model.taxableOrdinary, nextDollarRate: ordinaryRate },
       capitalGains: {

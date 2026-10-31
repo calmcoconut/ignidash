@@ -111,6 +111,17 @@ describe('tax-optimization prompt: what the engine does not model', () => {
     expect(markdown).not.toContain('senior-deduction gates use the primary');
   });
 
+  it('stops calling itemized deductions and the SALT cap unmodelled', () => {
+    // P3-P3 shipped: the engine takes the larger of the standard deduction and the itemized total,
+    // applying the §164 cap and the §213 floor. What remains unmodelled is the *marginal* effect, and
+    // the prompt has to say which — otherwise the agent refuses a deduction the plan can enter.
+    expect(markdown).not.toContain('**Itemized deductions and the SALT cap are not modelled.**');
+    expect(markdown).not.toContain('The standard deduction applies');
+    expect(markdown).toContain('**Itemized deductions and the SALT cap are modelled; the marginal effect of one is not.**');
+    expect(markdown).toContain('with the §164 SALT cap and its phase-down');
+    expect(markdown).toContain('priced against a fixed deduction');
+  });
+
   it('separates what the analytics answers from what it does not', () => {
     // The analytics reports IRMAA (the surcharge is a liability line) and cannot report ACA. A
     // prompt that lumped them together would make the agent refuse a cliff it has and quote one it
@@ -134,6 +145,17 @@ describe('tax-optimization prompt: the analytics lever (§7-A3)', () => {
     // Headroom is a taxable figure, not a gross withdrawal: grossing it up is the arithmetic the
     // hard rules forbid.
     expect(markdown).toContain('These are **taxable** amounts, not');
+  });
+
+  it('points at the tool field that states the senior-deduction forfeiture', () => {
+    // The forfeiture has to be quotable from a tool result, not inferred from a smaller total: the
+    // analytics reports the ruleset's `available` flag, the `claimed` amount and the rule in
+    // `deniedBy`, and the prompt names exactly those.
+    expect(markdown).toContain('**The deduction.**');
+    expect(markdown).toContain('`deductions.seniorDeduction`');
+    expect(markdown).toContain('`deniedBy`');
+    expect(markdown).toContain('never infer a');
+    expect(markdown).not.toContain('deductions are not modelled');
   });
 
   it('keeps the lever inside the stance', () => {
