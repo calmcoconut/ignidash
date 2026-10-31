@@ -10,13 +10,15 @@ Ignidash is an open-source personal financial planning app (AGPL-3.0). It runs M
 
 - **Frontend:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4
 - **Backend:** Convex (serverless DB + functions)
-- **Auth:** Better-Auth with Convex integration + Google OAuth
-- **Payments:** Stripe
-- **AI:** Azure OpenAI (streaming chat + insights)
+- **Auth:** Better-Auth with Convex integration — email/password only (Google OAuth was removed)
 - **State:** Zustand 5 (with Immer, persist, devtools)
 - **Forms:** React Hook Form + Zod 4 validation
 - **Charts:** Recharts 3
-- **Analytics:** PostHog
+
+No payments, analytics or hosted AI. This fork is self-hosted and LAN-only, and Stripe, PostHog,
+Vercel Analytics, Resend, Google OAuth, Azure OpenAI and Google Fonts were **deleted**, not
+feature-flagged. Do not add a vendor SDK without deciding whether this fork wants it. Onboarding,
+invariants and traps live in `AGENTS.md`.
 
 ## Commands
 
@@ -34,7 +36,27 @@ npm run test:once        # Vitest single run
 npm run test:once -- src/lib/calc/__tests__/taxes.test.ts  # Run single test file
 npm run test:coverage    # Coverage report
 npm run test:e2e         # Playwright e2e tests
+npm run bench            # Engine benchmarks
+
+# Schema and data
+npm run schema:plan        # Regenerate the versioned plan JSON schema
+npm run test:golden:update # Regenerate the frozen corpus (needs a note in golden/README.md)
+npm run headless:simulate  # Run the engine from the CLI
+
+# Self-hosting
+npm run selfhost         # Deploy to the self-hosted instance (snapshots first)
+npm run docker:build     # Build the single-container image
 ```
+
+### Test conventions
+
+- Node environment by default. DOM tests opt in per file with a leading `// @vitest-environment jsdom`;
+  do **not** change the global environment — the Convex suites rely on their own `edge-runtime` docblock.
+- Convex tests use the real `convex-test` harness.
+- A test that cannot fail is worse than no test: break the code, confirm the pin goes red, restore it.
+
+The golden corpus (`src/lib/calc/__tests__/golden/`) is the numerical net and is **frozen**. Any
+movement needs a per-fixture explanation in `golden/README.md`.
 
 ## Pre-commit Hooks
 
@@ -63,7 +85,7 @@ All server functions (queries, mutations, actions) live here. Key files:
 - `plans.ts`, `account.ts`, `income.ts`, `expense.ts`, `debt.ts` — CRUD for financial entities
 - `messages.ts`, `conversations.ts` — AI chat
 - `insights.ts` — AI-generated insights
-- `http.ts` — HTTP endpoints (Stripe webhooks)
+- `http.ts` — Convex HTTP router (no Stripe webhooks: billing was removed from this fork)
 - `utils/auth_utils.ts` — `getUserIdOrThrow(ctx)` for auth in every query/mutation
 - `utils/sys_prompt_utils.ts` — Dynamic AI system prompt from plan data
 - `validators/` — Input validators for Convex functions
@@ -79,6 +101,11 @@ The core financial simulator runs month-by-month loops producing yearly `Simulat
 - `returns-providers/` — Strategy pattern: `FixedReturnsProvider`, `StochasticReturnsProvider`, `LcgHistoricalBacktestReturnsProvider`
 - `data-extractors/` — Extract chart data, table data, key metrics from simulation results
 - `__tests__/` — Unit tests for the engine
+- `tax-data/` — Year-keyed tax rulesets with citations (`years/`, `states/CA/`, `salt-cap.ts`, `aca.ts`). Never invent a figure: the convention is to `throw` rather than borrow a neighbouring year.
+- `retirement-rules/` — Pro-rata §408(d)(2), the three SEPP methods, both Roth clocks, QCDs, with vendored §1.401(a)(9)-9 tables
+- `withdrawal-strategies/` — Ordered, VPW, fixed percentage, Guyton-Klinger behind `getOrder` / `getAnnualCap`
+- `milestones/` — Condition evaluator, dependency graph, latch (wired at the engine's month-start tick)
+- `historical-data/`, `data-analyzers/` — Backtest inputs and post-run analysis
 
 ### Web Workers (`src/lib/workers/`)
 
@@ -95,7 +122,7 @@ Single Zustand store (`useSimulatorStore`) with slices: `results`, `preferences`
 ### Data Flow Pattern
 
 1. Convex queries fetched via hooks in `src/hooks/use-convex-data.ts` (wraps `useQuery`)
-2. Data transformed from Convex documents → Zod types via `src/lib/utils/convex-to-zod-transformers.ts`
+2. Data transformed from Convex documents → Zod types via `src/lib/utils/data-transformers.ts`
 3. Zod-validated inputs fed into simulation engine
 4. Results extracted by data extractors into chart/table/metric data
 5. SWR used for derived data caching (multi-simulation analysis)
@@ -106,6 +133,20 @@ Single Zustand store (`useSimulatorStore`) with slices: `results`, `preferences`
 - `inputs/` — Per-domain form schemas (income, account, expense, etc.)
 - `finances/` — Financial object schemas
 - `tables/` — Table row schemas
+
+### Export / import (`src/lib/export/`)
+
+`plan-envelope.ts` owns the versioned envelope. **`EXPORT_SCHEMA_VERSION` is a single-writer
+resource**: one field-adding change at a time, and `npm run schema:plan` regenerates the matching
+JSON schema. Add the field, bump, state what absent means, and prove the upgrade with a test that
+fails if you remove it. History and rules: `AGENTS.md` §4.
+
+### Scripts (`scripts/`)
+
+- `selfhost.sh` — deploy; snapshots first and aborts if the snapshot fails
+- `backup.sh` / `restore.sh` — encrypted (`age`) backup, 30 nightly + 12 monthly, and a guarded restore
+- `headless-simulate.ts` — `npm run headless:simulate` (see `docs/HEADLESS.md`)
+- `generate-plan-json-schema.ts` — what `npm run schema:plan` invokes
 
 ### Hooks (`src/hooks/`)
 
@@ -125,7 +166,7 @@ Single Zustand store (`useSimulatorStore`) with slices: `results`, `preferences`
 
 ### Currency Formatting
 
-Centralized in `src/lib/config/currency.ts` and `src/lib/utils/format-currency.ts`:
+Centralized in `src/lib/utils/number-formatters.ts`:
 
 - `formatCurrency(amount, {cents?})` — Full display ($1,234,567)
 - `formatCompactCurrency(amount, digits)` — Compact ($1.5M, $200k)
