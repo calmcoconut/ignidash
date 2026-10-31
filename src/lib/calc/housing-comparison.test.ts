@@ -437,8 +437,10 @@ describe('the derived housing costs', () => {
   it('taxes both paths against the deflated §1411 base, which is what moved the totals', () => {
     const { owning, renting } = deriveHousingPlans(withNoEmbeddedGains(), { residence: datedResidence(), monthlyRent: 4000 });
     const runOf = (plan: typeof owning) => simulate(plan, { mode: 'fixedReturns', seed: SEED, asOf: AS_OF });
-    const taxesAt = (plan: typeof owning, calendarYear: string) => {
-      const run = runOf(plan);
+    // One run each: three lookups across two plans would otherwise simulate a 35-year plan twice.
+    const owningRun = runOf(owning);
+    const rentingRun = runOf(renting);
+    const taxesAt = (run: typeof owningRun, calendarYear: string) => {
       const index = run.result.data.findIndex((point) => point.date.startsWith(calendarYear));
       expect(index).toBeGreaterThan(-1);
       return run.result.data[index].taxes!;
@@ -446,14 +448,14 @@ describe('the derived housing costs', () => {
 
     // 2031: five rates years from the 2026 ruleset. 200,000 / 1.03^5 = 172,521.76, still above the
     // renter's MAGI, so nothing is subject yet and the deflation is invisible on both paths.
-    const at2031 = taxesAt(renting, '2031').niit;
+    const at2031 = taxesAt(rentingRun, '2031').niit;
     expect(at2031.threshold).toBeCloseTo(200_000 / 1.03 ** 5, 6);
     expect(at2031.incomeSubjectToNiit).toBe(0);
 
     // 2060: thirty-four years out. 200,000 / 1.03^34 = 73,208.98 has fallen below the renter's MAGI,
     // and by more than its investment income — so the whole amount is subject, and the charge is the
     // §1411 rate on it. The nominal base would leave most of it untaxed.
-    const taxes2060 = taxesAt(renting, '2060');
+    const taxes2060 = taxesAt(rentingRun, '2060');
     const at2060 = taxes2060.niit;
     const magi = taxes2060.incomeSources.adjustedGrossIncome;
     expect(at2060.threshold).toBeCloseTo(200_000 / 1.03 ** 34, 6);
@@ -466,7 +468,7 @@ describe('the derived housing costs', () => {
     expect(at2060.niitAmount).toBeCloseTo(at2060.incomeSubjectToNiit * 0.038, 6);
 
     // The owner's house is not investment income, so the same base never binds on that path.
-    expect(taxesAt(owning, '2060').niit.niitAmount).toBe(0);
+    expect(taxesAt(owningRun, '2060').niit.niitAmount).toBe(0);
   });
 
   it('charges the interim rent until a future purchase, then stops', () => {

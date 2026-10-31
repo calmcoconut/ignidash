@@ -27,6 +27,7 @@ import type { SimulationState } from './simulation-engine';
 import { cumulativeInflationIndex } from './time-binding';
 import {
   createSimulatorInputs,
+  createMockSimulationState,
   createEmptyIncomesData,
   createEmptyPhysicalAssetsData,
   createEmptyPortfolioData,
@@ -41,12 +42,7 @@ const INFLATION_PERCENT = 3;
 const DEFLATOR = cumulativeInflationIndex({ inflationRate: INFLATION_PERCENT }, SIM_YEAR - RULESET_YEAR);
 
 /** A retired 60-year-old with an empty portfolio: the same minimal state `taxes.test.ts` uses. */
-const createState = (): SimulationState => ({
-  time: { date: new Date(2025, 0, 1), age: 60, year: 2025, month: 1 },
-  portfolio: new Portfolio([]),
-  phase: { name: 'retirement' },
-  annualData: { expenses: [], debts: [], physicalAssets: [] },
-});
+const createState = (): SimulationState => createMockSimulationState(new Portfolio([]), 60);
 
 const processYear = ({ taxYear, inflationRatePercent }: { taxYear: number; inflationRatePercent: number }) =>
   new TaxProcessor(createState(), 'single', taxYear, undefined, { inflationRatePercent });

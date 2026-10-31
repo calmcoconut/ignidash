@@ -59,9 +59,7 @@
 
 import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
-import { cumulativeInflationIndex } from '../time-binding';
-
-import { tableValuesInRealDollars, type RealDollarContext } from './real-dollars';
+import { realDollarsIn } from './real-dollars';
 import type { TableMeta, TaxYear } from './types';
 
 /** One year's SALT cap: the amount, the MAGI phase-down, and the floor it cannot go below. */
@@ -209,14 +207,9 @@ export function saltCapFor(
   inflationRatePercent = 0
 ): { cap: number; phaseDown: number; resolvedYear: TaxYear } {
   const resolved = getSaltCap(year);
-  const context: RealDollarContext = {
-    rulesetYear: resolved.resolvedYear,
-    simYear: year,
-    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: inflationRatePercent }, years),
-  };
   // Every row is `fixed` (see the header), so a row older than the year being settled — the
   // 2030 row read by a 2035 return — is deflated for that many years too.
-  const values = tableValuesInRealDollars(resolved, context);
+  const values = realDollarsIn(resolved, { rulesetYear: resolved.resolvedYear, simYear: year, inflationRatePercent });
   const { phaseDownThreshold, phaseDownRate } = values;
   const amounts = saltCapAmountsFor(values, filingStatus);
 

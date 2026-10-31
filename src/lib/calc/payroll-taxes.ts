@@ -27,10 +27,8 @@ import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema
 
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { getCaliforniaSdi } from './tax-data/california-sdi';
-import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
+import { realDollarsIn } from './tax-data/real-dollars';
 import type { PayrollTaxRates, TaxYear } from './tax-data/types';
-import { cumulativeInflationIndex } from './time-binding';
-
 /** One year of payroll tax withheld from wages, split by line. */
 export interface WagePayrollTaxes {
   /** Employee OASDI share (6.2%), capped at the annual wage base. */
@@ -102,17 +100,13 @@ function payrollTablesFor(
   inflationRatePercent: number
 ): { rates: PayrollTaxRates; wageBase: number; additionalMedicareThreshold: Record<FilingStatus, number> } {
   const rules = getRules(taxYear);
-  const context: RealDollarContext = {
-    rulesetYear: rules.year,
-    simYear: taxYear,
-    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: inflationRatePercent }, years),
-  };
   const { socialSecurityWageBase, payrollTaxRates, additionalMedicareThreshold } = rules.tables;
+  const read = { rulesetYear: rules.year, simYear: taxYear, inflationRatePercent };
 
   return {
     rates: payrollTaxRates.values,
-    wageBase: tableValuesInRealDollars(socialSecurityWageBase, context),
-    additionalMedicareThreshold: tableValuesInRealDollars(additionalMedicareThreshold, context),
+    wageBase: realDollarsIn(socialSecurityWageBase, read),
+    additionalMedicareThreshold: realDollarsIn(additionalMedicareThreshold, read),
   };
 }
 

@@ -35,6 +35,8 @@
  * span is never negative.
  */
 
+import { cumulativeInflationIndex } from '../time-binding';
+
 import type { TableMeta, TaxYear } from './types';
 
 /**
@@ -61,6 +63,25 @@ export interface RealDollarContext {
   readonly simYear: TaxYear;
   /** `cumulativeInflationIndex(marketAssumptions, years)` — 1 today, 1.03 after a year at 3%. */
   readonly cumulativeInflationIndex: (years: number) => number;
+}
+
+/**
+ * The same read for callers that hold a plan's inflation rate rather than an index function.
+ *
+ * Every reader in the engine was building the identical five-line context from
+ * `(rulesetYear, simYear, inflationRatePercent)`. Naming it once gives "how a table is deflated"
+ * a single definition, and removes the one way those five lines could be got wrong — pairing a
+ * rate with the wrong span.
+ */
+export function realDollarsIn<TValues>(
+  table: TableMeta<TValues>,
+  read: { readonly rulesetYear: TaxYear; readonly simYear: TaxYear; readonly inflationRatePercent: number }
+): TValues {
+  return tableValuesInRealDollars(table, {
+    rulesetYear: read.rulesetYear,
+    simYear: read.simYear,
+    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: read.inflationRatePercent }, years),
+  });
 }
 
 /** The whole value is a dollar amount. See the `'$'` case in `DollarFieldPath`. */

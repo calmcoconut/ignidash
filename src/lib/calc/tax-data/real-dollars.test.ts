@@ -126,8 +126,9 @@ describe('real-dollar accessor', () => {
         source: 'test',
       };
 
-      // Not identity (the table is fixed and the year differs), but every value is a rate.
-      expect(tableValuesInRealDollars(table, atThreePercent(2026, 2057))).toEqual(values);
+      // By identity, not merely equal: with no dollar fields there is nothing to walk, so the same
+      // object comes back even though the table is `fixed` and the year differs.
+      expect(tableValuesInRealDollars(table, atThreePercent(2026, 2057))).toBe(values);
     });
 
     it('leaves a rate nested beside dollars alone (senior deduction)', () => {

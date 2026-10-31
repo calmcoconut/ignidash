@@ -14,10 +14,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createAccountData,
   createEmptyIncomesData,
   createEmptyPhysicalAssetsData,
   createEmptyPortfolioData,
   createEmptyReturnsData,
+  createMockSimulationState,
 } from './__tests__/test-utils';
 import type { AccountDataWithFlows } from './account';
 import { Portfolio } from './portfolio';
@@ -27,48 +29,18 @@ import { TaxProcessor } from './taxes';
 
 const RULESET_YEAR = 2026;
 
-const createState = (age = 60): SimulationState => ({
-  time: { date: new Date(2025, 0, 1), age, year: 2025, month: 1 },
-  portfolio: new Portfolio([]),
-  phase: { name: 'retirement' },
-  annualData: { expenses: [], debts: [], physicalAssets: [] },
-});
+const createState = (age = 60): SimulationState => createMockSimulationState(new Portfolio([]), age);
 
-/** One account's row in `perAccountData`, zeroed except for what the test states. */
-function accountRow({
-  id,
-  type,
-  balance,
-  withdrawn,
-}: {
-  id: string;
-  type: AccountDataWithFlows['type'];
-  balance: number;
-  withdrawn: number;
-}): AccountDataWithFlows {
-  const zero = { stocks: 0, bonds: 0, cash: 0 };
-
-  return {
-    id,
-    name: id,
-    type,
-    balance,
+/** One account's row in `perAccountData`, zeroed except for the withdrawal the test states. */
+const accountRow = (row: { id: string; type: AccountDataWithFlows['type']; balance: number; withdrawn: number }): AccountDataWithFlows =>
+  createAccountData({
+    id: row.id,
+    name: row.id,
+    type: row.type,
+    balance: row.balance,
     assetAllocation: { stocks: 0, bonds: 0, cash: 0 },
-    cumulativeContributions: zero,
-    cumulativeEmployerMatch: 0,
-    cumulativeWithdrawals: zero,
-    cumulativeRealizedGains: 0,
-    cumulativeEarningsWithdrawn: 0,
-    cumulativeRmds: 0,
-    contributions: zero,
-    employerMatch: 0,
-    withdrawals: zero,
-    realizedGains: 0,
-    earningsWithdrawn: 0,
-    rmds: 0,
-    ...(withdrawn === 0 ? {} : { withdrawals: { stocks: withdrawn, bonds: 0, cash: 0 } }),
-  };
-}
+    ...(row.withdrawn === 0 ? {} : { withdrawals: { stocks: row.withdrawn, bonds: 0, cash: 0 } }),
+  });
 
 function portfolioWith(rows: AccountDataWithFlows[]): PortfolioData {
   const empty = createEmptyPortfolioData();

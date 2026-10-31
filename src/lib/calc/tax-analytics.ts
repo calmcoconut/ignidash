@@ -73,11 +73,9 @@ import { computeSelfEmploymentTaxes, computeWagePayrollTaxes } from './payroll-t
 import type { SimulationDataPoint } from './simulation-engine';
 import { getRules } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
-import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
+import { realDollarsIn } from './tax-data/real-dollars';
 import type { CapitalGainsTaxBracket, ProgressiveBracket, TableMeta, TaxRuleset, TaxYear } from './tax-data/types';
 import type { StateTaxesData, TaxesData } from './taxes';
-import { cumulativeInflationIndex } from './time-binding';
-
 /**
  * A ruleset's table in the plan's today-dollars.
  *
@@ -86,12 +84,7 @@ import { cumulativeInflationIndex } from './time-binding';
  * so a headroom figure is measured against the amount the return actually used.
  */
 function realDollars<TValues>(table: TableMeta<TValues>, rules: TaxRuleset, taxYear: TaxYear, inflationRatePercent: number): TValues {
-  const context: RealDollarContext = {
-    rulesetYear: rules.year,
-    simYear: taxYear,
-    cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: inflationRatePercent }, years),
-  };
-  return tableValuesInRealDollars(table, context);
+  return realDollarsIn(table, { rulesetYear: rules.year, simYear: taxYear, inflationRatePercent });
 }
 
 // ============================================================================

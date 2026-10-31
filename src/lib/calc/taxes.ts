@@ -52,7 +52,7 @@ import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { prorateIraDistribution } from './retirement-rules/ira-basis';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { saltCapFor } from './tax-data/salt-cap';
-import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
+import { realDollarsIn } from './tax-data/real-dollars';
 import type {
   CapitalGainsTaxBracket,
   FederalIncomeTaxBracket,
@@ -61,8 +61,6 @@ import type {
   TableMeta,
   TaxYear,
 } from './tax-data/types';
-import { cumulativeInflationIndex } from './time-binding';
-
 export interface CapitalGainsTaxesData {
   taxableIncomeTaxedAsCapitalGains: number;
   capitalGainsTaxAmount: number;
@@ -887,12 +885,7 @@ export class TaxProcessor {
    * unchanged, a `fixed` one is deflated, and a rate is never touched.
    */
   private inRealDollars<TValues>(table: TableMeta<TValues>, rulesetYear: TaxYear = this.ruleset.year): TValues {
-    const context: RealDollarContext = {
-      rulesetYear,
-      simYear: this.taxYear,
-      cumulativeInflationIndex: (years) => cumulativeInflationIndex({ inflationRate: this.inflationRatePercent }, years),
-    };
-    return tableValuesInRealDollars(table, context);
+    return realDollarsIn(table, { rulesetYear, simYear: this.taxYear, inflationRatePercent: this.inflationRatePercent });
   }
 
   /**
