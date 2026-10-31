@@ -205,6 +205,18 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        it before and after so the strip cannot pass vacuously, and asserts the same plan *with* a
  *        basis runs to a different number — a bump whose field moves nothing should not exist.
  *
+ *   14 — R4 Roth conversions: optional plan-level `conversions`, a list of
+ *        `{ id, fromAccountId, toAccountId, year | timePoint, amount | fillToBracket }`.
+ *        A version 13 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `conversions` means **no conversions**: all accounts evolve via standard
+ *        contributions, growth, and withdrawals, exactly what every earlier build computed. A v13
+ *        plan therefore re-simulates to the numbers it had, and the golden corpus — whose plans state
+ *        no conversions — did not move. The importer preserves the absence rather than writing `[]`.
+ *
+ *        A v13 file is made by *deleting* the key. The v13 fixture in `plan-envelope.test.ts` counts
+ *        it before and after so the strip cannot pass vacuously.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -216,7 +228,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 13;
+export const EXPORT_SCHEMA_VERSION = 14;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

@@ -500,6 +500,7 @@ export class FinancialSimulationEngine {
     // state to carry into the next month — no boolean the engine could reset.
     const planMilestones: MilestoneInputs[] = this.inputs.milestones ?? [];
     let milestoneLatches: MilestoneLatchState[] = planMilestones.map(() => PENDING_MILESTONE_LATCH);
+    const executedConversionIds = new Set<string>();
 
     while (simulationState.time.date < simulationContext.endDate) {
       this.incrementSimulationTime(simulationState, startCalendarDate, simulationContext.startAge);
@@ -528,6 +529,30 @@ export class FinancialSimulationEngine {
       // Process RMDs at the start of each year before other transactions
       if (simulationState.time.age >= simulationContext.rmdAge && simulationState.time.month % 12 === 1)
         portfolioProcessor.processRequiredMinimumDistributions();
+
+      // Process conversions at month 1 of each year after RMDs
+      if (simulationState.time.month % 12 === 1 && this.inputs.conversions && this.inputs.conversions.length > 0) {
+        const currentYear = taxYearFor(startCalendarDate, simulationState.time.month);
+        const activeConversions = this.inputs.conversions.filter((conv) => {
+          if (executedConversionIds.has(conv.id)) return false;
+          if (conv.year !== undefined) return conv.year === currentYear;
+          if (conv.timePoint !== undefined) {
+            if (conv.timePoint.type === 'customDate') return conv.timePoint.year === currentYear;
+            if (conv.timePoint.type === 'customAge') return Math.floor(simulationState.time.age) === conv.timePoint.age;
+            if (conv.timePoint.type === 'atRetirement') return simulationState.phase?.name === 'retirement';
+            if (conv.timePoint.type === 'now') return simulationState.time.month === 1;
+          }
+          return false;
+        });
+
+        if (activeConversions.length > 0) {
+          const currentDate = formatISODate(monthStartAfter(startCalendarDate, simulationState.time.month));
+          portfolioProcessor.processConversions(activeConversions, currentDate);
+          for (const conv of activeConversions) {
+            executedConversionIds.add(conv.id);
+          }
+        }
+      }
 
       // Process one month of simulation
       const { inflationRate: monthlyInflationRate } = returnsProcessor.process();

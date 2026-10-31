@@ -31,6 +31,7 @@ import type { AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
 import type { LiabilityInputs } from '@/lib/schemas/finances/liability-form-schema';
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
 import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema';
+import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 
 // ============================================================================
@@ -235,6 +236,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
   // Absent stays absent rather than becoming an `undefined` key: "no milestones" is one value from
   // the document to the engine (see `milestonesFromConvex`).
   const milestones = milestonesFromConvex(plan.milestones);
+  const conversions = conversionsFromConvex(plan.conversions);
 
   return {
     timeline: timelineFromConvex(plan.timeline),
@@ -251,6 +253,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
     privacySettings: privacySettingsFromConvex(plan.privacySettings),
     simulationSettings: simulationSettingsFromConvex(plan.simulationSettings),
     ...(milestones === undefined ? {} : { milestones }),
+    ...(conversions === undefined ? {} : { conversions }),
   };
 }
 
@@ -277,6 +280,13 @@ export function glidePathFromConvex(glidePath: Doc<'plans'>['glidePath']): Glide
  */
 export function milestonesFromConvex(milestones: Doc<'plans'>['milestones']): MilestoneInputs[] | undefined {
   return milestones ? structuredClone(milestones) : undefined;
+}
+
+/**
+ * A plan's Roth conversions, or `undefined` when the plan has none.
+ */
+export function conversionsFromConvex(conversions: Doc<'plans'>['conversions']): ConversionInputs[] | undefined {
+  return conversions ? structuredClone(conversions) : undefined;
 }
 
 // ============================================================================
@@ -500,6 +510,10 @@ export function glidePathToConvex(glidePath: GlidePathInputs): NonNullable<Doc<'
  */
 export function milestonesToConvex(milestones: MilestoneInputs[]): NonNullable<Doc<'plans'>['milestones']> {
   return structuredClone(milestones) as NonNullable<Doc<'plans'>['milestones']>;
+}
+
+export function conversionsToConvex(conversions: ConversionInputs[]): NonNullable<Doc<'plans'>['conversions']> {
+  return structuredClone(conversions) as NonNullable<Doc<'plans'>['conversions']>;
 }
 
 // ============================================================================

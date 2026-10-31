@@ -8,6 +8,8 @@
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
+import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
+import type { ISODateString } from './clock';
 
 import {
   type Account,
@@ -55,6 +57,8 @@ export class PortfolioProcessor {
   private rmdSavingsAccount: SavingsAccount;
   private monthlyData: PortfolioData[] = [];
   private outstandingShortfall: number = 0;
+  private currentMonthConversionsByAccount: Record<string, number> = {};
+  private currentMonthConversionsTotal = 0;
 
   /** Simulation-year index the current allowance was computed for; see `currentYearWithdrawalAllowance`. */
   private allowanceYearIndex: number | undefined;
@@ -249,6 +253,7 @@ export class PortfolioProcessor {
         rmds,
         shortfall,
         shortfallRepaid,
+        conversions: annualPortfolioDataBeforeTaxes.conversions,
       },
       perAccountData
     );
@@ -573,6 +578,78 @@ export class PortfolioProcessor {
     return portfolioData;
   }
 
+  /**
+   * Processes Roth conversions for the current year.
+   *
+   * Moves funds from tax-deferred accounts to Roth accounts without early withdrawal penalties.
+   */
+  processConversions(conversions: ConversionInputs[], currentDate?: ISODateString): PortfolioData {
+    let total = 0;
+    const conversionsByAccount: Record<string, number> = {};
+
+    for (const conversion of conversions) {
+      const fromAccount = this.simulationState.portfolio.getAccountById(conversion.fromAccountId);
+      if (!fromAccount) throw new Error(`Conversion ${conversion.id}: source account ${conversion.fromAccountId} not found`);
+
+      const toAccount = this.simulationState.portfolio.getAccountById(conversion.toAccountId);
+      if (!toAccount) throw new Error(`Conversion ${conversion.id}: destination account ${conversion.toAccountId} not found`);
+
+      if ('fillToBracket' in conversion || !('amount' in conversion)) {
+        throw new Error('fillToBracket conversions are not supported in R4a; use a fixed amount or wait for R4b');
+      }
+
+      const amountToConvert = Math.min(conversion.amount, fromAccount.getBalance());
+      if (amountToConvert <= 0) continue;
+
+      fromAccount.applyConversionOut(amountToConvert);
+      toAccount.applyConversionIn(amountToConvert, currentDate);
+
+      conversionsByAccount[conversion.fromAccountId] = (conversionsByAccount[conversion.fromAccountId] ?? 0) + amountToConvert;
+      total += amountToConvert;
+    }
+
+    const perAccountData = Object.fromEntries(
+      this.simulationState.portfolio.getAccounts().map((account) => {
+        const accountID = account.getAccountID();
+        const accountData = account.getAccountData();
+
+        return [
+          accountID,
+          {
+            ...accountData,
+            contributions: zeroFlows(),
+            employerMatch: 0,
+            withdrawals: zeroFlows(),
+            realizedGains: 0,
+            earningsWithdrawn: 0,
+            rmds: 0,
+            ...(conversionsByAccount[accountID] && conversionsByAccount[accountID] > 0
+              ? { conversions: conversionsByAccount[accountID] }
+              : {}),
+          },
+        ];
+      })
+    );
+
+    const portfolioData = this.buildPortfolioData(
+      {
+        withdrawals: zeroFlows(),
+        employerMatch: 0,
+        contributions: zeroFlows(),
+        realizedGains: 0,
+        earningsWithdrawn: 0,
+        rmds: 0,
+        shortfall: 0,
+        shortfallRepaid: 0,
+        ...(total > 0 ? { conversions: total } : {}),
+      },
+      perAccountData
+    );
+
+    this.monthlyData.push(portfolioData);
+    return portfolioData;
+  }
+
   private buildPerAccountData(
     baseAccountData: Record<string, AccountDataWithFlows>,
     contributionsByAccount: Record<string, AssetFlows>,
@@ -606,6 +683,7 @@ export class PortfolioProcessor {
             realizedGains: addToBaseNumber(accountID, 'realizedGains', realizedGainsByAccount[accountID] ?? 0),
             earningsWithdrawn: addToBaseNumber(accountID, 'earningsWithdrawn', earningsWithdrawnByAccount[accountID] ?? 0),
             rmds: addToBaseNumber(accountID, 'rmds', rmdsByAccount[accountID] ?? 0),
+            ...((baseAccountData[accountID]?.conversions as number) > 0 ? { conversions: baseAccountData[accountID]?.conversions } : {}),
           },
         ];
       })
@@ -622,6 +700,7 @@ export class PortfolioProcessor {
       rmds: number;
       shortfall: number;
       shortfallRepaid: number;
+      conversions?: number;
     },
     perAccountData: Record<string, AccountDataWithFlows>
   ): PortfolioData {
@@ -635,6 +714,7 @@ export class PortfolioProcessor {
       cumulativeRmds: this.simulationState.portfolio.getCumulativeRmds(),
       outstandingShortfall: this.outstandingShortfall,
       ...forPeriodData,
+      ...(forPeriodData.conversions && forPeriodData.conversions > 0 ? { conversions: forPeriodData.conversions } : {}),
       perAccountData,
       assetAllocation: this.simulationState.portfolio.getWeightedAssetAllocation(),
     };
@@ -718,9 +798,9 @@ export class PortfolioProcessor {
   getAnnualData(): PortfolioData {
     const lastMonthData = this.monthlyData[this.monthlyData.length - 1];
 
-    return {
+    const result = {
       ...lastMonthData,
-      ...this.monthlyData.reduce(
+      ...this.monthlyData.reduce<PortfolioFlowData>(
         (acc, curr) => {
           acc.contributions = addFlows(acc.contributions, curr.contributions);
           acc.employerMatch += curr.employerMatch;
@@ -730,9 +810,13 @@ export class PortfolioProcessor {
           acc.rmds += curr.rmds;
           acc.shortfall += curr.shortfall;
           acc.shortfallRepaid += curr.shortfallRepaid;
+          if (curr.conversions && curr.conversions > 0) {
+            acc.conversions = (acc.conversions ?? 0) + curr.conversions;
+          }
 
           for (const [accountID, accountData] of Object.entries(curr.perAccountData)) {
             const existing = acc.perAccountData[accountID];
+            const totalAccountConversions = (existing?.conversions ?? 0) + (accountData.conversions ?? 0);
             acc.perAccountData[accountID] = {
               ...accountData,
               contributions: addFlows(existing?.contributions ?? zeroFlows(), accountData.contributions),
@@ -741,6 +825,7 @@ export class PortfolioProcessor {
               realizedGains: (existing?.realizedGains ?? 0) + accountData.realizedGains,
               earningsWithdrawn: (existing?.earningsWithdrawn ?? 0) + accountData.earningsWithdrawn,
               rmds: (existing?.rmds ?? 0) + accountData.rmds,
+              ...(totalAccountConversions > 0 ? { conversions: totalAccountConversions } : {}),
             };
           }
 
@@ -759,6 +844,12 @@ export class PortfolioProcessor {
         } satisfies PortfolioFlowData
       ),
     };
+
+    if (!result.conversions) {
+      delete result.conversions;
+    }
+
+    return result;
   }
 
   /** Rebalances portfolio toward glide path target allocation if enabled */
@@ -919,6 +1010,7 @@ interface PortfolioFlowData {
   rmds: number;
   shortfall: number;
   shortfallRepaid: number;
+  conversions?: number;
   perAccountData: Record<string, AccountDataWithFlows>;
 }
 

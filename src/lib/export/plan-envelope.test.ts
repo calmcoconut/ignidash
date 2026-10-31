@@ -8,6 +8,7 @@ import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inpu
 import { getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
 import {
   accountFromConvex,
+  conversionsFromConvex,
   expenseFromConvex,
   milestonesFromConvex,
   physicalAssetFromConvex,
@@ -363,9 +364,22 @@ describe('the export guard is derived from the plans validator', () => {
 
   it('actually copies each of those fields out of a fully populated plan', () => {
     // The base fixture is a v8-shaped plan (each later bump's fields sit inside blocks it already
-    // has, or in a per-version fixture), so the one top-level field added since is stated here: a
-    // plan with a milestone, which is what makes `planExportKeys()` fully populated.
-    const exported = toPlanExport(makePlanDoc({ milestones: [VERSION_12_MILESTONE] }));
+    // has, or in a per-version fixture), so top-level fields added since are stated here: a
+    // plan with a milestone and conversions, which is what makes `planExportKeys()` fully populated.
+    const exported = toPlanExport(
+      makePlanDoc({
+        milestones: [VERSION_12_MILESTONE],
+        conversions: [
+          {
+            id: 'conv-1',
+            fromAccountId: 'ira-1',
+            toAccountId: 'roth-1',
+            year: 2026,
+            amount: 10000,
+          },
+        ],
+      })
+    );
 
     expect(Object.keys(exported).sort()).toEqual(EXPECTED_PLAN_EXPORT_KEYS);
 
@@ -516,7 +530,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1128,8 +1142,8 @@ describe('malformed files report the exact field paths', () => {
 
     // The field really is carried by the newest build: reverting the constant below 13 makes this
     // line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(13);
-    expect(EXPORT_SCHEMA_VERSION).toBe(13);
+    expect(envelope.schemaVersion).toBe(14);
+    expect(EXPORT_SCHEMA_VERSION).toBe(14);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1206,7 +1220,7 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion13Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(13);
+    expect(envelope.schemaVersion).toBe(14);
     expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1260,6 +1274,89 @@ describe('malformed files report the exact field paths', () => {
     // the value the engine reads is the pre-R3 "no after-tax money" and never a stated `0`.
     expect(importedAccount.nondeductibleBasis).toBeUndefined();
     expect(JSON.stringify(importedAccount)).not.toContain('nondeductibleBasis');
+  });
+
+  /**
+   * What the v14 bump (R4a) added: `conversions` on the plan.
+   *
+   * A plan field representing Roth conversion schedules (fixed amount or fillToBracket),
+   * absent on all prior versions. Its absence is **no Roth conversions**, which preserves
+   * identical simulation results for existing plans (the golden corpus is the witness).
+   */
+  const VERSION_14_FIELDS = ['conversions'];
+
+  const makeVersion14Plan = () => ({
+    ...makeVersion13Plan(),
+    conversions: [
+      {
+        id: 'conv-1',
+        fromAccountId: 'ira-1',
+        toAccountId: 'roth-1',
+        amount: 20000,
+        year: 2027,
+      },
+    ],
+  });
+
+  it('round-trips Roth conversions, the one thing version 14 adds', () => {
+    const plan = makeVersion14Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(14);
+    expect(EXPORT_SCHEMA_VERSION).toBe(14);
+    expect(countFields(envelope, VERSION_14_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan).toHaveProperty('conversions');
+    expect(restored.plan.conversions).toHaveLength(1);
+    expect(restored.plan.conversions![0]).toMatchObject({
+      id: 'conv-1',
+      fromAccountId: 'ira-1',
+      toAccountId: 'roth-1',
+      amount: 20000,
+      year: 2027,
+    });
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+
+    const restoredConversions = conversionsFromConvex(restored.plan.conversions);
+    expect(restoredConversions).toHaveLength(1);
+    expect((restoredConversions![0] as { amount: number }).amount).toBe(20000);
+  });
+
+  it('imports a version 13 plan as having no conversions, and keeps the field absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion14Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v13 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v13.schemaVersion = 13;
+
+    expect(countFields(v13, VERSION_14_FIELDS)).toBe(1);
+    stripFields(v13, VERSION_14_FIELDS);
+    expect(countFields(v13, VERSION_14_FIELDS)).toBe(0);
+    // The v13 fields are still there: this is a v13 file, not an older one.
+    expect((v13.plan as Record<string, unknown>).accounts).toBeDefined();
+    expect(countFields(v13, VERSION_13_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v13));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(13);
+    expect(parsed.envelope).toStrictEqual(v13);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan).not.toHaveProperty('conversions');
+
+    expect(conversionsFromConvex(importedPlan.conversions)).toBeUndefined();
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

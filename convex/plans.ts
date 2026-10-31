@@ -22,6 +22,7 @@ import { taxSettingsValidator } from './validators/tax_settings_validator';
 import { privacySettingsValidator } from './validators/privacy_settings_validator';
 import { simulationSettingsValidator } from './validators/simulation_settings_validator';
 import { milestonesValidator } from './validators/milestone_validator';
+import { conversionsValidator } from './validators/conversion_validator';
 import { basicTemplate } from './templates/basic';
 import { earlyRetirementTemplate } from './templates/early_retirement';
 
@@ -31,17 +32,6 @@ export const listPlans = query({
     const { userId } = await getUserIdOrThrow(ctx);
 
     return await getAllPlansForUser(ctx, userId);
-  },
-});
-
-export const getCountOfPlans = query({
-  args: {},
-  handler: async (ctx) => {
-    const { userId } = await getUserIdOrThrow(ctx);
-
-    const plans = await getAllPlansForUser(ctx, userId);
-
-    return plans.length;
   },
 });
 
@@ -181,6 +171,7 @@ export const createPlanWithData = mutation({
     privacySettings: privacySettingsValidator,
     simulationSettings: simulationSettingsValidator,
     milestones: v.optional(milestonesValidator),
+    conversions: v.optional(conversionsValidator),
   },
   handler: async (ctx, { newPlanName, ...planData }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -225,6 +216,7 @@ export const clonePlan = mutation({
       privacySettings,
       simulationSettings,
       milestones,
+      conversions,
     } = plan;
     const clonedData = {
       timeline: structuredClone(timeline),
@@ -242,6 +234,7 @@ export const clonePlan = mutation({
       privacySettings: structuredClone(privacySettings),
       simulationSettings: structuredClone(simulationSettings),
       ...(milestones === undefined ? {} : { milestones: structuredClone(milestones) }),
+      ...(conversions === undefined ? {} : { conversions: structuredClone(conversions) }),
     };
 
     return await ctx.db.insert('plans', { userId, name: newPlanName, isDefault: false, ...clonedData });

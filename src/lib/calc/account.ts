@@ -7,6 +7,8 @@
  */
 
 import type { AccountInputs, InvestmentAccountType } from '@/lib/schemas/inputs/account-form-schema';
+import type { ISODateString } from './clock';
+import type { RothEvent } from './retirement-rules/roth-five-year';
 
 import {
   type AssetReturnRates,
@@ -57,6 +59,7 @@ export interface AccountData {
   cumulativeRealizedGains: number;
   cumulativeEarningsWithdrawn: number;
   cumulativeRmds: number;
+  cumulativeConversions?: number;
   name: string;
   id: string;
   type: AccountInputs['type'];
@@ -71,6 +74,7 @@ export interface AccountDataWithFlows extends AccountData {
   realizedGains: number;
   earningsWithdrawn: number;
   rmds: number;
+  conversions?: number;
 }
 
 /** Base class for all account types with shared cumulative tracking */
@@ -140,6 +144,12 @@ export abstract class Account {
     return this.cumulativeYieldAmounts;
   }
 
+  protected cumulativeConversions = 0;
+
+  getCumulativeConversions(): number {
+    return this.cumulativeConversions;
+  }
+
   abstract getHasRMDs(): boolean;
   abstract getAccountData(): AccountData;
   abstract applyReturns(returnRates: AssetReturnRates): { returnAmounts: AssetReturnAmounts; cumulativeReturnAmounts: AssetReturnAmounts };
@@ -150,6 +160,8 @@ export abstract class Account {
     type: WithdrawalType,
     withdrawalAllocation: AssetAllocation
   ): AssetFlows & { realizedGains: number; earningsWithdrawn: number };
+  abstract applyConversionOut(amount: number): AssetFlows;
+  abstract applyConversionIn(amount: number, date?: ISODateString): AssetFlows;
 }
 
 /** Cash-only account with no investment returns, no RMDs, no realized gains */
@@ -193,6 +205,7 @@ export class SavingsAccount extends Account {
       cumulativeRealizedGains: this.cumulativeRealizedGains,
       cumulativeEarningsWithdrawn: this.cumulativeEarningsWithdrawn,
       cumulativeRmds: this.cumulativeRmds,
+      ...(this.cumulativeConversions > 0 ? { cumulativeConversions: this.cumulativeConversions } : {}),
       name: this.name,
       id: this.id,
       type: this.type,
@@ -242,6 +255,24 @@ export class SavingsAccount extends Account {
 
     return { stocks: 0, bonds: 0, cash: amount, realizedGains: 0, earningsWithdrawn: 0 };
   }
+
+  applyConversionOut(amount: number): AssetFlows {
+    if (amount < 0) throw new Error('Conversion amount must be non-negative');
+    if (amount === 0) return { stocks: 0, bonds: 0, cash: 0 };
+    if (amount > this.balance) throw new Error('Insufficient funds for conversion');
+
+    this.balance -= amount;
+    this.cumulativeConversions += amount;
+    return { stocks: 0, bonds: 0, cash: amount };
+  }
+
+  applyConversionIn(amount: number): AssetFlows {
+    if (amount < 0) throw new Error('Conversion amount must be non-negative');
+    if (amount === 0) return { stocks: 0, bonds: 0, cash: 0 };
+
+    this.balance += amount;
+    return { stocks: 0, bonds: 0, cash: amount };
+  }
 }
 
 /** Base class for stock/bond investment accounts with asset allocation tracking */
@@ -286,6 +317,7 @@ export abstract class InvestmentAccount extends Account {
       cumulativeRealizedGains: this.cumulativeRealizedGains,
       cumulativeEarningsWithdrawn: this.cumulativeEarningsWithdrawn,
       cumulativeRmds: this.cumulativeRmds,
+      ...(this.cumulativeConversions > 0 ? { cumulativeConversions: this.cumulativeConversions } : {}),
       name: this.name,
       id: this.id,
       type: this.type,
@@ -409,6 +441,48 @@ export abstract class InvestmentAccount extends Account {
   protected calculateRebalanceGains(stocksSold: number, bondsSold: number): number {
     return 0;
   }
+
+  applyConversionOut(amount: number): AssetFlows {
+    if (amount < 0) throw new Error('Conversion amount must be non-negative');
+    if (amount === 0) return zeroAssetAmounts<AssetFlows>();
+    if (amount > this.balance) throw new Error('Insufficient funds for conversion');
+
+    const currentBondsValue = this.balance * this.currPercentBonds;
+    const currentStocksValue = this.balance * (1 - this.currPercentBonds);
+
+    const bondWithdrawal = amount * this.currPercentBonds;
+    const stockWithdrawal = amount - bondWithdrawal;
+
+    const newBondsValue = currentBondsValue - bondWithdrawal;
+    const newStocksValue = currentStocksValue - stockWithdrawal;
+    const newBalance = newBondsValue + newStocksValue;
+
+    this.balance = Math.max(0, newBalance);
+    this.currPercentBonds = newBalance > 0 ? newBondsValue / newBalance : this.currPercentBonds;
+    this.cumulativeConversions += amount;
+
+    return { stocks: stockWithdrawal, bonds: bondWithdrawal, cash: 0 };
+  }
+
+  applyConversionIn(amount: number, _date?: ISODateString): AssetFlows {
+    if (amount < 0) throw new Error('Conversion amount must be non-negative');
+    if (amount === 0) return zeroAssetAmounts<AssetFlows>();
+
+    const currentBondsValue = this.balance * this.currPercentBonds;
+    const currentStocksValue = this.balance * (1 - this.currPercentBonds);
+
+    const bondContribution = amount * this.currPercentBonds;
+    const stockContribution = amount - bondContribution;
+
+    const newBondsValue = currentBondsValue + bondContribution;
+    const newStocksValue = currentStocksValue + stockContribution;
+    const newBalance = newBondsValue + newStocksValue;
+
+    this.balance = newBalance;
+    this.currPercentBonds = newBalance > 0 ? newBondsValue / newBalance : this.currPercentBonds;
+
+    return { stocks: stockContribution, bonds: bondContribution, cash: 0 };
+  }
 }
 
 /**
@@ -519,6 +593,7 @@ export class TaxFreeAccount extends InvestmentAccount {
   readonly taxCategory: TaxCategory = 'taxFree';
 
   private contributionBasis: number;
+  private rothEvents: RothEvent[] = [];
 
   constructor(data: AccountInputs & { type: 'rothIra' | 'roth401k' | 'roth403b' }) {
     super(data);
@@ -527,6 +602,22 @@ export class TaxFreeAccount extends InvestmentAccount {
 
   getContributionBasis(): number {
     return this.contributionBasis;
+  }
+
+  getRothEvents(): readonly RothEvent[] {
+    return this.rothEvents;
+  }
+
+  override applyConversionIn(amount: number, date?: ISODateString): AssetFlows {
+    const flows = super.applyConversionIn(amount, date);
+    if (date && amount > 0) {
+      this.rothEvents.push({
+        date,
+        kind: 'conversion',
+        amount,
+      });
+    }
+    return flows;
   }
 
   applyContribution(amount: number, type: ContributionType, contributionAllocation: AssetAllocation): AssetFlows {

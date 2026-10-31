@@ -35,7 +35,7 @@ function optionalPlanFieldNames(): string[] {
 }
 
 /** One distinct value per optional plan field, so a dropped field is visible. */
-const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets' | 'glidePath' | 'milestones'> = {
+const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets' | 'glidePath' | 'milestones' | 'conversions'> = {
   debts: [
     {
       id: 'debt-1',
@@ -90,6 +90,16 @@ const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets
         ],
       },
       references: [],
+    },
+  ],
+  conversions: [
+    {
+      id: 'conversion-1',
+      name: 'Roth conversion test',
+      fromAccountId: 'account-trad',
+      toAccountId: 'account-roth',
+      year: 2030,
+      amount: 25000,
     },
   ],
 };

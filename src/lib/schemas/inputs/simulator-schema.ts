@@ -21,6 +21,7 @@ import { taxSettingsFormSchema } from './tax-settings-form-schema';
 import { privacySettingsFormSchema } from './privacy-settings-form-schema';
 import { simulationSettingsSchema } from './simulation-settings-form-schema';
 import { milestonesSchema } from './milestone-form-schema';
+import { conversionsSchema } from './conversion-form-schema';
 
 export const simulatorSchema = z.object({
   // Shape-only timeline rules: the "as of today" cross-field rules need an explicit date,
@@ -42,6 +43,8 @@ export const simulatorSchema = z.object({
   // the field existed simulates exactly as it did (`SimulationResult.milestones` is absent too),
   // and the export envelope reads the absence the same way (schema version 12).
   milestones: milestonesSchema.optional(),
+  // Roth conversion schedule (parity plan P3-P5). Optional; absent means no conversions.
+  conversions: conversionsSchema.optional(),
 });
 
 export type SimulatorInputs = z.infer<typeof simulatorSchema>;

@@ -418,6 +418,7 @@ function portfolioForSeparateReturn(data: PortfolioData, ownership: ReturnOwners
       realizedGains: account.realizedGains * share,
       earningsWithdrawn: account.earningsWithdrawn * share,
       rmds: account.rmds * share,
+      conversions: (account.conversions ?? 0) * share,
     };
 
     perAccountData[accountId] = sharedAccount;
@@ -1693,18 +1694,20 @@ export class TaxProcessor {
         case '401k':
         case '403b': {
           const annualWithdrawals = sumFlows(account.withdrawals);
+          const annualConversions = account.conversions ?? 0;
 
-          taxDeferredWithdrawals += annualWithdrawals;
+          taxDeferredWithdrawals += annualWithdrawals + annualConversions;
           if (age < regularQualifiedWithdrawalAge) early401kAndIraWithdrawals += annualWithdrawals;
           break;
         }
         case 'ira': {
           const annualWithdrawals = sumFlows(account.withdrawals);
+          const annualConversions = account.conversions ?? 0;
 
-          taxDeferredWithdrawals += annualWithdrawals;
-          iraDistributions += annualWithdrawals;
+          taxDeferredWithdrawals += annualWithdrawals + annualConversions;
+          iraDistributions += annualWithdrawals + annualConversions;
           // Form 8606 line 6 is the 12/31 balance, which `balance` already is: the year's
-          // withdrawals have left it. The fraction adds the distributions back to get the balance
+          // withdrawals and conversions have left it. The fraction adds the distributions back to get the balance
           // the basis is measured against.
           iraYearEndBalance += account.balance;
           if (age < regularQualifiedWithdrawalAge) {
@@ -1737,7 +1740,8 @@ export class TaxProcessor {
     // Only the includible part is income — and §72(t)'s 10% additional tax is charged on the
     // includible part alone, so the early-withdrawal base shrinks by the same amount.
     taxDeferredWithdrawals -= iraSplit.nontaxableAmount;
-    early401kAndIraWithdrawals = Math.max(0, early401kAndIraWithdrawals - Math.min(earlyIraWithdrawals, iraSplit.nontaxableAmount));
+    const nontaxableEarlyIra = earlyIraWithdrawals > 0 ? earlyIraWithdrawals * iraSplit.exclusionRatio : 0;
+    early401kAndIraWithdrawals = Math.max(0, early401kAndIraWithdrawals - nontaxableEarlyIra);
 
     const taxableRetirementDistributions = taxDeferredWithdrawals + earlyRothEarningsWithdrawals;
     const { realizedGains, capitalLossDeduction, section121Exclusion } = this.getRealizedGainsAndCapLossDeductionData(

@@ -13,6 +13,7 @@ import { taxSettingsValidator } from './tax_settings_validator';
 import { privacySettingsValidator } from './privacy_settings_validator';
 import { simulationSettingsValidator } from './simulation_settings_validator';
 import { milestonesValidator } from './milestone_validator';
+import { conversionsValidator } from './conversion_validator';
 
 /**
  * Plan data fields shared between `plans` and `planSnapshots` tables.
@@ -39,4 +40,6 @@ export const planDataFields = {
   // milestones*, which is what every plan written before this field had, and the engine reads the
   // absence as "evaluate nothing" (`SimulationResult.milestones` stays absent too).
   milestones: v.optional(milestonesValidator),
+  // Roth conversion schedule (parity plan P3-P5). Optional; absent means no conversions.
+  conversions: v.optional(conversionsValidator),
 };
