@@ -358,8 +358,6 @@ const sum = (values: readonly number[]): number => values.reduce((total, value) 
 const scaleFlows = (flows: AssetFlows, share: number): AssetFlows =>
   share === 1 ? flows : { stocks: flows.stocks * share, bonds: flows.bonds * share, cash: flows.cash * share };
 
-const scaleAmounts = (amounts: AssetFlows, share: number): AssetFlows => scaleFlows(amounts, share);
-
 /**
  * One owner's half of the year's portfolio flows.
  *
@@ -457,11 +455,8 @@ function returnsForSeparateReturn(
   return {
     ...data,
     yieldAmounts: {
-      taxable: scaleAmounts(data.yieldAmounts.taxable, investmentIncomeShare(data, portfolio, ownership, returnOwner, 'taxable')),
-      cashSavings: scaleAmounts(
-        data.yieldAmounts.cashSavings,
-        investmentIncomeShare(data, portfolio, ownership, returnOwner, 'cashSavings')
-      ),
+      taxable: scaleFlows(data.yieldAmounts.taxable, investmentIncomeShare(data, portfolio, ownership, returnOwner, 'taxable')),
+      cashSavings: scaleFlows(data.yieldAmounts.cashSavings, investmentIncomeShare(data, portfolio, ownership, returnOwner, 'cashSavings')),
       taxDeferred: zeroAssetAmounts(),
       taxFree: zeroAssetAmounts(),
     },
@@ -1884,7 +1879,7 @@ export class TaxProcessor {
   ): number {
     return Object.values(annualPortfolioDataBeforeTaxes.perAccountData)
       .filter((account) => accountTypes.includes(account.type))
-      .reduce((sum, account) => sum + (sumFlows(account.contributions) - account.employerMatch), 0);
+      .reduce((total, account) => total + (sumFlows(account.contributions) - account.employerMatch), 0);
   }
 
   private getStandardDeduction(): number {

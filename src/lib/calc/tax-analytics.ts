@@ -469,6 +469,7 @@ export function irmaaCliff({ magi, taxYear, filingStatus }: { magi: number; taxY
   });
 
   const tier = toTier(index, row);
+  const nextTier = nextRow === null ? null : toTier(index + 1, nextRow);
 
   return {
     taxYear,
@@ -478,10 +479,7 @@ export function irmaaCliff({ magi, taxYear, filingStatus }: { magi: number; taxY
     magi,
     tier,
     headroomToNextTier: nextRow === null ? null : nextRow.min - magi,
-    nextTier:
-      nextRow === null
-        ? null
-        : { ...toTier(index + 1, nextRow), stepUp: toTier(index + 1, nextRow).annualSurcharge - tier.annualSurcharge },
+    nextTier: nextTier === null ? null : { ...nextTier, stepUp: nextTier.annualSurcharge - tier.annualSurcharge },
     includes: 'partB-and-partD',
   };
 }

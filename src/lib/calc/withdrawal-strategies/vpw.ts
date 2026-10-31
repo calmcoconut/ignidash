@@ -16,8 +16,8 @@
  * exceeds 100 %, so the cap never exceeds the portfolio.
  *
  * The default real return is 5 %, the Bogleheads table's growth assumption for a balanced
- * portfolio. It is a parameter here rather than a plan field because the setting lands with the
- * version bump the export constant is waiting on.
+ * portfolio. It is a factory parameter rather than a plan field: the plan stores only the strategy
+ * id, so the shared instance below uses this default and a caller may pass its own.
  */
 
 import { orderedWithdrawalSequence } from './ordered';

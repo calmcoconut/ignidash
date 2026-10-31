@@ -66,7 +66,8 @@ export class PhysicalAssetsProcessor {
 
       const { monthlyAppreciation: appreciation } = asset.applyMonthlyAppreciation();
 
-      const offsetBalance = asset.getOffsetAccountId() === undefined ? 0 : accountBalance(asset.getOffsetAccountId()!);
+      const offsetAccountId = asset.getOffsetAccountId();
+      const offsetBalance = offsetAccountId === undefined ? 0 : accountBalance(offsetAccountId);
       const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(monthlyInflationRate, offsetBalance);
       asset.applyLoanPayment(monthlyPaymentDue, interest);
       asset.applyMonthlyInflation(monthlyInflationRate);

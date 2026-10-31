@@ -213,9 +213,7 @@ export class SavingsAccount extends Account {
   }
 
   applyYields(yieldRates: AssetYieldRates): { yieldAmounts: AssetYieldAmounts; cumulativeYieldAmounts: AssetYieldAmounts } {
-    const { cash: cashYield } = yieldRates;
-
-    const cashYieldAmount = this.balance * cashYield;
+    const cashYieldAmount = this.balance * yieldRates.cash;
     this.cumulativeYieldAmounts.cash += cashYieldAmount;
 
     return {

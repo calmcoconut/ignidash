@@ -50,7 +50,7 @@ export interface WithdrawalContext {
   readonly previousWithdrawal?: number | undefined;
 }
 
-/** The strategy ids the plan setting will carry (the setting itself lands with the version bump). */
+/** The strategy ids the plan's `withdrawalStrategy` setting stores. */
 export type WithdrawalStrategyId = 'ordered' | 'vpw' | 'xPercentRule' | 'guytonKlinger';
 
 /** The row's interface: an order, and an optional annual ceiling. */

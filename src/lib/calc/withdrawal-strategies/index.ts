@@ -3,8 +3,8 @@
  *
  * `ordered` is the default and reproduces the pre-strategy behaviour exactly; it is what the
  * processor uses when no strategy is injected. The other three cap how much a year may withdraw
- * from the portfolio, which is the lever the plan's `withdrawalStrategy` setting will select
- * (that plan field lands with the export-version bump).
+ * from the portfolio, which is what the plan's `withdrawalStrategy` setting selects (absent means
+ * `ordered`).
  *
  * Resolution is deliberately a single lookup so the follow-up is one line at the engine:
  *
@@ -46,7 +46,7 @@ export {
 /** The default: today's sequence, and no ceiling. What a processor uses when none is injected. */
 export const DEFAULT_WITHDRAWAL_STRATEGY = orderedWithdrawalStrategy;
 
-/** Every strategy, keyed by the id the plan setting will carry. */
+/** Every strategy, keyed by the id the plan's `withdrawalStrategy` setting stores. */
 export const WITHDRAWAL_STRATEGIES: Record<WithdrawalStrategyId, WithdrawalStrategy> = {
   ordered: orderedWithdrawalStrategy,
   vpw: vpwWithdrawalStrategy,
@@ -63,9 +63,9 @@ export const WITHDRAWAL_STRATEGY_IDS = [
 ] as const satisfies readonly WithdrawalStrategyId[];
 
 /**
- * The strategy to run: the one asked for, or `ordered` when the plan stores none (which is every
- * plan today — the setting does not exist yet). An id the build does not know falls back to
- * `ordered` rather than throwing, so a plan written by a newer build still simulates.
+ * The strategy to run: the one asked for, or `ordered` when the plan stores none (the setting is
+ * optional, and absent on every plan saved before it existed). An id the build does not know falls
+ * back to `ordered` rather than throwing, so a plan written by a newer build still simulates.
  */
 export function getWithdrawalStrategy(id: WithdrawalStrategyId | undefined): WithdrawalStrategy {
   if (id === undefined) return orderedWithdrawalStrategy;
