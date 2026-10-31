@@ -37,6 +37,7 @@
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import type { FilingStatus, ItemizedDeductionsInputs } from '@/lib/schemas/inputs/tax-settings-form-schema';
+import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
 
 import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
 
@@ -1013,6 +1014,114 @@ export class TaxProcessor {
       annualPhysicalAssetsData,
       annualWagePayrollTaxes
     );
+  }
+
+  /**
+   * Calculates the conversion amount needed to fill the specified tax bracket up to its top.
+   *
+   * Evaluates taxable ordinary income (or CA taxable income) over [0, fromAccountBalance]
+   * to find the conversion amount that lands within $1 of the bracket ceiling.
+   */
+  calculateFillToBracketAmount(
+    conversion: ConversionInputs,
+    fromAccountBalance: number,
+    annualPortfolioDataBeforeTaxes: PortfolioData,
+    annualIncomesData: IncomesData,
+    annualReturnsData: ReturnsData,
+    annualPhysicalAssetsData: PhysicalAssetsData,
+    wagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes()
+  ): number {
+    if (fromAccountBalance <= 0) return 0;
+    if (!('fillToBracket' in conversion) || conversion.fillToBracket === undefined) return 0;
+
+    const targetRate = typeof conversion.fillToBracket === 'number' ? conversion.fillToBracket : conversion.fillToBracket.targetBracketRate;
+    const jurisdiction =
+      typeof conversion.fillToBracket === 'object' && conversion.fillToBracket.jurisdiction
+        ? conversion.fillToBracket.jurisdiction
+        : 'federal';
+
+    let ceiling: number;
+    if (jurisdiction === 'california') {
+      const caRules = getRules(this.taxYear, 'CA');
+      const brackets = this.inRealDollars(caRules.tables.incomeTaxBrackets, caRules.year)[this.filingStatus];
+      const targetBracket = brackets.find((b) => Math.abs(b.rate - targetRate) < 0.0001);
+      if (!targetBracket) {
+        throw new Error(
+          `Target bracket rate ${targetRate} not found in California brackets for year ${this.taxYear} (${this.filingStatus})`
+        );
+      }
+      ceiling = targetBracket.max;
+    } else {
+      const brackets = this.inRealDollars(this.ruleset.tables.incomeTaxBrackets, this.ruleset.year)[this.filingStatus];
+      const targetBracket = brackets.find((b) => Math.abs(b.rate - targetRate) < 0.0001);
+      if (!targetBracket) {
+        throw new Error(`Target bracket rate ${targetRate} not found in federal brackets for year ${this.taxYear} (${this.filingStatus})`);
+      }
+      ceiling = targetBracket.max;
+    }
+
+    if (ceiling === Infinity) {
+      return fromAccountBalance;
+    }
+
+    const evaluateTaxable = (candidateAmount: number): number => {
+      const existingFromAccount = annualPortfolioDataBeforeTaxes.perAccountData[conversion.fromAccountId];
+      const baseAccountData = existingFromAccount ?? {
+        id: conversion.fromAccountId,
+        type: 'ira' as const,
+        balance: fromAccountBalance,
+        costBasis: 0,
+        contributions: zeroAssetAmounts(),
+        withdrawals: zeroAssetAmounts(),
+        yieldAmounts: zeroAssetAmounts(),
+        conversions: 0,
+      };
+
+      const candidateData: PortfolioData = {
+        ...annualPortfolioDataBeforeTaxes,
+        conversions: (annualPortfolioDataBeforeTaxes.conversions ?? 0) + candidateAmount,
+        perAccountData: {
+          ...annualPortfolioDataBeforeTaxes.perAccountData,
+          [conversion.fromAccountId]: {
+            ...baseAccountData,
+            conversions: (baseAccountData.conversions ?? 0) + candidateAmount,
+            balance: Math.max(0, fromAccountBalance - candidateAmount),
+          },
+        },
+      };
+
+      this.saveCarryoverSnapshot();
+      try {
+        const taxes = this.process(candidateData, annualIncomesData, annualReturnsData, annualPhysicalAssetsData, wagePayrollTaxes);
+        return jurisdiction === 'california' ? taxes.state.taxableIncome : taxes.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary;
+      } finally {
+        this.restoreCarryoverSnapshot();
+      }
+    };
+
+    const baselineTaxable = evaluateTaxable(0);
+    if (baselineTaxable >= ceiling) {
+      return 0;
+    }
+
+    const maxTaxable = evaluateTaxable(fromAccountBalance);
+    if (maxTaxable <= ceiling) {
+      return fromAccountBalance;
+    }
+
+    let low = 0;
+    let high = fromAccountBalance;
+    for (let iter = 0; iter < 25; iter++) {
+      const mid = (low + high) / 2;
+      const taxable = evaluateTaxable(mid);
+      if (taxable < ceiling) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+
+    return Math.round(low * 100) / 100;
   }
 
   /**

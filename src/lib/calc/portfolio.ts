@@ -594,11 +594,7 @@ export class PortfolioProcessor {
       const toAccount = this.simulationState.portfolio.getAccountById(conversion.toAccountId);
       if (!toAccount) throw new Error(`Conversion ${conversion.id}: destination account ${conversion.toAccountId} not found`);
 
-      if ('fillToBracket' in conversion || !('amount' in conversion)) {
-        throw new Error('fillToBracket conversions are not supported in R4a; use a fixed amount or wait for R4b');
-      }
-
-      const amountToConvert = Math.min(conversion.amount, fromAccount.getBalance());
+      const amountToConvert = 'amount' in conversion ? Math.min(conversion.amount, fromAccount.getBalance()) : 0;
       if (amountToConvert <= 0) continue;
 
       fromAccount.applyConversionOut(amountToConvert);
@@ -648,6 +644,23 @@ export class PortfolioProcessor {
 
     this.monthlyData.push(portfolioData);
     return portfolioData;
+  }
+
+  /**
+   * Records a conversion directly in the current month's portfolio data.
+   */
+  recordConversion(fromAccountId: string, toAccountId: string, amount: number): void {
+    if (amount <= 0) return;
+    const lastMonth = this.monthlyData[this.monthlyData.length - 1];
+    if (lastMonth) {
+      lastMonth.conversions = (lastMonth.conversions ?? 0) + amount;
+      if (lastMonth.perAccountData[fromAccountId]) {
+        lastMonth.perAccountData[fromAccountId].conversions = (lastMonth.perAccountData[fromAccountId].conversions ?? 0) + amount;
+      }
+      if (lastMonth.perAccountData[toAccountId]) {
+        lastMonth.perAccountData[toAccountId].conversions = (lastMonth.perAccountData[toAccountId].conversions ?? 0) + amount;
+      }
+    }
   }
 
   private buildPerAccountData(

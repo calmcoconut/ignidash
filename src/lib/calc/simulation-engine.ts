@@ -532,15 +532,16 @@ export class FinancialSimulationEngine {
 
       // Process conversions at month 1 of each year after RMDs
       if (simulationState.time.month % 12 === 1 && this.inputs.conversions && this.inputs.conversions.length > 0) {
-        const currentYear = taxYearFor(startCalendarDate, simulationState.time.month);
+        const currentYear = startCalendarDate.year + Math.floor((simulationState.time.month - 1) / 12);
         const activeConversions = this.inputs.conversions.filter((conv) => {
           if (executedConversionIds.has(conv.id)) return false;
+          if ('fillToBracket' in conv && conv.fillToBracket !== undefined) return false;
           if (conv.year !== undefined) return conv.year === currentYear;
           if (conv.timePoint !== undefined) {
             if (conv.timePoint.type === 'customDate') return conv.timePoint.year === currentYear;
             if (conv.timePoint.type === 'customAge') return Math.floor(simulationState.time.age) === conv.timePoint.age;
             if (conv.timePoint.type === 'atRetirement') return simulationState.phase?.name === 'retirement';
-            if (conv.timePoint.type === 'now') return simulationState.time.month === 1;
+            if (conv.timePoint.type === 'now') return currentYear === startCalendarDate.year;
           }
           return false;
         });
@@ -590,6 +591,49 @@ export class FinancialSimulationEngine {
           throw new Error(
             `Payroll tax year ${payrollTaxProcessor.getTaxYear()} does not match the ${settlementYear} settlement it is reported in`
           );
+        }
+
+        // Process fillToBracket conversions right before settling taxes at month 12
+        if (this.inputs.conversions && this.inputs.conversions.length > 0) {
+          const conversionYear = startCalendarDate.year + Math.floor((simulationState.time.month - 1) / 12);
+          const activeFillConversions = this.inputs.conversions.filter((conv) => {
+            if (executedConversionIds.has(conv.id)) return false;
+            if (!('fillToBracket' in conv) || conv.fillToBracket === undefined) return false;
+            if (conv.year !== undefined) return conv.year === conversionYear;
+            if (conv.timePoint !== undefined) {
+              if (conv.timePoint.type === 'customDate') return conv.timePoint.year === conversionYear;
+              if (conv.timePoint.type === 'customAge') return Math.floor(simulationState.time.age) === conv.timePoint.age;
+              if (conv.timePoint.type === 'atRetirement') return simulationState.phase?.name === 'retirement';
+              if (conv.timePoint.type === 'now') return conversionYear === startCalendarDate.year;
+            }
+            return false;
+          });
+
+          for (const conv of activeFillConversions) {
+            const fromAccount = simulationState.portfolio.getAccountById(conv.fromAccountId);
+            if (!fromAccount) throw new Error(`Conversion ${conv.id}: source account ${conv.fromAccountId} not found`);
+            const toAccount = simulationState.portfolio.getAccountById(conv.toAccountId);
+            if (!toAccount) throw new Error(`Conversion ${conv.id}: destination account ${conv.toAccountId} not found`);
+
+            const currentPortfolioData = portfolioProcessor.getAnnualData();
+            const amount = taxProcessor.calculateFillToBracketAmount(
+              conv,
+              fromAccount.getBalance(),
+              currentPortfolioData,
+              incomesProcessor.getAnnualData(),
+              returnsProcessor.getAnnualData(),
+              physicalAssetsProcessor.getAnnualData(),
+              payrollTaxProcessor.getAnnualData()
+            );
+
+            if (amount > 0) {
+              const currentDate = formatISODate(monthStartAfter(startCalendarDate, simulationState.time.month));
+              fromAccount.applyConversionOut(amount);
+              toAccount.applyConversionIn(amount, currentDate);
+              portfolioProcessor.recordConversion(conv.fromAccountId, conv.toAccountId, amount);
+            }
+            executedConversionIds.add(conv.id);
+          }
         }
 
         // Get annual data from processors
