@@ -5,7 +5,14 @@
  * every plan produces a baseline through the real toolkit the agent calls, and every rubric check
  * has a rule in the prompt that a reviewer can point at. They never call a provider — a live eval
  * run is described in `README.md` beside this file and is deliberately on demand.
+ *
+ * The rest pins what the set says the engine *cannot* do, in `README.md` and in this directory's
+ * module header: a lever the engine computes must not reappear on the "deliberately omits" list,
+ * because that list is what makes "the lever is not modelled" a passing answer.
  */
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -137,6 +144,117 @@ describe('tax-optimization eval set', () => {
     expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('jurisdictions.california.reported');
     expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('`none` the plan is not a resident');
     expect(TAX_OPTIMIZATION_SKILL_PROMPT).not.toContain('do not report a California income tax figure');
+  });
+});
+
+// ============================================================================
+// The set's own statement of what it leaves out
+// ============================================================================
+
+const readme = readFileSync(fileURLToPath(new URL('./README.md', import.meta.url)), 'utf8');
+const evalSetSource = readFileSync(fileURLToPath(new URL('./tax-optimization-evals.ts', import.meta.url)), 'utf8');
+
+const OMISSIONS_HEADING = '## What the set deliberately omits';
+
+/** The section from its heading to the next one: the passage that decides what a refusal may claim. */
+const omissionsSection = ((): string => {
+  const start = readme.indexOf(OMISSIONS_HEADING);
+  if (start < 0) throw new Error(`README.md no longer has a "${OMISSIONS_HEADING}" section`);
+  const end = readme.indexOf('\n## ', start + OMISSIONS_HEADING.length);
+
+  return end < 0 ? readme.slice(start) : readme.slice(start, end);
+})();
+
+/**
+ * The bullets of that section, each with its wrapped continuation folded in. Only the bullets carry
+ * the list; the prose around them names California's own unmodelled questions, which is a different
+ * statement (the state's AMT, not the federal one).
+ */
+const omissionBullets = ((): string[] => {
+  const bullets: string[] = [];
+  let open = false;
+
+  for (const line of omissionsSection.split('\n')) {
+    if (line.startsWith('- ')) {
+      bullets.push(line);
+      open = true;
+    } else if (open && line.startsWith('  ')) {
+      bullets[bullets.length - 1] += ` ${line.trim()}`;
+    } else {
+      open = false;
+    }
+  }
+
+  return bullets;
+})();
+
+const omittedBullets = omissionBullets.join('\n');
+
+/** A modelled lever named in those bullets would make the refusal the passing answer again. */
+describe('tax-optimization eval set: what it says the engine cannot compute', () => {
+  it('keeps the modelled deductions, the SALT cap, AMT and IRMAA off the omitted list', () => {
+    // The deduction (P3-P3), the SALT cap, AMT and IRMAA (P3-P7a) are computed and reported. A
+    // guidance line that still lists them makes the corpus grade "the lever is not modelled" as
+    // the correct answer when it is now false.
+    expect(omittedBullets).not.toContain('Itemized deductions');
+    expect(omittedBullets).not.toContain('SALT cap');
+    expect(omittedBullets).not.toMatch(/\bAMT\b/);
+    expect(omittedBullets).not.toMatch(/\bIRMAA\b/);
+    expect(omittedBullets).not.toContain('itemized deductions/SALT');
+  });
+
+  it('says in the same section that they are modelled, and how a plan enters them', () => {
+    expect(omissionsSection).toContain('**itemized deductions**');
+    expect(omissionsSection).toContain('`taxSettings.itemizedDeductions`');
+    expect(omissionsSection).toContain('the §164 SALT cap');
+    expect(omissionsSection).toContain('**AMT**');
+    expect(omissionsSection).toContain('**IRMAA**');
+    // The one thing the section must not do is let a reviewer score the refusal as a pass.
+    expect(omissionsSection).toContain('`refused-patches` must not be scored as a pass');
+  });
+
+  it('keeps ACA on the omitted list, where the tool really cannot answer', () => {
+    expect(omittedBullets).toContain('ACA premium tax credit');
+  });
+
+  it('reports the deduction and leaves only the ACA cliff unevaluated', () => {
+    // The prose above is checked against the tool it describes: `deductions` is a reported figure,
+    // `cliffs.aca.supported` is false, and `notComputed` asks for the *marginal* effect of an
+    // itemized deduction rather than calling the deduction itself unmodelled.
+    const evalCase = TAX_OPTIMIZATION_EVALS[0];
+    const toolkit = createChatToolkit({ inputs: evalCase.plan, asOf: EVAL_AS_OF });
+    const analytics = JSON.parse(toolkit.execute('getTaxAnalytics', { year: 2030 })) as {
+      deductions?: { type?: string };
+      cliffs?: { aca?: { supported?: boolean } };
+      notComputed?: string[];
+    };
+    const notComputed = analytics.notComputed ?? [];
+
+    expect(['standard', 'itemized']).toContain(analytics.deductions?.type);
+    expect(analytics.cliffs?.aca?.supported).toBe(false);
+    expect(notComputed.some((entry) => entry.includes('ACA premium tax credit'))).toBe(true);
+    expect(notComputed.some((entry) => entry.includes('The marginal effect of an itemized deduction'))).toBe(true);
+    expect(notComputed.some((entry) => entry.includes('itemized deduction') && !entry.includes('marginal'))).toBe(false);
+  });
+
+  it('keeps the module header off the stale list too', () => {
+    const header = evalSetSource.slice(0, evalSetSource.indexOf('export type EvalGoal'));
+
+    expect(header).not.toContain('itemized deductions/SALT');
+    expect(header).not.toContain('AMT/IRMAA');
+    expect(header).toContain('`taxSettings.itemizedDeductions`');
+    expect(header).toContain('`cliffs.aca.supported` is `false`');
+  });
+
+  it('does not let the refused-patches check pass a modelled lever off as unmodelled', () => {
+    const check = TAX_OPTIMIZATION_EVAL_CHECKS.find((entry) => entry.id === 'refused-patches');
+    if (!check) throw new Error('the refused-patches check is missing');
+
+    // A reviewer reads this property to score the transcript: it has to say that a refusal is
+    // wrong for the levers the engine computes, or the old answer keeps scoring as a pass.
+    expect(check.property).toContain('Roth conversion');
+    expect(check.property).toContain('is never such a refusal');
+    expect(check.property).toContain('`taxSettings.itemizedDeductions`');
   });
 });
 

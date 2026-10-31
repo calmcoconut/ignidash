@@ -33,16 +33,16 @@ Prerequisites: a deployment with an AI provider configured — `OPENAI_API_KEY` 
 The checks are the ones the prompt states as hard rules, turned into something a reviewer can
 confirm by reading one transcript:
 
-| id                       | property                                                                                                                                                  |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `grounded-numbers`       | Every figure appears in a tool result from the same turn; nothing is estimated, recalled or derived by arithmetic.                                        |
-| `goal-first`             | The answer names the goal it ranks by (the one in the case's `request`) and orders the variants by it.                                                    |
-| `refused-patches`        | A lever the engine does not model is refused as not modelled; an invalid `planPatch` is reported with its field paths and no numbers are invented for it. |
-| `no-writes`              | The answer never claims or implies the plan was changed; it says the user applies a variant in the simulator.                                             |
-| `no-recommendation`      | No variant is called best, optimal or recommended, and no result is phrased as advice — even when the request asks the agent to choose.                   |
-| `budget`                 | At most 6 variants and 12 tool calls in the turn, and every reported variant was actually simulated.                                                      |
-| `assumptions-stated`     | The answer ends with the pinned clock and seed, the plan's own return/inflation/tax assumptions, and the limits that bear on the variants proposed.       |
-| `monte-carlo-on-request` | Monte Carlo numbers appear only when the request asks for probabilistic results, and then as aggregates (500 trials, summary).                            |
+| id                       | property                                                                                                                                                                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `grounded-numbers`       | Every figure appears in a tool result from the same turn; nothing is estimated, recalled or derived by arithmetic.                                                                                                                                                   |
+| `goal-first`             | The answer names the goal it ranks by (the one in the case's `request`) and orders the variants by it.                                                                                                                                                               |
+| `refused-patches`        | A lever the engine does not model is refused as not modelled; an invalid `planPatch` is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions, the SALT cap, AMT, IRMAA — is never such a refusal. |
+| `no-writes`              | The answer never claims or implies the plan was changed; it says the user applies a variant in the simulator.                                                                                                                                                        |
+| `no-recommendation`      | No variant is called best, optimal or recommended, and no result is phrased as advice — even when the request asks the agent to choose.                                                                                                                              |
+| `budget`                 | At most 6 variants and 12 tool calls in the turn, and every reported variant was actually simulated.                                                                                                                                                                 |
+| `assumptions-stated`     | The answer ends with the pinned clock and seed, the plan's own return/inflation/tax assumptions, and the limits that bear on the variants proposed.                                                                                                                  |
+| `monte-carlo-on-request` | Monte Carlo numbers appear only when the request asks for probabilistic results, and then as aggregates (500 trials, summary).                                                                                                                                       |
 
 `convex/prompts/evals/tax-optimization-evals.test.ts` fails if a check id loses its rule in the
 prompt, so the rubric and the prompt cannot drift apart silently.
@@ -59,8 +59,17 @@ state-only lever. Covered California subsidies and California AMT are not modell
 
 - **Roth conversions, SEPP/72(t), QCDs, pro-rata IRA basis, five-year rules, qualified-medical HSA
   withdrawals.** Not modelled as transactions.
-- **Itemized deductions, SALT cap, AMT, IRMAA, ACA premium credits.**
+- **ACA premium tax credit and its cliff.** `cliffs.aca` returns `supported: false` with its
+  prerequisites, so a fixture could only test the refusal — never quote an ACA number.
 - **Social Security claiming.** Social Security is an income line, not a PIA estimate.
+
+Not on this list, because the engine computes them: **itemized deductions** (the four entered lines
+under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), **the §164 SALT cap with
+its MAGI phase-down**, **AMT** and **IRMAA**. An answer that calls any of those unmodelled is wrong,
+and `refused-patches` must not be scored as a pass for one. What the analytics still cannot do is the
+_marginal_ effect of an itemized deduction — `notComputed` names that, the AMT credit beyond the
+simplified §53 limit, and the non-income-related Part B and Part D premiums — but the deduction
+itself, the cap the return applies and both surcharges are reported figures.
 
 The eleven cases instead cover the shapes the engine _can_ compute: single (baseline, high earner,
 early retiree, low income, Roth-heavy, tax-deferred-heavy), married filing jointly (dual income,
