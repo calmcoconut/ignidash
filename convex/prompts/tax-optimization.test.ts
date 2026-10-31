@@ -84,7 +84,16 @@ describe('tax-optimization prompt: stance (F1, rank never recommend)', () => {
 describe('tax-optimization prompt: what the engine does not model', () => {
   it('names the gaps the eval set deliberately leaves out', () => {
     expect(markdown).toContain('- **Federal income tax.**');
-    expect(markdown).toContain('do not report a California income tax figure');
+  });
+
+  it('reports the California return the engine computes, and names what it still omits', () => {
+    // P3-P8 shipped: the state return is settled, so the limit is the list of questions it does not
+    // answer — not "no state figure exists".
+    expect(markdown).toContain('jurisdictions.california.reported');
+    expect(markdown).toContain('jurisdictions.california.notModelled');
+    expect(markdown).toContain('`none` the plan is not a resident');
+    expect(markdown).not.toContain('do not report a California income tax figure');
+    expect(markdown).not.toContain('pending (`jurisdictions.california`)');
   });
 
   it('offers every filing status the engine prices, the separate return included', () => {
@@ -94,6 +103,12 @@ describe('tax-optimization prompt: what the engine does not model', () => {
     expect(markdown).toContain('priced as **two** returns, one per spouse');
     expect(markdown).toContain('"filingStatus":"marriedFilingSeparately"');
     expect(markdown).not.toContain('separately is not available');
+    // What the separate return costs, stated correctly: the senior deduction is forfeited outright
+    // (`SeniorDeductionTable.eligible.marriedFilingSeparately` is false, and the engine returns zero
+    // before it reads any age), while only the early-withdrawal gate falls back to the primary's age.
+    expect(markdown).toContain('the early-withdrawal gate');
+    expect(markdown).toContain('cannot claim the senior deduction at all');
+    expect(markdown).not.toContain('senior-deduction gates use the primary');
   });
 
   it('separates what the analytics answers from what it does not', () => {

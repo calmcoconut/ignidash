@@ -3,7 +3,7 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
 /**
  * Eval set for the tax-optimization skill (§7-A2).
  *
- * Ten hand-specified plans across the shapes the engine can actually compute today, plus the
+ * Eleven hand-specified plans across the shapes the engine can actually compute today, plus the
  * properties every run must satisfy. The plans are `SimulatorInputs` — exactly what the tools in
  * `convex/chat_tools.ts` consume — and `tax-optimization-evals.test.ts` proves each one validates
  * and produces a baseline, so a schema change cannot leave a dead fixture behind.
@@ -12,8 +12,8 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  * calls a provider, and no test drives the agent.
  *
  * Deliberately **not** covered:
- * - **MFS.** The engine prices a separate return (P3-P1b), but no fixture in this set uses it yet.
- * - **California state tax.** Federal rules only; CA SDI is a payroll line, not a state return.
+ * - **California state-tax planning.** The state return is computed (P3-P8) and reported, but no case
+ *   turns on it: there is no state-specific lever, and Covered California subsidies and CA AMT are not modelled.
  * - **Roth conversions, SEPP, QCDs, pro-rata IRA basis, itemized deductions/SALT, AMT/IRMAA, ACA
  *   credits, Social Security claiming.** The skill may be *asked* about these; the correct
  *   behaviour is to say the lever is not modelled, which is what the refused-patch check looks at.
@@ -393,7 +393,7 @@ export const TAX_OPTIMIZATION_EVALS: readonly TaxOptimizationEval[] = [
   },
   {
     id: 'mfj-high-income',
-    covers: 'married filing jointly at a high income: NIIT territory, federal rules only (no CA return)',
+    covers: 'married filing jointly at a high income: NIIT territory, with the California return the engine computes',
     goal: 'lifetime-taxes',
     request: 'Rank variants of our joint plan by lifetime taxes and penalties. We are high earners in California.',
     levers: [
@@ -440,6 +440,90 @@ export const TAX_OPTIMIZATION_EVALS: readonly TaxOptimizationEval[] = [
         traditional: { id: 'traditional', name: '401(k)', type: '401k', balance: 760000, percentBonds: 25 },
         roth: { id: 'roth', name: 'Roth IRA', type: 'rothIra', balance: 180000, percentBonds: 25 },
         taxable: { id: 'taxable', name: 'Brokerage', balance: 640000, type: 'taxableBrokerage', percentBonds: 25, costBasis: 380000 },
+      },
+    }),
+  },
+  {
+    id: 'mfs-couple',
+    covers:
+      'married filing separately: two returns per year, separate incomes on their own return and a community brokerage split 50/50 (Form 8958), and the California return the engine computes for each spouse',
+    goal: 'lifetime-taxes',
+    request:
+      'Rank variants of our plan by lifetime taxes and penalties. We are married and file separately, and most of our savings are held jointly.',
+    levers: [
+      // The lever the separate-return tables make runnable: the same household priced as one return.
+      { label: 'file jointly instead', planPatch: { taxSettings: { filingStatus: 'marriedFilingJointly' } } },
+      { label: 'retire at 62', planPatch: { timeline: retireAt(62) } },
+      { label: 'lower household expenses', planPatch: { expenses: { living: { amount: 60000 } } } },
+    ],
+    plan: basePlan({
+      taxSettings: { filingStatus: 'marriedFilingSeparately' },
+      timeline: {
+        birthMonth: 1,
+        birthYear: 1990,
+        lifeExpectancy: 92,
+        retirementStrategy: { type: 'fixedAge', retirementAge: 65 },
+        // A real couple: the partner is two years younger, so the two returns cover two ages and the
+        // run lasts to the longer expectancy (P1-P3).
+        household: {
+          members: [
+            { id: 'primary', role: 'primary', lifeExpectancy: 92 },
+            { id: 'partner', role: 'partner', birthMonth: 6, birthYear: 1992, lifeExpectancy: 90 },
+          ],
+        },
+      },
+      incomes: {
+        // Each wage belongs to one return in full, so the separate-return split has something to keep
+        // apart (the community split below is what halves).
+        primary: {
+          id: 'primary',
+          name: 'Primary salary',
+          amount: 148000,
+          frequency: 'yearly',
+          timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } },
+          taxes: { incomeType: 'wage', withholding: 24 },
+          growth: { growthRate: 3 },
+          owner: 'primary',
+          disabled: false,
+        },
+        partner: {
+          id: 'partner',
+          name: 'Partner salary',
+          amount: 96000,
+          frequency: 'yearly',
+          timeframe: { start: { type: 'now' }, end: { type: 'atRetirement' } },
+          taxes: { incomeType: 'wage', withholding: 24 },
+          growth: { growthRate: 2 },
+          owner: 'partner',
+          disabled: false,
+        },
+      },
+      expenses: {
+        living: {
+          id: 'living',
+          name: 'Household expenses',
+          amount: 84000,
+          frequency: 'yearly',
+          timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+          growth: { growthRate: 3 },
+          owner: 'joint',
+          disabled: false,
+        },
+      },
+      accounts: {
+        // Community property: each spouse's return picks up half of every joint balance and of the
+        // withdrawals and gains it produces — the Form 8958 allocation (E2, F10).
+        traditional: { id: 'traditional', name: '401(k)', type: '401k', balance: 480000, percentBonds: 20, owner: 'joint' },
+        roth: { id: 'roth', name: 'Roth IRA', type: 'rothIra', balance: 130000, percentBonds: 20, owner: 'joint' },
+        taxable: {
+          id: 'taxable',
+          name: 'Brokerage',
+          balance: 260000,
+          type: 'taxableBrokerage',
+          percentBonds: 20,
+          costBasis: 180000,
+          owner: 'joint',
+        },
       },
     }),
   },

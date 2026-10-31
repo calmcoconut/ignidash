@@ -21,9 +21,10 @@
  *
  * ## What it does not compute (and why not)
  *
- * - **California income tax** — P3-P8. The state ruleset does not exist yet, so the combined view
- *   reports the federal figure and marks the state side `pending`. The only California number the
- *   engine has today is SDI, a payroll line, and that one is reported.
+ * - **California income tax** is **not** on this list. P3-P8 landed, so the state return is settled
+ *   by the engine and `jurisdictions.california` reports it verbatim, with the questions the state
+ *   return still cannot answer (Covered California subsidies, California AMT, the HSA
+ *   non-conformity) named separately in `jurisdictions.california.notModelled`.
  * - **ACA premium tax credit** — P3-P7b. The cliff depends on the SLCSP premium for the coverage
  *   year, the federal poverty line for a household size, and the applicable-percentage table;
  *   none of the three is in the result. It is reported as a prerequisite, never approximated.
@@ -57,7 +58,7 @@ import type { SimulationDataPoint } from './simulation-engine';
 import { getRules } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import type { CapitalGainsTaxBracket, ProgressiveBracket, TaxYear } from './tax-data/types';
-import type { TaxesData } from './taxes';
+import type { StateTaxesData, TaxesData } from './taxes';
 
 // ============================================================================
 // Public shapes
@@ -285,14 +286,28 @@ export interface TaxAnalytics {
     irmaa: IrmaaLookback;
     aca: { supported: false; prerequisites: string[] };
   };
-  /** Federal now; California's income tax is P3-P8 and is marked pending rather than invented. */
+  /** The two returns the engine settles: the federal one, and California's (P3-P8). */
   jurisdictions: {
     federal: { supported: true; totalTaxLiability: number };
+    /**
+     * The California return as the engine settled it, copied from `TaxesData.state` rather than
+     * re-derived here — one return, one set of numbers.
+     *
+     * `reported.jurisdiction` is the residency the return used, and it is the field that separates
+     * "California taxed nothing" from "there is no California return": when it is `'none'` the plan
+     * is not a resident, `resolvedYear` is `null`, and every amount is zero because nothing was
+     * filed. A zero read as a low state tax is the one mistake this block is shaped to prevent.
+     */
     california: {
-      supported: false;
-      pending: 'P3-P8';
-      /** The California lines the engine does have today: SDI, a payroll tax. */
-      available: { stateDisability: number };
+      supported: true;
+      reported: StateTaxesData;
+      /**
+       * California SDI withheld from wages. It is a payroll line (`TaxesData.fica`), not part of
+       * `reported.total`, and it is charged whether or not a state return is filed.
+       */
+      stateDisability: number;
+      /** The California questions this year's return does not answer, with the reason. */
+      notModelled: string[];
     };
   };
   /** What this analysis cannot answer for this year, with the reason. Empty is the goal, not the norm. */
@@ -543,10 +558,11 @@ function withDelta(model: YearModel, incomeType: MarginalIncomeType, amount: num
       provisionalIncome = amount * 0.5;
       break;
     default: {
-      // Exhaustiveness guard. A member added to `MarginalIncomeType` without a treatment here fails
-      // to compile on the assignment below, because TypeScript narrows the residual case to `never`.
-      // The throw covers the runtime route into this switch that bypassed the type — an unhandled
-      // type would otherwise price at zero, and a zero in a tax figure reads as "free".
+      // Exhaustiveness guard. The guarantee is the assignment below: a member added to
+      // `MarginalIncomeType` without a treatment here fails to compile, because TypeScript narrows
+      // the residual case to `never` — and a cast on that line would quietly remove the guarantee.
+      // The throw is for a runtime call that bypassed the type; an unpriced type would otherwise
+      // price at zero, and a zero in a tax figure reads as "free".
       const unpriced: never = incomeType;
       throw new Error(`tax-analytics: no marginal treatment for income type "${String(unpriced)}"`);
     }
@@ -639,13 +655,25 @@ function headroomTargets(taxable: number, brackets: readonly ProgressiveBracket[
 
 /** The clause that keeps a consumer from claiming more than this module can support. */
 const NOT_COMPUTED = [
-  'California income tax — P3-P8 supplies the state ruleset; only the SDI payroll line is available today.',
   'ACA premium tax credit and its cliff — P3-P7b. Needs the SLCSP premium, the federal poverty line for the household size and the applicable-percentage table; none is in the result.',
   'The AMT credit beyond the simplified §53 limit — the deferral-item refinement of Form 8801 Part III is not modelled (P3-P7a).',
   'The non-income-related Medicare Part B and Part D premiums — only the IRMAA surcharge is a liability line.',
   'Itemized deductions and the SALT cap — P3-P3. The engine applies the standard deduction only.',
   'The §72(t) 10% additional tax and the §223(f)(4) 20% HSA tax on a marginal early withdrawal — the engine charges those from the account type and age, not from a marginal rate.',
   'Pro-rata basis on a Roth conversion (§408(d)(2)) — P3-P5. A conversion dollar here is fully taxable, so its rate is an upper bound.',
+] as const;
+
+/**
+ * The California questions this analytics cannot answer, even though the return itself is settled.
+ *
+ * These are not absences of the state return — `reported` carries it — but the parts of California
+ * taxation the engine does not compute, listed so an answer names the limit instead of implying the
+ * return is complete.
+ */
+const CALIFORNIA_NOT_MODELLED = [
+  'Covered California premium subsidies — the state assistance on top of the federal premium tax credit, which is not modelled either (P3-P7b); no subsidy figure exists on the federal or the state return.',
+  'California AMT — the state alternative minimum tax (RTC §17062) is not computed, so the state figure is the regular tax plus the Behavioral Health Services Tax, less the exemption credits.',
+  'The HSA non-conformity — California does not recognise HSAs, so no California basis is tracked and no separate California tax on HSA earnings is charged; the state return prices the income lines the engine already recognises.',
 ] as const;
 
 /**
@@ -704,36 +732,30 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
   const ordinaryRows = bracketRows(model.taxableOrdinary, model.ordinaryBrackets);
   const capitalGainsRows = capitalGainsBracketRows(model.taxableOrdinary, model.taxableCapitalGains, model.capitalGainsBrackets);
 
-  const marginalRates = Object.fromEntries(
-    (
-      [
-        'ordinary',
-        'taxDeferredWithdrawal',
-        'rothConversion',
-        'wage',
-        'selfEmployment',
-        'longTermCapitalGain',
-        'qualifiedDividend',
-        'socialSecurity',
-        'taxExempt',
-      ] as const
-    ).map((incomeType) => {
-      const decomposition = decompose(model, incomeType, 1);
-      return [
-        incomeType,
-        {
-          incomeType,
-          rate: decomposition.marginalRate,
-          lines: decomposition.lines.map((line) => ({
-            id: line.id,
-            label: line.label,
-            jurisdiction: line.jurisdiction,
-            rate: line.delta,
-          })),
-        },
-      ];
-    })
-  ) as Record<MarginalIncomeType, MarginalRate>;
+  const marginalRateFor = (incomeType: MarginalIncomeType): MarginalRate => {
+    const decomposition = decompose(model, incomeType, 1);
+    return {
+      incomeType,
+      rate: decomposition.marginalRate,
+      lines: decomposition.lines.map((line) => ({ id: line.id, label: line.label, jurisdiction: line.jurisdiction, rate: line.delta })),
+    };
+  };
+
+  // One entry per member of `MarginalIncomeType`, written out rather than built from a list: an
+  // object literal annotated with the record type is checked key by key, so a member the union gains
+  // and this object lacks is a compile error — not a `marginalRates.someType` that reads as
+  // `undefined` and then as a zero rate.
+  const marginalRates: Record<MarginalIncomeType, MarginalRate> = {
+    ordinary: marginalRateFor('ordinary'),
+    taxDeferredWithdrawal: marginalRateFor('taxDeferredWithdrawal'),
+    rothConversion: marginalRateFor('rothConversion'),
+    wage: marginalRateFor('wage'),
+    selfEmployment: marginalRateFor('selfEmployment'),
+    longTermCapitalGain: marginalRateFor('longTermCapitalGain'),
+    qualifiedDividend: marginalRateFor('qualifiedDividend'),
+    socialSecurity: marginalRateFor('socialSecurity'),
+    taxExempt: marginalRateFor('taxExempt'),
+  };
 
   const rules = getRules(input.taxYear);
   const niitHeadroom = Math.max(0, model.niitThreshold - model.magi);
@@ -807,11 +829,10 @@ export function analyzeTaxYear(input: TaxAnalyticsInput): TaxAnalytics {
     jurisdictions: {
       federal: { supported: true, totalTaxLiability: sumLines(baseline.lines.filter((line) => line.jurisdiction === 'federal')) },
       california: {
-        supported: false,
-        pending: 'P3-P8',
-        available: {
-          stateDisability: baseline.lines.find((line) => line.id === 'payrollStateDisability')?.amount ?? 0,
-        },
+        supported: true,
+        reported: input.taxes.state,
+        stateDisability: baseline.lines.find((line) => line.id === 'payrollStateDisability')?.amount ?? 0,
+        notModelled: [...CALIFORNIA_NOT_MODELLED],
       },
     },
     notComputed: [...NOT_COMPUTED],

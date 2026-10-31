@@ -37,7 +37,7 @@ import {
   type TaxAnalyticsInput,
 } from './tax-analytics';
 import { getRules } from './tax-data';
-import type { TaxesData } from './taxes';
+import type { StateTaxesData, TaxesData } from './taxes';
 
 const TAX_YEAR = 2026;
 
@@ -57,6 +57,8 @@ interface YearSpec {
   selfEmployment?: number;
   filingStatus?: FilingStatus;
   taxYear?: number;
+  /** The settled state return, when the case exercises California (P3-P8). */
+  state?: Partial<StateTaxesData>;
 }
 
 // The 2026 standard deduction per filing status, including the separate return's $16,100 (§63(c)(2)(B):
@@ -137,7 +139,7 @@ function makeInput(spec: YearSpec): TaxAnalyticsInput {
     amt: createZeroAmtData(),
     irmaa: createZeroIrmaaData(),
     deduction: createZeroDeductionData(),
-    state: createZeroStateData(),
+    state: createZeroStateData(spec.state),
     totalTaxLiability: 0,
     totalTaxesDue: 0,
     totalTaxesRefund: 0,
@@ -491,6 +493,12 @@ describe('cliffs', () => {
     // $500,000: $400,000 still has $100,000 of room on a single return and none at all separately.
     expect(irmaaCliff({ magi: 400000, taxYear: TAX_YEAR, filingStatus: 'single' }).headroomToNextTier).toBe(100000);
     expect(irmaaCliff({ magi: 400000, taxYear: TAX_YEAR, filingStatus: 'marriedFilingSeparately' }).headroomToNextTier).toBeNull();
+
+    // That boundary itself, not just somewhere beyond it: the top row applies *at* its threshold
+    // (`magi >= min`, as on the single column's $500,000), so $374,999 is still tier 4. Without this,
+    // an MFS top row starting anywhere in (375,000, 400,000] would pass the assertion above.
+    expect(irmaaCliff({ magi: 375000, taxYear: TAX_YEAR, filingStatus: 'marriedFilingSeparately' }).tier.tier).toBe(5);
+    expect(irmaaCliff({ magi: 374999, taxYear: TAX_YEAR, filingStatus: 'marriedFilingSeparately' }).tier.tier).toBe(4);
   });
 
   it('reads the separate-return column of every status-keyed table a settled year needs', () => {
@@ -560,24 +568,55 @@ describe('cliffs', () => {
     expect(analytics.cliffs.additionalMedicare.costOfCrossing).toBeCloseTo(0.009);
   });
 
-  it('marks the ACA cliff and the California return as not computed, with the reason', () => {
+  it('marks the ACA cliff as not computed, with the reason', () => {
     const analytics = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, magi: 76100 }));
 
     expect(analytics.cliffs.aca.supported).toBe(false);
     expect(analytics.cliffs.aca.prerequisites).toHaveLength(4);
     expect(analytics.cliffs.aca.prerequisites.join(' ')).toMatch(/SLCSP/);
-
     expect(analytics.jurisdictions.federal.supported).toBe(true);
-    expect(analytics.jurisdictions.california).toMatchObject({ supported: false, pending: 'P3-P8' });
-    // The one California number the engine has today is the SDI payroll line.
-    expect(analytics.jurisdictions.california.available.stateDisability).toBe(0);
+  });
 
-    const withWages = analyzeTaxYear(makeInput({ taxableOrdinary: 83900, magi: 100000, wages: 100000 }));
-    // 100,000 × 1.3% = $1,300 of SDI.
-    expect(withWages.jurisdictions.california.available.stateDisability).toBeCloseTo(1300);
+  it('reports the California return the engine settled, rather than calling it pending', () => {
+    // The state return as `TaxProcessor` settled it (P3-P8). The analytics copies it; it does not
+    // re-derive it, so the figure the agent quotes is the figure the engine charged.
+    const settled: StateTaxesData = {
+      jurisdiction: 'CA',
+      resolvedYear: 2025,
+      income: 100000,
+      deduction: { type: 'standard', standard: 5706, itemized: 0, limitation: 0, taken: 5706 },
+      taxableIncome: 94294,
+      bracketTax: 5000,
+      behavioralHealthServicesTax: 0,
+      exemptionCredits: 149,
+      total: 4851,
+    };
+    const analytics = analyzeTaxYear(makeInput({ taxableOrdinary: 83900, magi: 100000, wages: 100000, state: settled }));
 
-    expect(analytics.notComputed.join(' ')).toMatch(/California income tax/);
-    expect(analytics.notComputed.join(' ')).toMatch(/P3-P8/);
+    expect(analytics.jurisdictions.california.supported).toBe(true);
+    expect(analytics.jurisdictions.california.reported).toStrictEqual(settled);
+    // 100,000 × 1.3% = $1,300 of SDI: a payroll line, reported beside the return and not inside it.
+    expect(analytics.jurisdictions.california.stateDisability).toBeCloseTo(1300);
+    expect(analytics.jurisdictions.california.reported.total).toBe(4851);
+
+    // What the analytics still cannot answer about the state is named, and it is not "the return".
+    const notModelled = analytics.jurisdictions.california.notModelled.join(' ');
+    expect(notModelled).toMatch(/Covered California/);
+    expect(notModelled).toMatch(/California AMT/);
+    expect(notModelled).toMatch(/HSA non-conformity/);
+    // The state return is no longer on the global "cannot answer" list.
+    expect(analytics.notComputed.join(' ')).not.toMatch(/California income tax/);
+  });
+
+  it('distinguishes a non-resident plan from a California return of zero', () => {
+    // No state return filed: `jurisdiction: 'none'` and a null ruleset year are the signal, so the
+    // zeros below read as "nothing was filed", never as "California charged nothing".
+    const nonResident = analyzeTaxYear(makeInput({ taxableOrdinary: 60000, magi: 76100 }));
+
+    expect(nonResident.jurisdictions.california.reported.jurisdiction).toBe('none');
+    expect(nonResident.jurisdictions.california.reported.resolvedYear).toBeNull();
+    expect(nonResident.jurisdictions.california.reported.total).toBe(0);
+    expect(nonResident.jurisdictions.california.stateDisability).toBe(0);
   });
 
   it('refuses a year the ruleset does not cover', () => {

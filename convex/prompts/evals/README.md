@@ -2,7 +2,7 @@
 
 Two files make up the eval set, and they do different jobs:
 
-- `tax-optimization-evals.ts` — ten hand-specified plans and the eight properties a run must satisfy.
+- `tax-optimization-evals.ts` — eleven hand-specified plans and the eight properties a run must satisfy.
   No provider, no network: it is data, typed as `SimulatorInputs`.
 - `tax-optimization-evals.test.ts` — the automated half. It proves every fixture still validates
   against `simulatorSchema`, that every fixture produces a baseline through the real
@@ -49,23 +49,24 @@ prompt, so the rubric and the prompt cannot drift apart silently.
 
 ## What the set deliberately omits
 
-Most of these the engine cannot compute today, so a fixture would only test the refusal path — except
-that `refused-patches` covers exactly that, using the same levers a user would ask about:
+The engine cannot compute most of these today, so a fixture would only test the refusal path — except
+that `refused-patches` covers exactly that, using the same levers a user would ask about.
 
-- **Married filing separately.** The engine prices a separate return as two returns (P3-P1b), so an
-  MFS case is computable; this set has none yet, and the test asserts that.
-- **California state tax.** Federal rules only; California SDI is a payroll line, not a state return.
-  The one case that mentions California is a user's claim in a request, documented as federal-only,
-  so nothing in the set asserts a state-tax number.
+The one omission that is not a refusal is California's: the state return is computed (P3-P8) and the
+prompt tells the agent to quote `jurisdictions.california.reported`, but no case turns on a
+state-only lever. Covered California subsidies and California AMT are not modelled, which
+`jurisdictions.california.notModelled` says on every run.
+
 - **Roth conversions, SEPP/72(t), QCDs, pro-rata IRA basis, five-year rules, qualified-medical HSA
   withdrawals.** Not modelled as transactions.
 - **Itemized deductions, SALT cap, AMT, IRMAA, ACA premium credits.**
 - **Social Security claiming.** Social Security is an income line, not a PIA estimate.
 
-The ten cases instead cover the shapes the engine _can_ compute: single (baseline, high earner, early
-retiree, low income, Roth-heavy, tax-deferred-heavy), married filing jointly (dual income, single
-earner, early retiree, high income). The `covers` line on each case says which behaviour it is
-looking for.
+The eleven cases instead cover the shapes the engine _can_ compute: single (baseline, high earner,
+early retiree, low income, Roth-heavy, tax-deferred-heavy), married filing jointly (dual income,
+single earner, early retiree, high income) and married filing separately (one couple of two ages,
+with separate wages and community property that the Form 8958 split divides). The `covers` line on
+each case says which behaviour it is looking for.
 
 CI runs only the fixture tests. Replaying recorded transcripts in CI — so a changed model can be
 diffed without spending tokens — is not built yet; until then, an eval run is a human reading a

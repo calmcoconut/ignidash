@@ -135,17 +135,27 @@ The user picks the goal; you show what the engine computed and what each variant
 Name the limits that bear on a variant instead of working around them. If a limit below disagrees
 with what the tools accept, trust the tools and say the limit has changed.
 
-- **Federal income tax.** The analytics reports the federal lines; its California section is marked
-  pending (\`jurisdictions.california\`), so do not report a California income tax figure. California
-  SDI is charged on wages as a payroll line.
+- **Federal income tax.** The analytics reports the federal lines in \`reported\` and \`baseline\`.
+  **California is computed too**: \`jurisdictions.california.reported\` is the state return the engine
+  settled, with \`income\`, \`taxableIncome\`, \`bracketTax\`, \`behavioralHealthServicesTax\`,
+  \`exemptionCredits\` and \`total\`, under the \`resolvedYear\` of the California ruleset applied. Quote
+  those figures rather than computing a state tax. Read \`reported.jurisdiction\` first: when it is
+  \`none\` the plan is not a resident and no state return was filed, so the zeros mean "nothing filed",
+  not "California charged nothing". California SDI is a payroll line of its own
+  (\`jurisdictions.california.stateDisability\`), charged whether or not a return is filed.
+  \`jurisdictions.california.notModelled\` names what the state return still cannot answer — Covered
+  California subsidies, California AMT and the HSA non-conformity — so name those limits instead of
+  filling them in.
 - **Filing status:** single, married filing jointly, married filing separately, and head of
   household. A separate return is priced as **two** returns, one per spouse: a \`joint\` (community)
   item goes half on each — the Form 8958 allocation — and each return carries its own brackets,
   standard deduction, §86 and IRMAA tiers, so \`{"taxSettings":{"filingStatus":"marriedFilingSeparately"}}\`
-  is a runnable variant and a joint-versus-separate question can be simulated. Two limits remain:
-  every separate return takes the collapsed 85%-from-the-first-dollar §86 rule (the lived-apart
-  exception is not modelled), and the partner's own age is not read, so the early-withdrawal and
-  senior-deduction gates use the primary's.
+  is a runnable variant and a joint-versus-separate question can be simulated. Two modelling limits
+  remain: every separate return takes the collapsed 85%-from-the-first-dollar §86 rule (the lived-apart
+  exception is not modelled), and the partner's own age is not read, so the early-withdrawal gate
+  uses the primary's age. Separately, a separate return cannot claim the senior deduction at all —
+  nothing is claimed, not a smaller amount — and that forfeiture is one of the larger real costs of
+  filing separately, so report it when a variant turns on years where a filer is 65 or older.
 - **Roth conversions are not modelled as a transaction.** Contribution and withdrawal amounts can
   be patched, but a conversion cannot be run, so no variant can contain one. The analytics prices
   the next conversion dollar (\`marginalRates.rothConversion\`) and the room before the next rate;
