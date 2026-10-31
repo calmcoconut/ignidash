@@ -1,10 +1,21 @@
 /**
  * The frozen golden corpus (parity plan P2-P1b).
  *
- * This test re-runs `simulate()` for every fixture and compares the bytes with `corpus.json`.
- * It is exact: no tolerances, no partial matching. A difference means a number a user sees has
- * moved, so read `README.md` in this directory before touching the corpus — a diff must arrive
- * with an explanation, never as a regenerated file that makes this test green.
+ * This test re-runs `simulate()` for every fixture and compares it with `corpus.json`. Two
+ * promises, and they are different promises:
+ *
+ * - **Within one JavaScript engine** the comparison is exact. Two builds must serialise
+ *   byte-identically (`is deterministic`), so a nondeterministic engine still fails here.
+ * - **Across engines** it is tolerant at `COMPARISON_PRECISION` (12 significant digits, about
+ *   1e-12 relative), applied to both sides by `canonicalizeCorpus`. ECMAScript leaves `Math.pow`
+ *   implementation-approximated, and V8 12.4 (Node 22) differs from V8 13.6 (Node 24) by 1 ulp at
+ *   `Math.pow(1.03, 12)`; the deflation chain amplifies that to 32 ulp (5.2e-15 relative) on 38
+ *   leaves. That is a host approximation, not a moved number, so it must not fail the corpus.
+ *
+ * Anything coarser than that spread still fails, which is the point: a difference *at* this
+ * precision means a number a user sees has moved. Read `README.md` in this directory before
+ * touching the corpus — a diff must arrive with an explanation, never as a regenerated file that
+ * makes this test green. `snapshot.ts` documents the precision and what it gives up.
  */
 
 import { readFileSync } from 'node:fs';
@@ -12,7 +23,16 @@ import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { buildCorpus, parseCorpus, serializeCorpus, type GoldenCorpus } from './snapshot';
+import {
+  COMPARISON_PRECISION,
+  buildCorpus,
+  canonicalizeCorpus,
+  canonicalizeNumber,
+  parseCorpus,
+  serializeCanonicalCorpus,
+  serializeCorpus,
+  type GoldenCorpus,
+} from './snapshot';
 import { GOLDEN_AS_OF, GOLDEN_FIXTURES } from './fixtures';
 import { getNyuDataRange } from '../../historical-data/nyu-returns';
 import { SimulationDataExtractor } from '../../data-extractors/simulation-data-extractor';
@@ -70,6 +90,11 @@ function expectMatches(prefix: string, frozen: unknown, live: unknown): void {
       `  corpus: ${JSON.stringify(difference.corpus)}`,
       `  live:   ${JSON.stringify(difference.live)}`,
       '',
+      `Both sides were first rounded to ${COMPARISON_PRECISION} significant digits, which removes the`,
+      'cross-engine `Math.pow` spread (5.2e-15 relative at worst). Rounding is a knife edge rather than a',
+      'window, though: a value sitting on a rounding boundary can still be reported at that spread, so a',
+      'difference this small may be the host approximation and not a moved number. Re-run on another',
+      'engine before drawing a conclusion.',
       'The blocked path is a value a user sees, so do not regenerate the corpus to make this green.',
       'A deliberate change arrives with an explanation of why the number moved; see',
       'src/lib/calc/__tests__/golden/README.md. If the change is intended, run',
@@ -104,31 +129,38 @@ function findNaN(value: unknown, path: string): string | null {
 /** The raw build, and the same data exactly as the corpus file carries it. */
 let live: GoldenCorpus;
 let liveAsCorpus: GoldenCorpus;
+/** Both sides of every comparison, after `canonicalizeCorpus`. */
+let frozenCanonical: GoldenCorpus;
+let liveCanonical: GoldenCorpus;
 
 beforeAll(() => {
   live = buildCorpus();
   liveAsCorpus = parseCorpus(serializeCorpus(live));
+  frozenCanonical = canonicalizeCorpus(corpus);
+  liveCanonical = canonicalizeCorpus(liveAsCorpus);
 });
 
 const runs = GOLDEN_FIXTURES.flatMap((fixture) => fixture.runs.map((run) => [fixture.id, run.mode] as const));
 
 describe('golden corpus', () => {
-  it.each(runs)('matches the frozen bytes for %s / %s', (fixtureId, mode) => {
-    const frozen = corpus.fixtures[fixtureId]?.[mode];
+  it.each(runs)('matches the frozen corpus for %s / %s', (fixtureId, mode) => {
+    const frozen = frozenCanonical.fixtures[fixtureId]?.[mode];
     const current = live.fixtures[fixtureId]?.[mode];
 
     expect(frozen, `the corpus has no entry for ${fixtureId}/${mode}`).toBeDefined();
     expect(current, `the fixture list has no ${mode} run for ${fixtureId}`).toBeDefined();
 
-    expectMatches(`fixtures.${fixtureId}.${mode}`, frozen, liveAsCorpus.fixtures[fixtureId][mode]);
+    expectMatches(`fixtures.${fixtureId}.${mode}`, frozen, liveCanonical.fixtures[fixtureId][mode]);
   });
 
   it('matches the frozen cross-run readouts', () => {
-    expectMatches('crossPlan', corpus.crossPlan, liveAsCorpus.crossPlan);
+    expectMatches('crossPlan', frozenCanonical.crossPlan, liveCanonical.crossPlan);
   });
 
-  it('matches the corpus file exactly, so a missing or extra fixture cannot slip through', () => {
-    expect(serializeCorpus(live)).toBe(corpusText);
+  it('matches the corpus file at comparison precision, so a missing or extra fixture cannot slip through', () => {
+    // Both sides through the same normalisation, byte for byte: the file's own text is pinned by
+    // the codec fixed-point test below, and the values here by `canonicalizeCorpus`.
+    expect(serializeCanonicalCorpus(liveAsCorpus)).toBe(serializeCanonicalCorpus(corpus));
   });
 
   it('is deterministic: two builds produce identical bytes', () => {
@@ -227,5 +259,145 @@ describe('golden corpus', () => {
     // Former table predicate: retirementAge !== null && final > 0.1 -> true.
     // Former analyzer predicate: final > 0.1 && final phase === 'retirement' -> true.
     // So a regression to either would flip this frozen `false` to a failure here.
+  });
+});
+
+/**
+ * Numeric leaves measured to differ between V8 generations: `steady-saver` / fixed `data[12]`
+ * (`taxes.niit.threshold`) and `steady-saver` / historical `data[18]`
+ * (`taxes.deduction.saltCap.phaseDown`). V8 12.4 (Node 22.23.4) produces `v8TwelveValue`; V8 13.6
+ * (Node 24.22.2) and V8 14.6 (Node 26.13.0) produce `frozenValue`, which is what the file carries.
+ */
+const ENGINE_DIVERGENT_LEAVES = [
+  {
+    path: ['fixtures', 'steady-saver', 'fixedReturns', 'simulation', 'result', 'data', 12, 'taxes', 'niit', 'threshold'],
+    v8TwelveValue: 140275.97603859456,
+    frozenValue: 140275.97603859458,
+  },
+  {
+    path: [
+      'fixtures',
+      'steady-saver',
+      'historicalReturns',
+      'simulation',
+      'result',
+      'data',
+      18,
+      'taxes',
+      'deduction',
+      'saltCap',
+      'phaseDown',
+    ],
+    v8TwelveValue: 174.03923578058493,
+    frozenValue: 174.03923578058584,
+  },
+] as const satisfies ReadonlyArray<{ path: ReadonlyArray<string | number>; v8TwelveValue: number; frozenValue: number }>;
+
+type LeafPath = ReadonlyArray<string | number>;
+
+/** The largest relative difference measured between those two engines: 5.2258e-15, the SALT phase-down. */
+const MEASURED_MAX_RELATIVE_SPREAD = 5.3e-15;
+
+/** The root the comparison walks from, as `firstDifference` reports it. */
+const CORPUS_PREFIX = 'corpus';
+
+/** How `firstDifference` spells a path: keys dotted, array indices bracketed. */
+const reportedPath = (path: LeafPath, prefix: string): string =>
+  path.reduce<string>((text, segment) => (typeof segment === 'number' ? `${text}[${segment}]` : `${text}.${segment}`), prefix);
+
+/** How a test addresses a leaf: every segment as a key of `Object.entries`-shaped data. */
+const leafPath = (path: LeafPath): string => path.join('.');
+
+function leafAt(source: unknown, path: LeafPath): unknown {
+  let node = source;
+  for (const segment of path)
+    node = typeof segment === 'number' ? (node as unknown[])[segment] : (node as Record<string, unknown>)[segment];
+  return node;
+}
+
+/** A copy of the corpus with one numeric leaf replaced — the harness under test, not the file. */
+function withLeaf(source: GoldenCorpus, path: LeafPath, value: number): GoldenCorpus {
+  const copy = structuredClone(source);
+  let node: unknown = copy;
+  for (const segment of path.slice(0, -1)) {
+    node = typeof segment === 'number' ? (node as unknown[])[segment] : (node as Record<string, unknown>)[segment];
+  }
+
+  const last = path[path.length - 1];
+  if (typeof last === 'number') (node as unknown[])[last] = value;
+  else (node as Record<string, unknown>)[last] = value;
+  return copy;
+}
+
+describe('cross-engine comparison', () => {
+  it('rounds idempotently, on the values that actually differ between V8 versions', () => {
+    for (const leaf of ENGINE_DIVERGENT_LEAVES) {
+      for (const value of [leaf.v8TwelveValue, leaf.frozenValue]) {
+        const once = canonicalizeNumber(value);
+        expect(canonicalizeNumber(once), `${value} is not a rounding fixed point`).toBe(once);
+      }
+
+      // The whole point: both engines' raw outputs land on one comparable value.
+      expect(canonicalizeNumber(leaf.v8TwelveValue)).toBe(canonicalizeNumber(leaf.frozenValue));
+    }
+
+    const canonical = canonicalizeCorpus(live);
+    expect(canonicalizeCorpus(canonical)).toEqual(canonical);
+  });
+
+  it('reports a 1e-6 relative move but not the 5e-15 cross-engine spread', () => {
+    for (const leaf of ENGINE_DIVERGENT_LEAVES) {
+      const frozenValue = leafAt(corpus, leaf.path);
+      expect(frozenValue, `${leafPath(leaf.path)} is no longer the frozen value`).toBe(leaf.frozenValue);
+
+      // A corpus compared with itself is clean, so the two assertions below mean what they say.
+      expect(firstDifference(canonicalizeCorpus(corpus), canonicalizeCorpus(corpus), CORPUS_PREFIX)).toBeNull();
+
+      // 1e-6 relative: eight orders of magnitude above the spread, a defect a reader would call a
+      // moved number. The rounding must not swallow it.
+      const moved = withLeaf(corpus, leaf.path, (frozenValue as number) * (1 + 1e-6));
+      const difference = firstDifference(canonicalizeCorpus(corpus), canonicalizeCorpus(moved), CORPUS_PREFIX);
+      expect(difference?.path, 'a 1e-6 relative change was swallowed by the comparison').toBe(reportedPath(leaf.path, CORPUS_PREFIX));
+
+      // 5e-15 relative: the measured worst-case spread, both directions. The rounding must swallow it.
+      for (const factor of [1 + 5e-15, 1 - 5e-15]) {
+        const nudged = withLeaf(corpus, leaf.path, (frozenValue as number) * factor);
+        expect(leafAt(nudged, leaf.path), 'the perturbation did not change the float').not.toBe(frozenValue);
+        expect(
+          firstDifference(canonicalizeCorpus(corpus), canonicalizeCorpus(nudged), CORPUS_PREFIX),
+          `a ${factor === 1 + 5e-15 ? '+' : '-'}5e-15 relative nudge was reported as a corpus difference`
+        ).toBeNull();
+      }
+    }
+  });
+
+  it('is a fixed point of the codec: reading and re-writing the checked-in file changes no text', () => {
+    // `corpus.json` is not regenerated by this change and stays byte-identical; this pins the
+    // parse/serialise round trip it relies on, `Infinity` codec included.
+    expect(serializeCorpus(parseCorpus(corpusText))).toBe(corpusText);
+    expect(serializeCorpus(parseCorpus(serializeCorpus(parseCorpus(corpusText))))).toBe(corpusText);
+    expect(corpusText.includes('__nonFinite:Infinity'), 'the file lost its encoded Infinity leaves').toBe(true);
+  });
+
+  it('pins the leaves that differ between V8 versions, after canonicalisation', () => {
+    // The pin that would have caught the bug: these two paths are where V8 12.4 and V8 13.6
+    // disagree, and both sides must still agree once rounded. It runs on whatever engine CI has,
+    // with no second Node install.
+    for (const leaf of ENGINE_DIVERGENT_LEAVES) {
+      const liveValue = leafAt(liveAsCorpus, leaf.path);
+      const frozenValue = leafAt(corpus, leaf.path);
+      expect(typeof liveValue, `${leafPath(leaf.path)} is missing from the live run`).toBe('number');
+      expect(canonicalizeNumber(liveValue as number)).toBe(canonicalizeNumber(frozenValue as number));
+
+      // And the raw value is still the engine's own: within the measured V8 spread, nowhere near
+      // the 1e-6 a real change would move it by.
+      const relativeSpread = Math.abs((liveValue as number) - (frozenValue as number)) / Math.abs(frozenValue as number);
+      expect(
+        relativeSpread,
+        `${leafPath(leaf.path)} moved further than any V8 generation measured so far. Re-measure on the failing ` +
+          'engine; if the spread is still below 1e-12 relative, raise MEASURED_MAX_RELATIVE_SPREAD and record the ' +
+          'V8 generation in the comment. Do not regenerate the corpus.'
+      ).toBeLessThanOrEqual(MEASURED_MAX_RELATIVE_SPREAD);
+    }
   });
 });

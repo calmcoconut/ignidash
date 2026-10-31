@@ -1,8 +1,11 @@
 # Golden corpus (P2-P1b)
 
 `corpus.json` is the frozen reference for the simulation engine. `golden-corpus.test.ts`
-re-runs `simulate()` for every fixture and fails on **any** difference — exact values, no
-tolerances.
+re-runs `simulate()` for every fixture and compares it with the frozen file. The comparison is
+**exact within one JavaScript engine** — two builds of the same code must serialise identically —
+and tolerant **between engines** at 12 significant digits (about 1e-12 relative), because
+`Math.pow` is implementation-approximated. See "Comparison precision" below. A difference that
+survives that rounding means a number a user sees has moved.
 
 ## The rule
 
@@ -21,7 +24,44 @@ which are in). Every later change is judged against it.
 
 - The generator is deterministic: `simulate()` takes an explicit `asOf` (`GOLDEN_AS_OF`) and
   reads no clock, store or worker, so two runs on the same code write byte-identical files.
-  If they do not, that is a determinism bug in the engine — report it, do not regenerate.
+  If they do not, that is a determinism bug in the engine — report it, do not regenerate. That
+  guarantee is unaffected by the cross-engine tolerance: the tolerance exists for a _different_
+  JavaScript engine, never for a second run of the same one.
+
+## Comparison precision: exact within an engine, tolerant between engines
+
+Both sides of every comparison go through `canonicalizeCorpus` (`snapshot.ts`), which rounds each
+**finite** number to 12 significant digits (`Number(x.toPrecision(12))`, about 1e-12 relative) and
+changes nothing else — structure, key order and `Infinity` all survive, and the `__nonFinite:`
+codec still runs, unrounded, on the way to disk. `corpus.json` keeps full precision; the rounding
+lives in the comparison, never in the file.
+
+Why: ECMAScript leaves `Math.pow` implementation-approximated, and the V8s disagree in the last
+bit. `Math.pow(1.03, 12)` is `1.4257608868461795204` on V8 12.4 (Node 22.23.4) and
+`1.4257608868461792984` on V8 13.6 (Node 24.22.2) and V8 14.6 (Node 26.13.0) — 1 ulp. It enters
+through `time-binding.ts`'s `Math.pow(1 + rate/100, years)`, becomes an integer year span in
+`tax-data/real-dollars.ts`, and `salt-cap.ts`'s `phaseDown = cap - allowed` cancelling subtraction
+amplifies it to 32 ulp: 38 leaves differ, worst case **5.2e-15 relative**, all in the deflation
+chain (`taxes.niit.threshold`, `taxes.deduction.saltCap.{phaseDown,allowed}`,
+`deduction.itemized.{stateAndLocalTaxes,total}`). No portfolio value, wage or percentile moves.
+Before this change 7 of the 15 corpus tests failed on Node 22 while all 15 passed on Node 24.
+
+Both directions are pinned, because a tolerance that only proves the tolerant direction is not a
+test: in `golden-corpus.test.ts` ("cross-engine comparison") a value perturbed by **1e-6**
+relative must still be reported as a difference, and one perturbed by **5e-15** must not be.
+`package.json` advertises Node `^22.22.2`, so the Node 22 row is a supported runtime.
+
+What the harness gives up is the last few bits of a float: **a change below ~1e-12 relative is
+invisible to this corpus**. Rounding to 12 digits is a knife edge rather than a window, though —
+56 of its 31,504 non-zero leaves (0.18%) still report even a 5.2e-15 nudge, because they sit on a
+rounding boundary — so a difference reported at that size is as likely to be the host approximation
+as a moved number, and it is worth re-running on another engine before drawing a conclusion. The
+1e-9 window suggested in the 2026-10-31 handover was
+200,000x looser than the measured spread and is not used. What still pins the file itself: the
+whole-file test compares `serializeCanonicalCorpus` on both sides (so a missing or extra fixture,
+a renamed key or a reordering still fails), and the raw text is pinned by the codec fixed-point
+test `serializeCorpus(parseCorpus(corpusText)) === corpusText`, where a broken `Infinity` codec
+would show up.
 
 ## What is frozen
 
@@ -286,3 +326,76 @@ rows, and the year each one first binds explains the shape of each diff:
 Each final-portfolio delta is slightly larger in magnitude than the tax delta because the tax is paid
 out of the portfolio and stops compounding there — the same mechanism documented under P3-P8.
 `success` is unchanged for every fixture, including the two that are `false` by design.
+
+### Corpus harness: a V8-independent comparison at 12 significant digits (no numbers regenerated)
+
+**`corpus.json` did not change.** `sha256 1e002e8ab28549a44b6f819866dcbe91db6354442e8419c703c0cd724b4570fe`,
+4,475,058 bytes, before and after. Only the harness moved: `snapshot.ts` gained
+`canonicalizeCorpus`, and both comparisons in `golden-corpus.test.ts` now apply it to _both_
+sides.
+
+The defect it fixes: the corpus reproduced on the machine that generated it and nowhere else —
+and it is not machine-dependent, it is **V8-dependent**. Reproduced on one clean tree against one
+corpus file:
+
+| engine       | V8          | `Math.pow(1.03, 12)`    | corpus tests before | after     |
+| ------------ | ----------- | ----------------------- | ------------------- | --------- |
+| Node 22.23.4 | 12.4.254.21 | `1.4257608868461795204` | 7 failed / 8 passed | 19 passed |
+| Node 24.22.2 | 13.6.233.17 | `1.4257608868461792984` | 15 passed           | 19 passed |
+| Node 26.13.0 | 14.6.202.34 | `1.4257608868461792984` | 15 passed           | 19 passed |
+
+19 is the 15 tests this file had plus the four the comparison now needs. `package.json`
+`engines` advertises `^22.22.2 || ^24.15.0 || >=26.0.0`, so the first row is a supported runtime —
+and `.github/workflows/test.yml` runs only the Node in `.nvmrc` (24, V8 13.6), which is why this
+went unnoticed.
+
+**Diagnosis, and the proof that the engine is untouched.** ECMAScript leaves `Math.pow`
+implementation-approximated, and these two V8s disagree by **1 ulp** at `Math.pow(1.03, 12)`. The
+chain: `time-binding.ts:81-83` `Math.pow(1 + rate/100, years)` → `tax-data/real-dollars.ts:104`
+`cumulativeInflationIndex(simYear - rulesetYear)`, an integer exponent → `salt-cap.ts:212-219`,
+where `phaseDown = cap - allowed` is a cancelling subtraction that amplifies 1 ulp to **32 ulp**.
+38 leaves differ — max absolute 2.9e-11, max relative **5.2e-15** — and every one of them is in
+the deflation chain: `taxes.niit.threshold`, `taxes.deduction.saltCap.{phaseDown,allowed}`,
+`deduction.itemized.{stateAndLocalTaxes,total}`. No portfolio value, wage or percentile moves.
+
+The diagnostic that settles it is the one worth remembering: replacing the `Math.pow` sites with
+an integer-power chain produced the **same corpus sha256 under Node 22 and Node 24**. So the
+divergence is entirely `Math.pow`, and no golden number is wrong. This is also not
+nondeterminism — `is deterministic` (two builds, byte-identical) passes on Node 22 both before and
+after this change, and rule 2 is not violated. The fix belongs in the comparison, not in the
+engine.
+
+**The comparison.** `canonicalizeCorpus` rounds each finite number to 12 significant digits
+(`Number(x.toPrecision(12))`, ~1e-12 relative) and changes nothing else; the non-finite branch is
+decided _before_ the rounding, so `Infinity` (the top bracket's unbounded `max`) survives
+untouched and the `__nonFinite:` codec keeps working on the way to disk. Rounding the _file_
+instead would have rewritten 19,895 of its 31,504 non-zero finite numbers — 63% of the non-zero
+ones, 27% of all 72,963 — for no gain over rounding both sides, so it was not done. The
+requires every commit to justify — for no gain over rounding both sides, so it was not done. The
+1e-9 tolerance the 2026-10-31 handover suggested is 200,000x looser than the measured spread and
+was not used.
+
+**What the harness gives up: anything below ~1e-12 relative is now invisible**, so the last few
+bits of a float are no longer pinned. Everything a reader sees still is: `golden-corpus.test.ts`
+("cross-engine comparison") asserts that a 1e-6 relative move is still reported _and_ that a 5e-15
+relative one is not, and pins by name the two leaves that actually diverged
+(`steady-saver`/fixed `data[12].taxes.niit.threshold`,
+`steady-saver`/historical `data[18].taxes.deduction.saltCap.phaseDown`) — that pin is what would
+have caught this, and it runs in CI without a second Node install.
+
+**Residual risk, stated because it is real.** A regeneration (`npm run test:golden:update`) run on
+a different V8 now writes those 38 leaves at 1e-15 relative. For the two leaves pinned above that is
+_caught_: `ENGINE_DIVERGENT_LEAVES` asserts each frozen value, so a wrong-V8 rebuild fails on either
+engine (verified by swapping in a Node 22 build of the file). A divergence on any _other_ leaf at or
+below 1e-12 relative would be accepted, though — the file's hash changes and the tests do not.
+Regenerate only on the V8 the file was frozen
+with (V8 13.6+, i.e. `.nvmrc`), and check `shasum -a 256 src/lib/calc/__tests__/golden/corpus.json`
+against the hash above afterwards.
+
+**Coverage gap this change makes visible** (verified, not inferred): no fixture has Social
+Security income and none carries a debt — `fixtures.ts:75,124,177,221` are all `debts: {}`, and the
+four `incomes` blocks hold three salaries and a pension. So the `Math.pow` sites at `incomes.ts:616`
+(the Social Security COLA step) and `amortization-schedule.ts:42,130,137` (the Fisher-deflated loan
+maths) are **outside** the corpus, and a future `Math.pow` change there would not be caught here.
+Closing it needs a fixture with Social Security income and one with a mortgage; that is a corpus
+regeneration with its own rule 3 entry, not a harness change.

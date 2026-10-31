@@ -20,13 +20,15 @@ Then, before touching anything:
 
 ```bash
 npm run typecheck                       # expect clean
-npm run test:once                       # expect ~128 files, ~2627 tests, all passing
+npm run test:once                       # expect ~143 files, ~2790 tests, all passing
 shasum -a 256 src/lib/calc/__tests__/golden/corpus.json | cut -c1-16
-                                        # expect a946a8dc86555c66
+                                        # compare with src/lib/calc/__tests__/golden/README.md
 ```
 
-That last command is the most valuable habit in this repository. If a number changed, it
-will tell you in one second. See §4.
+That last command is the most valuable habit in this repository. The expected hash is recorded
+in `golden/README.md` rather than here, because a legitimate corpus move changes it; if yours
+differs from the recorded value and you did not mean to move a fixture, something changed a
+number. See §4.
 
 **This is a fork.** `origin` is `calmcoconut/ignidash` (public), `upstream` is
 `schelskedevco/ignidash`. It is deliberately self-hosted: one container, LAN-only, plain
@@ -188,13 +190,18 @@ this repo were landed only after doing exactly that, and it is now the expected 
   ```ts
   // @vitest-environment jsdom
   ```
-  Do **not** flip the global environment — 104 of the 128 test files run on the node default;
-  14 opt into an `edge-runtime` docblock and 10 into `jsdom`. There is no global setup file, so call
+  Do **not** flip the global environment — of the ~143 test files, 15 opt into an
+  `edge-runtime` docblock, 14 into `jsdom` and one names `node`; the rest (~113) run on the node
+  default. Counts move with every commit, so treat the totals as a snapshot from a full
+  `npx vitest run` rather than a fixed number. There is no global setup file, so call
   `afterEach(cleanup)` yourself.
 - **Convex tests** use the real `convex-test` harness. Mock the module boundary, not the
   behaviour.
 - **Golden corpus** (`src/lib/calc/__tests__/golden/`) is the numerical regression net:
-  4 plans, 6 runs, `Infinity` codec, determinism pinned at ×2 identical sha256.
+  4 plans, 6 runs, `Infinity` codec, determinism pinned at ×2 identical sha256. Both sides of the
+  comparison are rounded to 12 significant digits, so the corpus is reproducible across JavaScript
+  engines while staying exact within one engine: a difference larger than that tolerance is a real
+  numerical change, not a V8 difference, and it owes the `golden/README.md` entry.
 
 ---
 
@@ -252,7 +259,7 @@ answers this in seconds; reading JSX gets it wrong, including for experienced re
 
 ```bash
 npm run typecheck && npm run lint && npm run test:once
-shasum -a 256 src/lib/calc/__tests__/golden/corpus.json   # a946a8dc… unless explained
+shasum -a 256 src/lib/calc/__tests__/golden/corpus.json   # must match golden/README.md's hash, unless explained
 ```
 
 If the corpus moved, you owe `golden/README.md` an entry. If a test you added cannot fail,

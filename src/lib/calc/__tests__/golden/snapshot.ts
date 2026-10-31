@@ -164,3 +164,67 @@ export function serializeCorpus(corpus: GoldenCorpus): string {
 export function parseCorpus(text: string): GoldenCorpus {
   return JSON.parse(text, decodeNonFinite) as GoldenCorpus;
 }
+
+/**
+ * Significant digits the cross-engine comparison keeps — about 1e-12 of relative tolerance.
+ *
+ * `simulate()` is exact *within* one JavaScript engine: the determinism test in
+ * `golden-corpus.test.ts` still requires two builds to serialise byte-identically. It is not
+ * exact *across* engines, because ECMAScript leaves `Math.pow` implementation-approximated and
+ * V8 changed it. Measured on this tree: `Math.pow(1.03, 12)` is `1.4257608868461795204` on V8
+ * 12.4 (Node 22.23.4) and `1.4257608868461792984` on V8 13.6 (Node 24.22.2) — 1 ulp. The
+ * difference enters through `time-binding.ts`'s `Math.pow(1 + rate/100, years)`, is turned into
+ * an integer year span by `tax-data/real-dollars.ts`, and `salt-cap.ts`'s
+ * `phaseDown = cap - allowed` cancelling subtraction amplifies it to 32 ulp: 38 leaves differ,
+ * worst case 5.2e-15 relative, all in the deflation chain (`niit.threshold`,
+ * `saltCap.{phaseDown,allowed}`, the itemized SALT line and its total). No portfolio value, wage
+ * or percentile moves.
+ *
+ * Twelve digits put the rounding step at ~1e-12 of the value — two orders of magnitude above the
+ * measured 5.2e-15 spread, and no coarser. A 1e-9 window (the number the handover suggested)
+ * would be 200,000x looser than any observed difference and would hide real defects. What the
+ * corpus gives up: a change below ~1e-12 relative is invisible here, so the last few bits of a
+ * float are no longer pinned. The corpus still pins every number a reader sees.
+ */
+export const COMPARISON_PRECISION = 12;
+
+/**
+ * The comparison's single rounding rule, exported so a test can name the precision it relies on.
+ * Every finite number becomes its 12-significant-digit value; nothing else is touched, so
+ * structure, key order and `Infinity` all survive the traversal that uses this.
+ */
+export function canonicalizeNumber(value: number): number {
+  return Number(value.toPrecision(COMPARISON_PRECISION));
+}
+
+function canonicalizeValue(value: unknown): unknown {
+  // A number, finite or not. Non-finite has to be decided *here*, before the rounding: `Infinity`
+  // is a real engine value (the top tax bracket's unbounded `max`) and must survive untouched,
+  // and the `__nonFinite:` codec below only ever runs on the way to disk, never on these values.
+  if (typeof value === 'number') return Number.isFinite(value) ? canonicalizeNumber(value) : value;
+  if (Array.isArray(value)) return value.map(canonicalizeValue);
+  if (typeof value !== 'object' || value === null) return value;
+
+  const canonical: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) canonical[key] = canonicalizeValue(child);
+  return canonical;
+}
+
+/**
+ * A copy of the corpus as the harness compares it: every finite number rounded to
+ * `COMPARISON_PRECISION`, everything else identical. Both comparisons — the per-fixture value
+ * walk and the whole-file byte comparison — apply this to *both* sides, so a rounded value and a
+ * full-precision value are compared after the same normalisation.
+ *
+ * The frozen file is deliberately not touched: rounding `corpus.json` itself would rewrite 19,895
+ * of its 31,504 non-zero finite numbers (63% of the non-zero ones, 27% of all 72,963) for no gain
+ * over normalising both sides of the comparison.
+ */
+export function canonicalizeCorpus(corpus: GoldenCorpus): GoldenCorpus {
+  return canonicalizeValue(corpus) as GoldenCorpus;
+}
+
+/** The text two corpora are compared as: `serializeCorpus` after `canonicalizeCorpus`. */
+export function serializeCanonicalCorpus(corpus: GoldenCorpus): string {
+  return serializeCorpus(canonicalizeCorpus(corpus));
+}
