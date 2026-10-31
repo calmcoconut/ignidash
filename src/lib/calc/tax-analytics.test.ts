@@ -36,6 +36,7 @@ import {
   type MarginalIncomeType,
   type TaxAnalyticsInput,
 } from './tax-analytics';
+import { getRules } from './tax-data';
 import type { TaxesData } from './taxes';
 
 const TAX_YEAR = 2026;
@@ -58,7 +59,10 @@ interface YearSpec {
   taxYear?: number;
 }
 
-const STANDARD_DEDUCTION_2026 = { single: 16100, marriedFilingJointly: 32200, headOfHousehold: 24150 } as const;
+// The 2026 standard deduction per filing status, including the separate return's $16,100 (§63(c)(2)(B):
+// half the joint amount). Read from the ruleset rather than restated, so a filing status added to the
+// union cannot leave this fixture short.
+const STANDARD_DEDUCTION_2026: Record<FilingStatus, number> = getRules(TAX_YEAR).tables.standardDeduction.values;
 
 /**
  * Builds the slice of `TaxesData` the analytics reads, with the payroll block computed by the real

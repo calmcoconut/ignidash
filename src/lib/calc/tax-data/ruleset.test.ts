@@ -84,9 +84,19 @@ describe('2026 federal ruleset metadata', () => {
     ['standardDeduction', tables.standardDeduction.values],
     ['capitalGainsTaxBrackets', tables.capitalGainsTaxBrackets.values],
     ['netInvestmentIncomeTax', tables.netInvestmentIncomeTax.values.thresholds],
-    ['socialSecurityTaxation', tables.socialSecurityTaxation.values],
+    // §86 is a tier list per status plus the flag that says the tiers collapse to one row (§86(c)(1)(C) sets both
+    // base amounts of a separate return to $0), so both halves carry a row per status.
+    ['socialSecurityTaxation.tiers', tables.socialSecurityTaxation.values.tiers],
+    ['socialSecurityTaxation.taxableFromFirstDollar', tables.socialSecurityTaxation.values.taxableFromFirstDollar],
     ['section121Exclusion', tables.section121Exclusion.values],
+    ['alternativeMinimumTax.exemption', tables.alternativeMinimumTax.values.exemption],
+    ['alternativeMinimumTax.exemptionPhaseOutThreshold', tables.alternativeMinimumTax.values.exemptionPhaseOutThreshold],
+    ['alternativeMinimumTax.rateLowCeiling', tables.alternativeMinimumTax.values.rateLowCeiling],
+    ['seniorDeduction.phaseOutThreshold', tables.seniorDeduction.values.phaseOutThreshold],
+    ['seniorDeduction.eligible', tables.seniorDeduction.values.eligible],
+    ['additionalMedicareThreshold', tables.additionalMedicareThreshold.values],
+    ['medicareIrmaa.tiers', tables.medicareIrmaa.values.tiers],
   ] as Array<[string, Record<string, unknown>]>)('%s has an amount for every filing status', (_name, values) => {
-    expect(Object.keys(values).sort()).toEqual(['headOfHousehold', 'marriedFilingJointly', 'single']);
+    expect(Object.keys(values).sort()).toEqual(['headOfHousehold', 'marriedFilingJointly', 'marriedFilingSeparately', 'single']);
   });
 });

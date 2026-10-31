@@ -104,6 +104,11 @@ export const CALIFORNIA_2025: CaliforniaTaxRuleset = {
         single: SINGLE_BRACKETS,
         marriedFilingJointly: MARRIED_BRACKETS,
         headOfHousehold: HEAD_OF_HOUSEHOLD_BRACKETS,
+        // Schedule X, literally "Single or married/RDP filing separately". A separate return uses
+        // the *same* bracket table as a single filer because the FTB's schedule says so — this is
+        // not the single row copied for convenience, and it is the one place California's separate
+        // return does not halve anything.
+        marriedFilingSeparately: SINGLE_BRACKETS,
       },
     },
     standardDeduction: {
@@ -113,18 +118,24 @@ export const CALIFORNIA_2025: CaliforniaTaxRuleset = {
         single: 5706,
         marriedFilingJointly: 11412,
         headOfHousehold: 11412,
+        // Same line 18 amount as a single filer: California does not halve its standard deduction
+        // for a separate return, which is why the MFS row equals the single one here.
+        marriedFilingSeparately: 5706,
       },
     },
     behavioralHealthServicesTax: {
       indexing: 'fixed',
       source:
-        'R&TC §17043; 2025 Form 540, line 62 worksheet: 1% of the amount over $1,000,000 (the Mental Health Services Tax before 2025).',
+        'R&TC §17043; 2025 Form 540, line 62 worksheet: 1% of the amount over $1,000,000 (the Mental Health Services Tax before ' +
+        '2025), and $500,000 on a separate return.',
       values: {
         rate: 0.01,
         threshold: {
           single: 1000000,
           marriedFilingJointly: 1000000,
           headOfHousehold: 1000000,
+          // R&TC §17043(a): the threshold is $500,000 "in the case of a separate return".
+          marriedFilingSeparately: 500000,
         },
       },
     },
@@ -140,8 +151,16 @@ export const CALIFORNIA_2025: CaliforniaTaxRuleset = {
           single: 252203,
           marriedFilingJointly: 504411,
           headOfHousehold: 378310,
+          marriedFilingSeparately: 252203,
         },
-        reductionStep: 2500,
+        // $2,500, or $1,250 on a separate return: half the step means twice as many steps for the
+        // same excess AGI, so the credit runs out at the same AGI it would for a single filer.
+        reductionStep: {
+          single: 2500,
+          marriedFilingJointly: 2500,
+          headOfHousehold: 2500,
+          marriedFilingSeparately: 1250,
+        },
         reductionPerStep: 6,
       },
     },
@@ -149,12 +168,13 @@ export const CALIFORNIA_2025: CaliforniaTaxRuleset = {
       indexing: 'indexed',
       source:
         '2025 Schedule CA (540), Part II, line 29 and its Itemized Deductions Worksheet: 6% of federal AGI over ' +
-        '$252,203 / $504,411 / $378,310, capped at 80% of the deduction.',
+        '$252,203 / $504,411 / $378,310 ($252,203 on a separate return), capped at 80% of the deduction.',
       values: {
         agiThreshold: {
           single: 252203,
           marriedFilingJointly: 504411,
           headOfHousehold: 378310,
+          marriedFilingSeparately: 252203,
         },
         rate: 0.06,
         maxReductionShare: 0.8,

@@ -2,7 +2,16 @@ import { z } from 'zod';
 
 import { currencyFieldAllowsZero } from '@/lib/utils/zod-utils';
 
-const filingStatus = z.enum(['single', 'marriedFilingJointly', 'headOfHousehold']);
+/**
+ * The filing statuses the engine can settle a return under (IRC §1(a), §1(d) and §1(b)).
+ *
+ * `marriedFilingSeparately` (P3-P1b) is a **separate return per spouse**: `TaxProcessor.process()`
+ * prices one return, so a separate-return household is priced twice and the two results are summed
+ * into the one `TaxesData` block the cash-flow engine consumes. The ruleset carries its own row in
+ * every table, because half of the joint amounts is not the same thing as the single amounts
+ * (the top bracket, the §86 tiers and the IRMAA tiers are the places where they part company).
+ */
+const filingStatus = z.enum(['single', 'marriedFilingJointly', 'marriedFilingSeparately', 'headOfHousehold']);
 
 export type FilingStatus = z.infer<typeof filingStatus>;
 

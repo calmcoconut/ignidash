@@ -44,12 +44,13 @@ export type { ImportIssue };
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 8 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3 and P3-P8).
+ * Export/import envelope, version 9 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8
+ * and P3-P1b).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 8, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 8, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 9, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 9, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -109,6 +110,19 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *       California plan has no flag — and it is read as California silently, because warning about
  *       correct input would train the operator to dismiss warnings.
  *
+ *   9 — P3-P1b married filing separately: `taxSettings.filingStatus` gains a fourth value,
+ *       `marriedFilingSeparately`. This is an **enum widening**, so it is a version bump by contract
+ *       3.3 even though no key is added: a v9 file may state a status a v8 build would reject.
+ *       Read the other way, and this is the whole compatibility statement: a v8 file's status keeps
+ *       exactly today's meaning. `single`, `marriedFilingJointly` and `headOfHousehold` are unchanged
+ *       in name and in arithmetic — the ruleset rows for those three statuses are the same rows a v8
+ *       build used — and a v8 file cannot carry the new value, because no build ever wrote it. There
+ *       is **no absent/implicit case to interpret**: `filingStatus` is required by the payload schema
+ *       and has been carried since version 1, so every v1-v8 file states a status and that statement
+ *       is preserved verbatim on import. The
+ *       older-version fixtures below therefore make a v8 file by *substituting* a known status for the
+ *       new one rather than by deleting the key — see `substituteFilingStatus`.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -120,7 +134,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 8;
+export const EXPORT_SCHEMA_VERSION = 9;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

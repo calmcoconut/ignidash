@@ -38,9 +38,19 @@
  * authority; the IRS publishes rounded dollars for each year as it arrives, and a rounding of cents
  * is immaterial at these magnitudes.
  *
- * A separate return (MFS) uses half of both amounts; MFS is not in the filing-status union yet
- * (P3-P1b), and the consumer applies the halving from the table rather than hard-coding it.
+ * A separate return (MFS) uses **half of both amounts** — the cap and the phase-down threshold — per
+ * §164(b)(6)-(7): §164(b)(7) applies the limitation to a separate return by reference to one-half of
+ * the amounts that would otherwise apply. `saltCapFor` takes the filing status and does the halving
+ * from the table, so a ruleset update never has to restate a halved copy of each year's cap.
+ *
+ * One reading is deliberately left as the supervisor's decision rather than the statute's most
+ * expansive one: the $10,000 **floor** of the phase-down is not halved, only the cap and the
+ * threshold. A separate return's cap therefore cannot fall below the same $10,000 floor a joint
+ * return's cannot. If a future reading halves the floor too, `floorFor` below is the one line to
+ * change, and the consequence is a $5,000 floor on separate returns.
  */
+
+import type { FilingStatus } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
 import type { TableMeta, TaxYear } from './types';
 
@@ -109,19 +119,45 @@ export function getSaltCap(year: TaxYear): ResolvedSaltCap {
 }
 
 /**
+ * The cap and threshold a filing status gets before the phase-down.
+ *
+ * §164(b)(7) halves both amounts on a separate return; every other status uses the table's own
+ * values. Exported so the MFS-versus-MFJ fixture can state the halving without re-deriving it.
+ */
+export function saltCapAmountsFor(
+  values: SaltCapTable,
+  filingStatus: FilingStatus
+): { cap: number; phaseDownThreshold: number; floor: number } {
+  if (filingStatus !== 'marriedFilingSeparately')
+    return { cap: values.cap, phaseDownThreshold: values.phaseDownThreshold, floor: values.floor };
+
+  return { cap: values.cap / 2, phaseDownThreshold: values.phaseDownThreshold / 2, floor: values.floor };
+}
+
+/**
  * The cap a MAGI actually gets: the year's amount, less 30% of the MAGI over the threshold, but
  * never below the floor.
  *
  * Hand check (2026, single): MAGI $505,000 → $40,400 (no phase-down, the threshold is not exceeded);
  * MAGI $600,000 → 40,400 − 30% × 95,000 = $11,900; MAGI $700,000 → 40,400 − 58,500 = −$18,100, so
  * the floor applies: $10,000.
+ *
+ * Hand check (2026, married filing separately): the cap is $20,200 and the phase-down threshold
+ * $252,500, so MAGI $252,500 → $20,200 (exactly half of a joint filer's $40,400 at $505,000), and
+ * MAGI $300,000 → 20,200 − 30% × 47,500 = $5,950, floored at $10,000. The floor is what stops a
+ * separate return's cap going below a joint one's — see the note at the top of this file.
  */
-export function saltCapFor(year: TaxYear, magi: number): { cap: number; phaseDown: number; resolvedYear: TaxYear } {
+export function saltCapFor(
+  year: TaxYear,
+  magi: number,
+  filingStatus: FilingStatus = 'single'
+): { cap: number; phaseDown: number; resolvedYear: TaxYear } {
   const resolved = getSaltCap(year);
-  const { cap, phaseDownThreshold, phaseDownRate, floor } = resolved.values;
+  const { phaseDownThreshold, phaseDownRate } = resolved.values;
+  const amounts = saltCapAmountsFor(resolved.values, filingStatus);
 
-  const phaseDown = Number.isFinite(phaseDownThreshold) ? phaseDownRate * Math.max(0, magi - phaseDownThreshold) : 0;
-  const allowed = Math.max(floor, cap - phaseDown);
+  const phaseDown = Number.isFinite(phaseDownThreshold) ? phaseDownRate * Math.max(0, magi - amounts.phaseDownThreshold) : 0;
+  const allowed = Math.max(amounts.floor, amounts.cap - phaseDown);
 
-  return { cap: allowed, phaseDown: cap - allowed, resolvedYear: resolved.resolvedYear };
+  return { cap: allowed, phaseDown: amounts.cap - allowed, resolvedYear: resolved.resolvedYear };
 }

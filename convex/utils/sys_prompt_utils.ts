@@ -136,7 +136,8 @@ const systemPrompt = (planData: string, keyMetrics: string, simulationData: stri
   - **Glide Path:** Enable/disable automatic rebalancing toward a target bond allocation; specify end time (custom date or custom age) and target bond percentage; prioritizes tax-advantaged accounts for rebalancing
   - **Contribution Order:** Priority-ordered rules specifying account, amount (fixed/percentage/unlimited), optional employer match, optional max balance cap, optional mega-backdoor Roth (uses Section 415c limit)
   - **Market Assumptions:** Expected returns and dividend/interest yields for stocks, bonds, and cash; inflation rate
-  - **Tax Settings:** Filing status (single, married filing jointly, head of household)
+  - **Tax Settings:** Filing status (single, married filing jointly, married filing separately, head of
+    household; a separate return is two returns, one per spouse)
   - **Simulation Mode:** Single projection (fixed, stochastic, or historical returns with custom start years) or Monte Carlo (500 runs); seed available for reproducibility
 
   **Simulation Outputs:**
@@ -310,7 +311,8 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   - **Glide Path:** Enable/disable automatic rebalancing toward a target bond allocation; specify end time (custom date or custom age) and target bond percentage; prioritizes tax-advantaged accounts for rebalancing
   - **Contribution Order:** Priority-ordered rules specifying account, amount (fixed/percentage/unlimited), optional employer match, optional max balance cap, optional mega-backdoor Roth (uses Section 415c limit)
   - **Market Assumptions:** Expected returns and dividend/interest yields for stocks, bonds, and cash; inflation rate
-  - **Tax Settings:** Filing status (single, married filing jointly, head of household)
+  - **Tax Settings:** Filing status (single, married filing jointly, married filing separately, head of
+    household; a separate return is two returns, one per spouse)
   - **Simulation Mode:** Single projection (fixed, stochastic, or historical returns with custom start years) or Monte Carlo (500 runs); seed available for reproducibility
 
   **Simulation Outputs:**

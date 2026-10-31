@@ -20,6 +20,7 @@ import {
   createEmptyPhysicalAssetsData,
 } from './__tests__/test-utils';
 import type { SimulationState } from './simulation-engine';
+import type { IncomesData, OwnerIncomesData } from './incomes';
 import type { PhysicalAssetData } from './physical-assets';
 
 /**
@@ -1519,7 +1520,7 @@ describe('TaxProcessor', () => {
             ...base.tables.alternativeMinimumTax,
             values: {
               ...base.tables.alternativeMinimumTax.values,
-              exemption: { single: 50000, marriedFilingJointly: 100000, headOfHousehold: 50000 },
+              exemption: { single: 50000, marriedFilingJointly: 100000, headOfHousehold: 50000, marriedFilingSeparately: 50000 },
             },
           },
         },
@@ -1613,7 +1614,7 @@ describe('TaxProcessor', () => {
             ...base.tables.alternativeMinimumTax,
             values: {
               ...base.tables.alternativeMinimumTax.values,
-              exemption: { single: 50000, marriedFilingJointly: 100000, headOfHousehold: 50000 },
+              exemption: { single: 50000, marriedFilingJointly: 100000, headOfHousehold: 50000, marriedFilingSeparately: 50000 },
             },
           },
         },
@@ -1951,6 +1952,200 @@ describe('TaxProcessor', () => {
     });
   });
 
+  describe('married filing separately (§6013, P3-P1b)', () => {
+    /**
+     * One owner's income totals, with the lines a fixture does not name left at zero.
+     *
+     * These fixtures drive the split through `perOwnerData`, which is where the incomes processor
+     * records what each member earned — including the half-share it gives each member of a `joint`
+     * (community) income.
+     */
+    function ownerTotals(overrides: Partial<OwnerIncomesData> = {}): OwnerIncomesData {
+      return {
+        totalIncome: 0,
+        totalAmountWithheld: 0,
+        totalFicaTax: 0,
+        totalIncomeAfterPayrollDeductions: 0,
+        totalTaxFreeIncome: 0,
+        totalSocialSecurityIncome: 0,
+        totalWageIncome: 0,
+        totalSelfEmploymentIncome: 0,
+        ...overrides,
+      };
+    }
+
+    /** A year for a couple filing separately: the household totals are the two owners' sum. */
+    function separateYear(primary: Partial<OwnerIncomesData>, partner: Partial<OwnerIncomesData> = {}): IncomesData {
+      const perOwnerData = { primary: ownerTotals(primary), partner: ownerTotals(partner) };
+      const sumOf = (line: keyof OwnerIncomesData): number => perOwnerData.primary[line] + perOwnerData.partner[line];
+
+      return {
+        ...createEmptyIncomesData({
+          totalIncome: sumOf('totalIncome'),
+          totalAmountWithheld: sumOf('totalAmountWithheld'),
+          totalFicaTax: sumOf('totalFicaTax'),
+          totalIncomeAfterPayrollDeductions: sumOf('totalIncomeAfterPayrollDeductions'),
+          totalTaxFreeIncome: sumOf('totalTaxFreeIncome'),
+          totalSocialSecurityIncome: sumOf('totalSocialSecurityIncome'),
+          totalWageIncome: sumOf('totalWageIncome'),
+          totalSelfEmploymentIncome: sumOf('totalSelfEmploymentIncome'),
+        }),
+        perOwnerData,
+      };
+    }
+
+    /** A processor for a separate-return year. No state return, so the arithmetic stays federal. */
+    const separateReturns = (options?: { itemized?: Parameters<typeof deductionSettings>[0]; age?: number }) => {
+      const { itemizedDeductions, spouseQualifiesForSeniorDeduction } = deductionSettings(options?.itemized);
+
+      return new TaxProcessor(createMockSimulationState(options?.age ?? 60), 'marriedFilingSeparately', 2026, undefined, {
+        stateResidency: 'none',
+        itemizedDeductions,
+        spouseQualifiesForSeniorDeduction,
+        ownership: { accounts: {}, physicalAssets: {} },
+      });
+    };
+
+    const tax = (incomes: IncomesData, processor: TaxProcessor) =>
+      processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+
+    /** The same year priced under one return, for the direction comparisons below. */
+    const jointReturn = (totalIncome: number, settings?: Parameters<typeof deductionSettings>[0]) =>
+      new TaxProcessor(createMockSimulationState(60), 'marriedFilingJointly', 2026, undefined, deductionSettings(settings)).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+    it('charges a marriage penalty when one spouse earns everything', () => {
+      // $200,000 of wages on the primary's return and nothing on the partner's.
+      //   joint:    200,000 − 32,200 = 167,800 taxable
+      //             24,800×10% + 76,000×12% + 67,000×22% = 2,480 + 9,120 + 14,740 = $26,340
+      //   separate: primary  200,000 − 16,100 = 183,900 taxable
+      //             12,400×10% + 38,000×12% + 55,300×22% + 78,200×24%
+      //             = 1,240 + 4,560 + 12,166 + 18,768 = $36,734
+      //             partner 0 − 16,100 → $0 taxable, $0 tax
+      //   penalty = 36,734 − 26,340 = $10,394
+      const joint = jointReturn(200000);
+      const separate = tax(separateYear({ totalIncome: 200000 }), separateReturns());
+
+      expect(joint.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary).toBeCloseTo(167800);
+      expect(joint.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(26340);
+
+      // The household taxable income is the primary's alone: the partner's return has no income,
+      // and its unused standard deduction cannot offset the other spouse's.
+      expect(separate.totalTaxableIncome).toBeCloseTo(183900);
+      expect(separate.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(36734);
+      expect(separate.totalTaxLiability - joint.totalTaxLiability).toBeCloseTo(10394);
+
+      // The direction, stated as the fixture's purpose: a concentrated income pays more separately.
+      expect(separate.totalTaxLiability).toBeGreaterThan(joint.totalTaxLiability);
+    });
+
+    it('reproduces the joint return to the dollar when a community income splits in half', () => {
+      // $100,000 of community income — a `joint` income, which the incomes processor already gave
+      // each owner half of — so each return reports $50,000.
+      //   each return: 50,000 − 16,100 = 33,900 taxable → 12,400×10% + 21,500×12% = $3,820
+      //   two returns = $7,640 over 67,800 of taxable income, which is exactly the joint return:
+      //   100,000 − 32,200 = 67,800 → 24,800×10% + 43,000×12% = 2,480 + 5,160 = $7,640
+      const joint = jointReturn(100000);
+      const separate = tax(separateYear({ totalIncome: 50000 }, { totalIncome: 50000 }), separateReturns());
+
+      expect(joint.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(7640);
+      expect(separate.totalTaxableIncome).toBeCloseTo(67800);
+      expect(separate.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(7640);
+      expect(separate.totalTaxLiability).toBeCloseTo(joint.totalTaxLiability);
+    });
+
+    it('does not split an income that belongs to one spouse', () => {
+      // The same $100,000 owned by the primary: no split, and the partner's return is an empty one,
+      // so the couple pays what a single filer pays on the same income.
+      //   primary: 100,000 − 16,100 = 83,900 → 12,400×10% + 38,000×12% + 33,500×22%
+      //            = 1,240 + 4,560 + 7,370 = $13,170
+      //   The community case above pays $7,640 on the same total income, so this fixture also says
+      //   the split is conditional on ownership rather than applied to every separate return.
+      const single = new TaxProcessor(createMockSimulationState(60), 'single', 2026, undefined, deductionSettings()).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 100000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+      const separate = tax(separateYear({ totalIncome: 100000 }), separateReturns());
+
+      expect(separate.totalTaxableIncome).toBeCloseTo(83900);
+      expect(separate.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(13170);
+      expect(separate.totalTaxLiability).toBeCloseTo(single.totalTaxLiability);
+    });
+
+    it('taxes Social Security from the first dollar on a separate return (§86(c)(1)(C))', () => {
+      // $20,000 of benefits and $10,000 of other income on the primary's return.
+      //   provisional income = 10,000 + 50% × 20,000 = $20,000
+      //   separate return: both §86 base amounts are $0, so the taxable share is
+      //     min(85% × 20,000, 85% × 20,000) = $17,000 — the whole 85% of the benefit
+      //   a single filer with the same numbers reports $0: provisional income of $20,000 is under
+      //     its $25,000 base amount.
+      const separate = tax(separateYear({ totalIncome: 30000, totalSocialSecurityIncome: 20000 }), separateReturns());
+
+      expect(separate.socialSecurityTaxes.provisionalIncome).toBeCloseTo(20000);
+      expect(separate.socialSecurityTaxes.maxTaxablePercentage).toBe(0.85);
+      expect(separate.socialSecurityTaxes.taxableSocialSecurityIncome).toBeCloseTo(17000);
+      expect(separate.socialSecurityTaxes.actualTaxablePercentage).toBeCloseTo(0.85);
+
+      const single = new TaxProcessor(createMockSimulationState(60), 'single', 2026).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 30000, totalSocialSecurityIncome: 20000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+
+      expect(single.socialSecurityTaxes.provisionalIncome).toBeCloseTo(20000);
+      expect(single.socialSecurityTaxes.taxableSocialSecurityIncome).toBe(0);
+    });
+
+    it('halves the household itemized deductions between the two returns', () => {
+      // $40,000 of mortgage interest and $20,000 of charitable contributions for the household.
+      //   half on each return = 20,000 + 10,000 = $30,000, which beats the $16,100 standard
+      //   each return: 50,000 − 30,000 = 20,000 taxable → 12,400×10% + 7,600×12% = $2,152
+      //   two returns: $4,304 over 40,000 of taxable income — the same as the joint return on
+      //     100,000 − 60,000 = 40,000 taxable.
+      //   Deducting the whole block on both returns would leave $0 taxable, which is what this
+      //   fixture exists to prevent.
+      const separate = tax(
+        separateYear({ totalIncome: 50000 }, { totalIncome: 50000 }),
+        separateReturns({ itemized: { mortgageInterest: 40000, charitable: 20000 } })
+      );
+
+      expect(separate.deduction.type).toBe('itemized');
+      // The household block is the sum of the two returns' halves: the entered amounts, once.
+      expect(separate.deduction.itemized).toMatchObject({ mortgageInterest: 40000, charitable: 20000, total: 60000 });
+      expect(separate.deduction.standardDeduction).toBeCloseTo(32200);
+      expect(separate.totalTaxableIncome).toBeCloseTo(40000);
+      expect(separate.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(4304);
+      expect(separate.federalIncomeTaxes.federalIncomeTaxAmount).toBeCloseTo(
+        jointReturn(100000, { mortgageInterest: 40000, charitable: 20000 }).federalIncomeTaxes.federalIncomeTaxAmount
+      );
+    });
+
+    it('denies the senior deduction, which the table declares ineligible rather than zeroing', () => {
+      // Two 65-year-olds: the joint return deducts 2 × $6,000, a separate return nothing at all.
+      const joint = new TaxProcessor(createMockSimulationState(67), 'marriedFilingJointly', 2026, undefined, {
+        spouseQualifiesForSeniorDeduction: true,
+      }).process(
+        createEmptyPortfolioData(),
+        createEmptyIncomesData({ totalIncome: 100000 }),
+        createEmptyReturnsData(),
+        createEmptyPhysicalAssetsData()
+      );
+      const separate = tax(separateYear({ totalIncome: 50000 }, { totalIncome: 50000 }), separateReturns({ age: 67 }));
+
+      expect(joint.deduction.seniorDeduction).toBeCloseTo(12000);
+      expect(separate.deduction.seniorDeduction).toBe(0);
+      // The deduction is still reported as a zero line, so a reader can tell it was considered.
+      expect(separate.deductions).toHaveProperty('seniorDeduction', 0);
+    });
+  });
+
   describe('the AMT and itemized preferences', () => {
     const withItemized = (totalIncome: number, settings: Parameters<typeof deductionSettings>[0], exemption?: number) => {
       const base = getRules(2026);
@@ -1965,7 +2160,12 @@ describe('TaxProcessor', () => {
                   ...base.tables.alternativeMinimumTax,
                   values: {
                     ...base.tables.alternativeMinimumTax.values,
-                    exemption: { single: exemption, marriedFilingJointly: exemption * 2, headOfHousehold: exemption },
+                    exemption: {
+                      single: exemption,
+                      marriedFilingJointly: exemption * 2,
+                      headOfHousehold: exemption,
+                      marriedFilingSeparately: exemption,
+                    },
                   },
                 },
               },

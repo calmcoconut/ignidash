@@ -70,6 +70,32 @@ export interface SocialSecurityTaxThreshold {
 }
 
 /**
+ * The §86 table: the tiers, plus the one filing status whose base amount is **zero**.
+ *
+ * §86(c)(1)(C) sets the base amount of a married individual filing a separate return to $0, and
+ * §86(c)(2)(C) sets the adjusted base amount to $0 as well. With both at zero the three-tier
+ * computation collapses: the 50% band has zero width, so the taxable share is 85% of provisional
+ * income from the first dollar, capped at 85% of the benefits (which the tier row states as
+ * `{ min: 0, max: Infinity, taxablePercentage: 0.85 }`).
+ *
+ * The flag is declared rather than inferred from `tiers.length === 1` because a ruleset could
+ * legitimately have a single tier for another reason, and because the collapsed form is a
+ * *different* computation, not the same one with different numbers: with a zero-width second tier
+ * the general walk below cannot express it (its first test `provisionalIncome <= firstTier.max`
+ * would be true for every income). Declaring the shape keeps the walk honest.
+ *
+ * **Not modelled**: the §86(c)(1)(C) exception for spouses who lived apart for the whole year
+ * and file separately, which restores the single base amounts. The engine has no separate-return
+ * `livedApart` input, and a plan that qualifies for it would need one; the flag therefore applies
+ * to every separate return.
+ */
+export interface SocialSecurityTaxationTable {
+  readonly tiers: ByFilingStatus<readonly SocialSecurityTaxThreshold[]>;
+  /** True where the base and adjusted base amounts are both $0, i.e. the collapsed 85% rule. */
+  readonly taxableFromFirstDollar: ByFilingStatus<boolean>;
+}
+
+/**
  * A table that varies by filing status.
  *
  * Keyed by the current `FilingStatus` union, so adding `marriedFilingSeparately` (P3-P1b)
@@ -183,6 +209,19 @@ export interface MedicareIrmaaTable {
 export interface SeniorDeductionTable {
   readonly perIndividual: number;
   readonly phaseOutThreshold: ByFilingStatus<number>;
+  /**
+   * Whether the status may claim the deduction at all (P3-P1b). Declared, not a zero amount: a
+   * zero would read as a computed value ("$0 of senior deduction this year") instead of "this
+   * return cannot claim it", and the two are not the same statement.
+   *
+   * §151(d)(5)(C) allows the deduction per qualified individual and denies it where the individual's
+   * spouse also claims it for the year — which is exactly the pair of separate returns this engine
+   * cannot see across simultaneously. Rather than model spouse coordination, the table declares a
+   * separate return ineligible. The consequence is real and shows up in the MFS-versus-MFJ
+   * comparison: a couple of two 65-year-olds filing separately deducts nothing here, where filing
+   * jointly deducts $12,000 before the MAGI phase-down.
+   */
+  readonly eligible: ByFilingStatus<boolean>;
   readonly phaseOutRate: number;
   /** The last tax year the deduction exists (the statute's "before January 1, 2029"). */
   readonly lastTaxYear: TaxYear;
@@ -217,7 +256,7 @@ export interface FederalTaxTables extends TaxTables {
   /** Net investment income tax (IRC §1411). */
   readonly netInvestmentIncomeTax: TableMeta<NetInvestmentIncomeTaxTable>;
   /** Social Security benefit taxation tiers (IRC §86). */
-  readonly socialSecurityTaxation: TableMeta<ByFilingStatus<SocialSecurityTaxThreshold[]>>;
+  readonly socialSecurityTaxation: TableMeta<SocialSecurityTaxationTable>;
   /** Primary-residence gain exclusion (IRC §121). */
   readonly section121Exclusion: TableMeta<ByFilingStatus<number>>;
   /** The alternative minimum tax (IRC §55-§59): exemption, phase-out, rates, disallowed deductions. */
@@ -261,7 +300,8 @@ export interface BehavioralHealthServicesTaxTable {
 
 /**
  * The personal exemption credit (R&TC §17054), which is a **credit against tax**, not a deduction,
- * and is limited above an AGI threshold by $6 for each $2,500 (or part) of excess.
+ * and is limited above an AGI threshold by $6 for each $2,500 (or part) of excess — $1,250 on a
+ * separate return, which is why the step is per filing status rather than one number.
  *
  * The dependent credit is carried so the table is complete, but the engine models no dependents;
  * the blind and senior credits are separate R&TC sections and are out of scope.
@@ -270,7 +310,8 @@ export interface PersonalExemptionCreditTable {
   readonly perTaxpayer: number;
   readonly dependent: number;
   readonly agiLimit: ByFilingStatus<number>;
-  readonly reductionStep: number;
+  /** $2,500, or $1,250 on a separate return (540 line 32 AGI Limitation Worksheet). */
+  readonly reductionStep: ByFilingStatus<number>;
   readonly reductionPerStep: number;
 }
 

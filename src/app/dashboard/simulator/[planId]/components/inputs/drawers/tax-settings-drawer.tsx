@@ -91,10 +91,14 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                   <Select {...register('filingStatus')} id="filingStatus" name="filingStatus">
                     <option value="single">Single</option>
                     <option value="marriedFilingJointly">Married Filing Jointly</option>
+                    <option value="marriedFilingSeparately">Married Filing Separately</option>
                     <option value="headOfHousehold">Head of Household</option>
                   </Select>
                   {errors.filingStatus && <ErrorMessage>{errors.filingStatus?.message}</ErrorMessage>}
-                  <Description>Your filing status determines your tax rates and standard deduction.</Description>
+                  <Description>
+                    Your filing status determines your tax rates and standard deduction. Married Filing Separately files two returns, one
+                    per spouse: the engine splits community income and joint property half and half, as California requires.
+                  </Description>
                 </Field>
                 <Field>
                   <Label htmlFor="stateResidency">State Return</Label>

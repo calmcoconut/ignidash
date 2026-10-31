@@ -24,12 +24,16 @@ describe('the California 2025 ruleset', () => {
     expect(() => getRules(2024, 'CA')).toThrow(/No CA tax ruleset for 2024/);
   });
 
-  it('carries all three filing statuses California supports', () => {
+  it('carries every filing status California supports, including the separate return', () => {
+    // Schedule X is "Single or married/RDP filing separately", so the fourth status shares the
+    // single schedule rather than getting one of its own.
     const tables = CALIFORNIA_2025.tables;
-    for (const status of ['single', 'marriedFilingJointly', 'headOfHousehold'] as const) {
+    for (const status of ['single', 'marriedFilingJointly', 'headOfHousehold', 'marriedFilingSeparately'] as const) {
       expect(tables.incomeTaxBrackets.values[status].length).toBeGreaterThan(0);
       expect(tables.standardDeduction.values[status]).toBeGreaterThan(0);
     }
+
+    expect(tables.incomeTaxBrackets.values.marriedFilingSeparately).toBe(tables.incomeTaxBrackets.values.single);
   });
 
   it('transcribes Schedule X, Y and Z exactly at their bracket boundaries', () => {
@@ -53,13 +57,15 @@ describe('the California 2025 ruleset', () => {
       single: 5706,
       marriedFilingJointly: 11412,
       headOfHousehold: 11412,
+      marriedFilingSeparately: 5706,
     });
-    // 2025 Form 540, line 7 and the line 32 AGI Limitation Worksheet.
+    // 2025 Form 540, line 7 and the line 32 AGI Limitation Worksheet. The step is $1,250 on a
+    // separate return, which is what makes the credit run out at the same AGI as a single filer's.
     expect(CALIFORNIA_2025.tables.personalExemptionCredit.values).toMatchObject({
       perTaxpayer: 153,
       dependent: 475,
-      agiLimit: { single: 252203, marriedFilingJointly: 504411, headOfHousehold: 378310 },
-      reductionStep: 2500,
+      agiLimit: { single: 252203, marriedFilingJointly: 504411, headOfHousehold: 378310, marriedFilingSeparately: 252203 },
+      reductionStep: { single: 2500, marriedFilingJointly: 2500, headOfHousehold: 2500, marriedFilingSeparately: 1250 },
       reductionPerStep: 6,
     });
   });
@@ -67,7 +73,7 @@ describe('the California 2025 ruleset', () => {
   it('carries the itemized-deduction limitation and the lines California disallows', () => {
     // 2025 Schedule CA (540), Part II, line 29: same AGI thresholds, 6%, capped at 80%.
     expect(CALIFORNIA_2025.tables.itemizedDeductionLimit.values).toMatchObject({
-      agiThreshold: { single: 252203, marriedFilingJointly: 504411, headOfHousehold: 378310 },
+      agiThreshold: { single: 252203, marriedFilingJointly: 504411, headOfHousehold: 378310, marriedFilingSeparately: 252203 },
       rate: 0.06,
       maxReductionShare: 0.8,
     });
@@ -80,13 +86,15 @@ describe('the California 2025 ruleset', () => {
     ]);
   });
 
-  it('carries the Behavioral Health Services Tax at 1% over $1,000,000 for every status', () => {
-    // 2025 Form 540, line 62 worksheet: 1% of the amount over $1,000,000 (R&TC §17043).
+  it('carries the Behavioral Health Services Tax at 1% over $1,000,000 for every status, and $500,000 on a separate return', () => {
+    // 2025 Form 540, line 62 worksheet: 1% of the amount over $1,000,000 (R&TC §17043), and
+    // §17043(a) halves the threshold for a separate return.
     expect(CALIFORNIA_2025.tables.behavioralHealthServicesTax.values.rate).toBe(0.01);
     expect(CALIFORNIA_2025.tables.behavioralHealthServicesTax.values.threshold).toEqual({
       single: 1000000,
       marriedFilingJointly: 1000000,
       headOfHousehold: 1000000,
+      marriedFilingSeparately: 500000,
     });
     expect(CALIFORNIA_2025.tables.behavioralHealthServicesTax.indexing).toBe('fixed');
   });

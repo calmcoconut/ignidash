@@ -1436,6 +1436,7 @@
           "enum": [
             "single",
             "marriedFilingJointly",
+            "marriedFilingSeparately",
             "headOfHousehold"
           ]
         },

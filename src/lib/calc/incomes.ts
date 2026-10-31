@@ -23,10 +23,19 @@ import type { SimulationState } from './simulation-engine';
 export class IncomesProcessor {
   private monthlyData: IncomesData[] = [];
 
+  /**
+   * @param splitByOwner - Whether to also aggregate the year's totals **per owner** (P3-P1b).
+   *   True only when the household files **two** returns (`marriedFilingSeparately`), because
+   *   `perOwnerData` is what that split divides. False everywhere else — a joint household's totals
+   *   are the household's, and a household of one's totals already are its only member's — so a run
+   *   that files one return keeps exactly the income data it had before the field existed (the
+   *   frozen golden corpus is the witness).
+   */
   constructor(
     private simulationState: SimulationState,
     private incomes: Incomes,
-    private payrollTaxProcessor: PayrollTaxProcessor
+    private payrollTaxProcessor: PayrollTaxProcessor,
+    private readonly splitByOwner: boolean = false
   ) {}
 
   /**
@@ -83,11 +92,12 @@ export class IncomesProcessor {
 
     const perIncomeData = Object.fromEntries(processedIncomes.map((income) => [income.id, income]));
 
-    const result = {
+    const result: IncomesData = {
       ...totals,
       totalWageIncome: wageIncome,
       totalSelfEmploymentIncome: selfEmploymentIncome,
       perIncomeData,
+      ...(this.splitByOwner ? { perOwnerData: perOwnerTotals(activeIncomes, processedIncomes) } : {}),
     };
 
     this.monthlyData.push(result);
@@ -99,7 +109,7 @@ export class IncomesProcessor {
   }
 
   getAnnualData(): IncomesData {
-    return this.monthlyData.reduce(
+    const annual = this.monthlyData.reduce(
       (acc, curr) => {
         acc.totalIncome += curr.totalIncome;
         acc.totalAmountWithheld += curr.totalAmountWithheld;
@@ -137,7 +147,118 @@ export class IncomesProcessor {
         perIncomeData: {},
       } satisfies IncomesData
     );
+
+    // The per-owner totals are summed separately from `perIncomeData` so the single-member path
+    // (where `splitByOwner` is false) returns exactly the object it always did.
+    if (!this.splitByOwner) return annual;
+
+    return { ...annual, perOwnerData: sumPerOwnerTotals(this.monthlyData) };
   }
+}
+
+/**
+ * One owner's share of a month's (or a year's) income.
+ *
+ * The same eight totals `IncomesData` carries, restricted to one member — which is exactly what a
+ * separate return (§6013) is computed from.
+ */
+export interface OwnerIncomesData {
+  totalIncome: number;
+  totalAmountWithheld: number;
+  totalFicaTax: number;
+  totalIncomeAfterPayrollDeductions: number;
+  totalTaxFreeIncome: number;
+  totalSocialSecurityIncome: number;
+  /** Wages subject to payroll tax, for the OASDI wage base and the Additional Medicare threshold. */
+  totalWageIncome: number;
+  /** Net self-employment earnings, the base for the annual self-employment tax. */
+  totalSelfEmploymentIncome: number;
+}
+
+/** A zeroed owner total, so the two owners' records always carry every field. */
+const zeroOwnerTotals = (): OwnerIncomesData => ({
+  totalIncome: 0,
+  totalAmountWithheld: 0,
+  totalFicaTax: 0,
+  totalIncomeAfterPayrollDeductions: 0,
+  totalTaxFreeIncome: 0,
+  totalSocialSecurityIncome: 0,
+  totalWageIncome: 0,
+  totalSelfEmploymentIncome: 0,
+});
+
+/**
+ * How much of an income belongs to each owner.
+ *
+ * A `joint` income is **community income** in California (E2, F10), so half of it belongs on each
+ * separate return — the Form 8958 rule. A `primary` or `partner` income belongs wholly to that
+ * owner. A household of one is unaffected: `ownerOf` reads an absent owner as `primary`, so
+ * everything lands on the primary's record.
+ */
+const ownerShares = (owner: Owner): { owner: HouseholdMemberRole; share: number }[] => {
+  if (owner === 'joint') {
+    return [
+      { owner: 'primary', share: 0.5 },
+      { owner: 'partner', share: 0.5 },
+    ];
+  }
+
+  return [{ owner, share: 1 }];
+};
+
+/** Splits one month's active incomes into the two owners' totals. */
+function perOwnerTotals(
+  activeIncomes: readonly Income[],
+  processedIncomes: readonly IncomeData[]
+): Record<'primary' | 'partner', OwnerIncomesData> {
+  const totals: Record<'primary' | 'partner', OwnerIncomesData> = { primary: zeroOwnerTotals(), partner: zeroOwnerTotals() };
+
+  activeIncomes.forEach((income, index) => {
+    const monthly = processedIncomes[index];
+    const isWage = income.getIncomeType() === 'wage';
+    const isSelfEmployment = income.getIncomeType() === 'selfEmployment';
+
+    for (const { owner, share } of ownerShares(income.getOwner())) {
+      const ownerTotals = totals[owner];
+      ownerTotals.totalIncome += monthly.income * share;
+      ownerTotals.totalAmountWithheld += monthly.amountWithheld * share;
+      ownerTotals.totalFicaTax += monthly.ficaTax * share;
+      ownerTotals.totalIncomeAfterPayrollDeductions += monthly.incomeAfterPayrollDeductions * share;
+      ownerTotals.totalTaxFreeIncome += monthly.taxFreeIncome * share;
+      ownerTotals.totalSocialSecurityIncome += monthly.socialSecurityIncome * share;
+      if (isWage) ownerTotals.totalWageIncome += monthly.income * share;
+      if (isSelfEmployment) ownerTotals.totalSelfEmploymentIncome += monthly.income * share;
+    }
+  });
+
+  return totals;
+}
+
+/** Sums the monthly per-owner totals into a year. */
+function sumPerOwnerTotals(monthlyData: readonly IncomesData[]): Record<'primary' | 'partner', OwnerIncomesData> {
+  const totals: Record<'primary' | 'partner', OwnerIncomesData> = { primary: zeroOwnerTotals(), partner: zeroOwnerTotals() };
+
+  for (const month of monthlyData) {
+    const perOwner = month.perOwnerData;
+    if (perOwner === undefined) continue;
+
+    for (const owner of ['primary', 'partner'] as const) {
+      const monthTotals = perOwner[owner];
+      if (monthTotals === undefined) continue;
+
+      const ownerTotals = totals[owner];
+      ownerTotals.totalIncome += monthTotals.totalIncome;
+      ownerTotals.totalAmountWithheld += monthTotals.totalAmountWithheld;
+      ownerTotals.totalFicaTax += monthTotals.totalFicaTax;
+      ownerTotals.totalIncomeAfterPayrollDeductions += monthTotals.totalIncomeAfterPayrollDeductions;
+      ownerTotals.totalTaxFreeIncome += monthTotals.totalTaxFreeIncome;
+      ownerTotals.totalSocialSecurityIncome += monthTotals.totalSocialSecurityIncome;
+      ownerTotals.totalWageIncome += monthTotals.totalWageIncome;
+      ownerTotals.totalSelfEmploymentIncome += monthTotals.totalSelfEmploymentIncome;
+    }
+  }
+
+  return totals;
 }
 
 export interface IncomesData {
@@ -158,6 +279,19 @@ export interface IncomesData {
   /** Net self-employment earnings; the base for the annual self-employment tax. */
   totalSelfEmploymentIncome: number;
   perIncomeData: Record<string, IncomeData>;
+  /**
+   * The year's totals per owner (P3-P1b), present **only** when the household files two returns.
+   *
+   * This is what a married couple filing separately divides between the two returns: the fields
+   * above are the household's, and these are each member's. A `joint` income is community income
+   * under California law, so half of each of its lines lands on each record (F10); a `primary` or
+   * `partner` income lands wholly on its owner's.
+   *
+   * Absent for a household filing one return, where the totals above already are the whole answer.
+   * The field is optional for a second reason: it is additive output, and a one-return run's data
+   * must stay byte-identical to what it was before this item (see the golden corpus).
+   */
+  perOwnerData?: Record<'primary' | 'partner', OwnerIncomesData>;
 }
 
 /** Collection of income sources that filters by active time frame */

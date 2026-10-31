@@ -461,7 +461,7 @@ interface YearModel {
 function buildYearModel(input: TaxAnalyticsInput): YearModel {
   const rules = getRules(input.taxYear);
   const { taxes } = input;
-  const tiers = rules.tables.socialSecurityTaxation.values[input.filingStatus];
+  const tiers = rules.tables.socialSecurityTaxation.values.tiers[input.filingStatus];
   const maxShare = tiers[tiers.length - 1].taxablePercentage;
 
   return {

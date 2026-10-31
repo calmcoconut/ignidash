@@ -39,7 +39,7 @@ import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
-import { TaxProcessor, type TaxesData } from './taxes';
+import { TaxProcessor, type ReturnOwnership, type TaxesData, type TaxProcessorSettings } from './taxes';
 import { taxYearFor } from './tax-data';
 import type { TaxYear } from './tax-data/types';
 import { type AssetFlows, zeroAssetAmounts } from './asset';
@@ -91,15 +91,17 @@ function settlementTaxYearForPeriod(start: CalendarDate, monthsElapsed: number):
  * keeps the status stored in `taxSettings`, so a single-member plan files exactly as it does
  * today: `single` by default, and `headOfHousehold` where the user already selected it.
  *
- * A household of two files jointly. `marriedFilingJointly` is a status the ruleset and the
- * payroll layer already carry, and married filing separately is a later item (P3-P1b), so there
- * is no other status a couple could meaningfully settle under yet. Until that item lands, a
- * couple's stored status is deliberately ignored rather than half-honoured: a two-member plan
- * that still says `single` was written before the household existed, and filing it as one person
- * would be the wrong answer.
+ * A household of two files jointly, or — when the plan says so — separately. `marriedFilingJointly`
+ * is the status a couple settles under unless they have explicitly chosen
+ * `marriedFilingSeparately` (P3-P1b), which is two returns and is priced by `TaxProcessor` as such.
+ * Any other stored status is deliberately ignored rather than half-honoured: a two-member plan that
+ * still says `single` was written before the household existed, and filing it as one person would be
+ * the wrong answer.
  */
 export function deriveFilingStatus(household: Household | undefined, storedFilingStatus: FilingStatus): FilingStatus {
-  return isCoupleHousehold(household) ? 'marriedFilingJointly' : storedFilingStatus;
+  if (!isCoupleHousehold(household)) return storedFilingStatus;
+
+  return storedFilingStatus === 'marriedFilingSeparately' ? 'marriedFilingSeparately' : 'marriedFilingJointly';
 }
 
 /**
@@ -220,6 +222,8 @@ export interface SimulationContext {
   readonly rmdAgeByOwner?: Record<Owner, number>;
   /** `ownerOf` for every account, keyed by account id. Absent means every account is `primary`. */
   readonly accountOwners?: Record<string, Owner>;
+  /** `ownerOf` for every physical asset, keyed by asset id. Absent means every asset is `primary`. */
+  readonly physicalAssetOwners?: Record<string, Owner>;
   /**
    * The first death of a two-member household, in plan-axis age, and only when a survivor
    * outlives it. Absent for one member (the run simply ends) and for a couple whose expectancies
@@ -313,7 +317,10 @@ export class FinancialSimulationEngine {
     // Its tax year is the *settlement* year of the period being accumulated, not the year the run
     // starts in: see `settlementTaxYearForPeriod`. Both processors therefore price one year.
     let payrollTaxProcessor = new PayrollTaxProcessor(settlementTaxYearForPeriod(startCalendarDate, 0), filingStatus);
-    let incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
+    // The per-owner totals exist only for a separate-return year (P3-P1b): they are what the two
+    // returns are divided from. A one-return household — one member, or a couple filing jointly —
+    // keeps the income data it always had, which is why the frozen corpus does not move.
+    let incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor, filingStatus === 'marriedFilingSeparately');
     const expensesProcessor = new ExpensesProcessor(simulationState, expenses);
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
@@ -326,12 +333,22 @@ export class FinancialSimulationEngine {
     // The plan's deduction settings travel with the processor: the itemized lines, and the spouse-65
     // flag for the senior deduction. Without this argument the tax layer computes itemized
     // deductions nobody enters — see the `simulate()` test that asserts the difference.
+    // Who owns what travels with them (P3-P1b): a separate return is priced per owner, and
+    // `ownerOf`'s absent-means-`primary` default is applied here, once, so the split helpers do not
+    // each restate it. A household filing one return never reads the block.
+    const taxProcessorSettings: TaxProcessorSettings = {
+      ...this.inputs.taxSettings,
+      ownership: {
+        accounts: simulationContext.accountOwners ?? {},
+        physicalAssets: simulationContext.physicalAssetOwners ?? {},
+      } satisfies ReturnOwnership,
+    };
     let taxProcessor = new TaxProcessor(
       simulationState,
       filingStatus,
       settlementTaxYearForPeriod(startCalendarDate, 0),
       undefined,
-      this.inputs.taxSettings
+      taxProcessorSettings
     );
 
     // Init phase identifier
@@ -464,13 +481,18 @@ export class FinancialSimulationEngine {
             filingStatus,
             settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month),
             undefined,
-            this.inputs.taxSettings
+            taxProcessorSettings
           );
           payrollTaxProcessor = new PayrollTaxProcessor(
             settlementTaxYearForPeriod(startCalendarDate, simulationState.time.month),
             filingStatus
           );
-          incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor);
+          incomesProcessor = new IncomesProcessor(
+            simulationState,
+            incomes,
+            payrollTaxProcessor,
+            filingStatus === 'marriedFilingSeparately'
+          );
         }
       }
     }
@@ -602,6 +624,11 @@ export class FinancialSimulationEngine {
     const accountOwners: Record<string, Owner> = Object.fromEntries(
       Object.values(this.inputs.accounts).map((account) => [account.id, ownerOf(account)])
     );
+    // The same map for physical assets, for the separate-return split (P3-P1b): a residence sold
+    // during the year puts its §121 gain and exclusion on its owner's return.
+    const physicalAssetOwners: Record<string, Owner> = Object.fromEntries(
+      Object.values(this.inputs.physicalAssets).map((asset) => [asset.id, ownerOf(asset)])
+    );
 
     // The survivor window exists only when a couple's two death ages differ: equal expectancies
     // mean there is no survivor to transition, which is also what a couple with no stored member
@@ -614,7 +641,19 @@ export class FinancialSimulationEngine {
           : { age: secondMember.deathAge, owner: secondMember.role }
         : undefined;
 
-    return { startAge, endAge, yearsToSimulate, startDate, endDate, retirementStrategy, rmdAge, rmdAgeByOwner, accountOwners, firstDeath };
+    return {
+      startAge,
+      endAge,
+      yearsToSimulate,
+      startDate,
+      endDate,
+      retirementStrategy,
+      rmdAge,
+      rmdAgeByOwner,
+      accountOwners,
+      physicalAssetOwners,
+      firstDeath,
+    };
   }
 
   /**

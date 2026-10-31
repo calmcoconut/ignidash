@@ -53,15 +53,37 @@ export const FEDERAL_2026: FederalTaxRuleset = {
           { min: 256200, max: 640600, rate: 0.35 },
           { min: 640600, max: Infinity, rate: 0.37 },
         ],
+        // IRC §1(d) sets the separate-return schedule to **one-half the joint amounts**, and the
+        // IRS's annual inflation Rev. Proc. (Rev. Proc. 2025-32 for 2026) publishes exactly that
+        // column: $12,400 / $50,400 / $105,700 / $201,775 / $256,225 / $384,350, the last being
+        // half of the joint $768,700. It is therefore written here as the halving of the row above
+        // rather than as a second transcript of the table, so the two can never disagree; the halves
+        // reproduce the published MFS column to the dollar ($24,800/2 = 12,400 and so on).
+        //
+        // Note the shape that falls out: the MFS schedule equals the single one for every band
+        // except the 35% band, which a separate return leaves at $384,350 rather than $640,600.
+        marriedFilingSeparately: [
+          { min: 0, max: 12400, rate: 0.1 },
+          { min: 12400, max: 50400, rate: 0.12 },
+          { min: 50400, max: 105700, rate: 0.22 },
+          { min: 105700, max: 201775, rate: 0.24 },
+          { min: 201775, max: 256225, rate: 0.32 },
+          { min: 256225, max: 384350, rate: 0.35 },
+          { min: 384350, max: Infinity, rate: 0.37 },
+        ],
       },
     },
     standardDeduction: {
       indexing: 'indexed',
-      source: 'IRC §63(c); IRS 2026 inflation adjustments (including OBBBA amendments).',
+      source:
+        'IRC §63(c)(2)(A) and (c)(2)(B) (the separate-return basic standard deduction is 50 percent of the joint amount); ' +
+        'IRS 2026 inflation adjustments (including OBBBA amendments): $16,100 separate, half of the $32,200 joint amount.',
       values: {
         single: 16100,
         marriedFilingJointly: 32200,
         headOfHousehold: 24150,
+        // §63(c)(2)(B): 50% of the joint amount, i.e. $16,100 — the same dollars as a single filer.
+        marriedFilingSeparately: 16100,
       },
     },
     capitalGainsTaxBrackets: {
@@ -83,17 +105,28 @@ export const FEDERAL_2026: FederalTaxRuleset = {
           { min: 66200, max: 579600, rate: 0.15 },
           { min: 579600, max: Infinity, rate: 0.2 },
         ],
+        // The 0%/15% breakpoints are the joint amounts halved (IRC §1(h)(1); the MFS column of the
+        // 2026 inflation Rev. Proc.): $49,450 and $306,850 — half of $98,900 and $613,700. As with
+        // the ordinary schedule, the MFS row matches the single one until the top break.
+        marriedFilingSeparately: [
+          { min: 0, max: 49450, rate: 0.0 },
+          { min: 49450, max: 306850, rate: 0.15 },
+          { min: 306850, max: Infinity, rate: 0.2 },
+        ],
       },
     },
     netInvestmentIncomeTax: {
       indexing: 'fixed',
-      source: 'IRC §1411; 3.8% rate and $200k/$250k base amounts, not indexed since 2013.',
+      source:
+        'IRC §1411; 3.8% rate and $200k/$250k/$125k base amounts, not indexed since 2013. ' +
+        '§1411(b)(2) sets the separate-return threshold at $125,000, half of the joint $250,000.',
       values: {
         rate: 0.038,
         thresholds: {
           single: 200000,
           marriedFilingJointly: 250000,
           headOfHousehold: 200000,
+          marriedFilingSeparately: 125000,
         },
       },
     },
@@ -131,22 +164,31 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     // Alternative minimum tax (IRC §55). Exemption and phase-out threshold from the IRS 2026
     // inflation adjustments: "For tax year 2026, the exemption amount for unmarried individuals is
     // $90,100 and begins to phase out at $500,000 ($140,200 for married couples filing jointly for
-    // whom the exemption begins to phase out at $1,000,000)." The 26%/28% rates and the 25%
-    // phase-out rate are statutory; the ceiling on the 26% band is the fixed §55(b)(1) $175,000
-    // ($87,500 on a separate return), which is *not* indexed.
+    // whom the exemption begins to phase out at $1,000,000)." The separate-return exemption is
+    // $70,100 — half of the joint amount, per §55(d)(1)(C)'s $43,750 halving of the (pre-inflation)
+    // $87,500 — and its phase-out threshold is $500,000, the un-doubled §55(d)(4) amount. The
+    // 26%/28% rates and the 25% phase-out rate are statutory; the ceiling on the 26% band is the
+    // fixed §55(b)(1) $175,000 ($87,500 on a separate return), which is *not* indexed.
     alternativeMinimumTax: {
       indexing: 'indexed',
       source:
-        'IRC §55(b)(1) (26%/28% rates, $175,000 / $87,500 band ceiling), §55(d)(1) (25% phase-out) and §56(b)(1) ' +
-        '(disallowed deductions); IRS 2026 inflation adjustments: $90,100 single / $140,200 MFJ exemption, ' +
-        'phasing out at $500,000 / $1,000,000.',
+        'IRC §55(b)(1) (26%/28% rates, $175,000 / $87,500 band ceiling), §55(d)(1) and (d)(4) (exemption, $43,750 separate-return ' +
+        'halving and 25% phase-out) and §56(b)(1) (disallowed deductions); IRS 2026 inflation adjustments: $90,100 single / ' +
+        '$140,200 MFJ / $70,100 separate exemption, phasing out at $500,000 / $1,000,000 / $500,000.',
       values: {
-        exemption: { single: 90100, marriedFilingJointly: 140200, headOfHousehold: 90100 },
-        exemptionPhaseOutThreshold: { single: 500000, marriedFilingJointly: 1000000, headOfHousehold: 500000 },
+        exemption: { single: 90100, marriedFilingJointly: 140200, headOfHousehold: 90100, marriedFilingSeparately: 70100 },
+        exemptionPhaseOutThreshold: {
+          single: 500000,
+          marriedFilingJointly: 1000000,
+          headOfHousehold: 500000,
+          marriedFilingSeparately: 500000,
+        },
         exemptionPhaseOutRate: 0.25,
         rateLow: 0.26,
         rateHigh: 0.28,
-        rateLowCeiling: { single: 175000, marriedFilingJointly: 175000, headOfHousehold: 175000 },
+        // §55(b)(1)(A)(ii): "($87,500 in the case of a married individual filing a separate return)" —
+        // statutory, and never indexed, like the $175,000 it halves.
+        rateLowCeiling: { single: 175000, marriedFilingJointly: 175000, headOfHousehold: 175000, marriedFilingSeparately: 87500 },
         // IRC §56(b)(1): the standard deduction, state and local taxes and miscellaneous itemized
         // deductions do not survive into AMTI. Qualified mortgage interest and charitable
         // contributions are allowed and are deliberately absent. Only the standard deduction can be
@@ -166,7 +208,8 @@ export const FEDERAL_2026: FederalTaxRuleset = {
       source:
         'CMS, "2026 Medicare Parts A & B Premiums and Deductibles" (Nov 14, 2025): Part B adjustments ' +
         '$0.00/$81.20/$202.90/$324.60/$446.30/$487.00 and Part D $0.00/$14.50/$37.50/$60.40/$83.30/$91.00 per month, ' +
-        'on MAGI tiers of $109k/$137k/$171k/$205k/$500k (individual), doubled for a joint return.',
+        'on MAGI tiers of $109k/$137k/$171k/$205k/$500k (individual), doubled for a joint return and halved for a separate ' +
+        'one (42 U.S.C. §1395r(i)(3)).',
       values: {
         standardPartBMonthly: 202.9,
         lookbackYears: 2,
@@ -196,6 +239,19 @@ export const FEDERAL_2026: FederalTaxRuleset = {
             { min: 205000, max: 500000, partBMonthly: 446.3, partDMonthly: 83.3 },
             { min: 500000, max: null, partBMonthly: 487, partDMonthly: 91 },
           ],
+          // 42 U.S.C. §1395r(i)(3) reduces the joint-return thresholds by 50 percent for a married
+          // individual filing separately, and CMS publishes that column directly: the same five
+          // boundaries halved ($109,000 / $137,000 / $171,000 / $205,000 / $375,000) with the same
+          // monthly adjustment amounts. Note that the first four therefore coincide with the single
+          // column and only the top boundary differs ($375,000 rather than $500,000).
+          marriedFilingSeparately: [
+            { min: 0, max: 109000, partBMonthly: 0, partDMonthly: 0 },
+            { min: 109000, max: 137000, partBMonthly: 81.2, partDMonthly: 14.5 },
+            { min: 137000, max: 171000, partBMonthly: 202.9, partDMonthly: 37.5 },
+            { min: 171000, max: 205000, partBMonthly: 324.6, partDMonthly: 60.4 },
+            { min: 205000, max: 375000, partBMonthly: 446.3, partDMonthly: 83.3 },
+            { min: 375000, max: null, partBMonthly: 487, partDMonthly: 91 },
+          ],
         },
       },
     },
@@ -206,12 +262,16 @@ export const FEDERAL_2026: FederalTaxRuleset = {
       indexing: 'fixed',
       source:
         'IRC §151(d)(5)(C), added by P.L. 119-21 §70103: $6,000 per individual aged 65+, reduced by 6% of MAGI over ' +
-        '$75,000 ($150,000 joint), taxable years beginning before January 1, 2029.',
+        '$75,000 ($150,000 joint, $75,000 separate), taxable years beginning before January 1, 2029; the paragraph denies ' +
+        "the deduction where the individual's spouse also claims it, which a pair of separate returns cannot be checked for, " +
+        'so a separate return is declared ineligible.',
       values: {
         perIndividual: 6000,
-        phaseOutThreshold: { single: 75000, marriedFilingJointly: 150000, headOfHousehold: 75000 },
+        phaseOutThreshold: { single: 75000, marriedFilingJointly: 150000, headOfHousehold: 75000, marriedFilingSeparately: 75000 },
         phaseOutRate: 0.06,
         lastTaxYear: 2028,
+        // See `SeniorDeductionTable.eligible` in types.ts: declared, not a zero amount.
+        eligible: { single: true, marriedFilingJointly: true, headOfHousehold: true, marriedFilingSeparately: false },
       },
     },
     // IRC §213(a): medical expenses are deductible only above 7.5% of AGI. A rate, so `fixed`.
@@ -227,41 +287,63 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     // true-up), so the filing status wins.
     additionalMedicareThreshold: {
       indexing: 'fixed',
-      source: 'IRC §3101(b)(2)(A), §1401(b)(2)(A): $200,000 single/HOH, $250,000 MFJ; not indexed since 2013.',
+      source:
+        'IRC §3101(b)(2)(A), §1401(b)(2)(A): $200,000 single/HOH, $250,000 MFJ, $125,000 separate (half the joint amount); ' +
+        'not indexed since 2013.',
       values: {
         single: 200000,
         marriedFilingJointly: 250000,
         headOfHousehold: 200000,
+        marriedFilingSeparately: 125000,
       },
     },
     socialSecurityTaxation: {
       indexing: 'fixed',
-      source: 'IRC §86; base amounts of $25,000/$34,000 (single, HOH) and $32,000/$44,000 (MFJ), fixed by statute.',
+      source:
+        'IRC §86; base amounts of $25,000/$34,000 (single, HOH) and $32,000/$44,000 (MFJ), fixed by statute; ' +
+        '§86(c)(1)(C) and (c)(2)(C) set both the base and the adjusted base amount of a married individual filing a separate ' +
+        'return to $0.',
       values: {
-        single: [
-          { min: 0, max: 25000, taxablePercentage: 0 },
-          { min: 25000, max: 34000, taxablePercentage: 0.5 },
-          { min: 34000, max: Infinity, taxablePercentage: 0.85 },
-        ],
-        marriedFilingJointly: [
-          { min: 0, max: 32000, taxablePercentage: 0 },
-          { min: 32000, max: 44000, taxablePercentage: 0.5 },
-          { min: 44000, max: Infinity, taxablePercentage: 0.85 },
-        ],
-        headOfHousehold: [
-          { min: 0, max: 25000, taxablePercentage: 0 },
-          { min: 25000, max: 34000, taxablePercentage: 0.5 },
-          { min: 34000, max: Infinity, taxablePercentage: 0.85 },
-        ],
+        tiers: {
+          single: [
+            { min: 0, max: 25000, taxablePercentage: 0 },
+            { min: 25000, max: 34000, taxablePercentage: 0.5 },
+            { min: 34000, max: Infinity, taxablePercentage: 0.85 },
+          ],
+          marriedFilingJointly: [
+            { min: 0, max: 32000, taxablePercentage: 0 },
+            { min: 32000, max: 44000, taxablePercentage: 0.5 },
+            { min: 44000, max: Infinity, taxablePercentage: 0.85 },
+          ],
+          headOfHousehold: [
+            { min: 0, max: 25000, taxablePercentage: 0 },
+            { min: 25000, max: 34000, taxablePercentage: 0.5 },
+            { min: 34000, max: Infinity, taxablePercentage: 0.85 },
+          ],
+          // Base amount $0 and adjusted base amount $0, so the 50% band has no width and the
+          // collapsed rule is "85% of provisional income, capped at 85% of the benefits". The single
+          // tier states that as a row; `taxableFromFirstDollar` says the walk must use it, because a
+          // zero-width second band is not expressible in the general three-tier form.
+          marriedFilingSeparately: [{ min: 0, max: Infinity, taxablePercentage: 0.85 }],
+        },
+        taxableFromFirstDollar: {
+          single: false,
+          marriedFilingJointly: false,
+          headOfHousehold: false,
+          marriedFilingSeparately: true,
+        },
       },
     },
     section121Exclusion: {
       indexing: 'fixed',
-      source: 'IRC §121(b); $250,000 single/HOH and $500,000 MFJ, fixed by statute.',
+      source:
+        'IRC §121(b)(1)-(2); $250,000 generally and $500,000 on a joint return, fixed by statute. A separate return is the ' +
+        'general $250,000: §121(b)(1) is the base amount and (b)(2) is what doubles it for a joint return.',
       values: {
         single: 250000,
         marriedFilingJointly: 500000,
         headOfHousehold: 250000,
+        marriedFilingSeparately: 250000,
       },
     },
   },

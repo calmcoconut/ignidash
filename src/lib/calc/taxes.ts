@@ -38,24 +38,20 @@
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
 import type { FilingStatus, ItemizedDeductionsInputs } from '@/lib/schemas/inputs/tax-settings-form-schema';
 
+import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
+
 import type { SimulationState } from './simulation-engine';
-import type { IncomesData } from './incomes';
+import type { IncomesData, OwnerIncomesData } from './incomes';
 import type { PortfolioData } from './portfolio';
 import type { ReturnsData } from './returns';
-import type { PhysicalAssetsData } from './physical-assets';
-import { sumFlows } from './asset';
+import type { PhysicalAssetData, PhysicalAssetsData } from './physical-assets';
+import { type AccountDataWithFlows, taxCategoryForAccountType } from './account';
+import { type AssetFlows, type TaxCategory, sumFlows, sumReturnAmounts, zeroAssetAmounts } from './asset';
 import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { saltCapFor } from './tax-data/salt-cap';
-import type {
-  CapitalGainsTaxBracket,
-  FederalIncomeTaxBracket,
-  FederalTaxRuleset,
-  ProgressiveBracket,
-  SocialSecurityTaxThreshold,
-  TaxYear,
-} from './tax-data/types';
+import type { CapitalGainsTaxBracket, FederalIncomeTaxBracket, FederalTaxRuleset, ProgressiveBracket, TaxYear } from './tax-data/types';
 
 export interface CapitalGainsTaxesData {
   taxableIncomeTaxedAsCapitalGains: number;
@@ -147,6 +143,31 @@ export interface TaxProcessorSettings {
    * flag means in a file.
    */
   readonly stateResidency?: StateResidency | undefined;
+  /**
+   * Whose each account and physical asset is, for the separate-return split (P3-P1b).
+   *
+   * The engine passes it from the plan's `owner` fields; an item with no owner reads as `primary`
+   * (what `ownerOf` already means everywhere else), so a plan written before ownership existed
+   * divides exactly as a single person's would. Incomes do not need an entry here: the incomes
+   * processor reports its own per-owner totals in `IncomesData.perOwnerData`, because it is the
+   * layer that knows how a `joint` income is shared month by month.
+   *
+   * Only the separate-return path reads it. A household filing one return is unaffected.
+   */
+  readonly ownership?: ReturnOwnership | undefined;
+}
+
+/**
+ * Who owns what, keyed by entity id, for the separate-return split (P3-P1b).
+ *
+ * A `joint` item is community property in California (E2, F10), so its amounts split 50/50 between
+ * the two returns; a `primary` or `partner` item belongs wholly to that member. The engine builds
+ * this from the plan's ownership fields, and `ownerOf`'s absent-means-`primary` default is applied
+ * here as well, so an old plan with no ownership data behaves like a single person's.
+ */
+export interface ReturnOwnership {
+  readonly accounts: Readonly<Record<string, Owner | undefined>>;
+  readonly physicalAssets: Readonly<Record<string, Owner | undefined>>;
 }
 
 /** The states the engine can file: California, or none at all. */
@@ -310,19 +331,466 @@ export interface IncomeSourcesData {
   };
 }
 
+// ============================================================================
+// Separate returns (§6013, P3-P1b)
+// ============================================================================
+
+/** The two members whose separate returns a married couple files. */
+const SEPARATE_RETURN_OWNERS = ['primary', 'partner'] as const;
+
+/**
+ * How much of an entity belongs on one member's separate return.
+ *
+ * A `joint` item is **community property** in California (E2, F10), so half of it is each member's
+ * and half of its income belongs on each return. A `primary` or `partner` item belongs wholly to
+ * that member. An absent owner reads as `primary`, which is `ownerOf`'s default everywhere else, so
+ * a plan written before ownership existed divides as a single person's would.
+ */
+export function ownershipShare(owner: Owner | undefined, returnOwner: HouseholdMemberRole): number {
+  const resolved = ownerOf({ owner });
+  if (resolved === 'joint') return 0.5;
+
+  return resolved === returnOwner ? 1 : 0;
+}
+
+const sum = (values: readonly number[]): number => values.reduce((total, value) => total + value, 0);
+
+const scaleFlows = (flows: AssetFlows, share: number): AssetFlows =>
+  share === 1 ? flows : { stocks: flows.stocks * share, bonds: flows.bonds * share, cash: flows.cash * share };
+
+const scaleAmounts = (amounts: AssetFlows, share: number): AssetFlows => scaleFlows(amounts, share);
+
+/**
+ * One owner's half of the year's portfolio flows.
+ *
+ * Only the fields the tax computation reads are divided — `perAccountData` (the account types and
+ * their withdrawals, contributions and realised gains) and the aggregate `realizedGains`. The
+ * snapshot fields (`totalValue`, the `cumulative*` totals) and the non-tax flow fields are not
+ * attributable to a member of a household through a single number, and nothing on this path reads
+ * them, so they are carried through unchanged rather than invented.
+ *
+ * `realizedGains` is rebuilt as the sum of the owner's shares of every account's gains. Those shares
+ * partition the household's accounts exactly (1 + 0 for a separately owned account, ½ + ½ for a
+ * community one), so the two returns' gains add up to the household's figure — which is what the
+ * MFS-versus-MFJ fixture asserts.
+ */
+function portfolioForSeparateReturn(data: PortfolioData, ownership: ReturnOwnership, returnOwner: HouseholdMemberRole): PortfolioData {
+  const perAccountData: Record<string, AccountDataWithFlows> = {};
+  let realizedGains = 0;
+
+  for (const [accountId, account] of Object.entries(data.perAccountData)) {
+    const share = ownershipShare(ownership.accounts[accountId], returnOwner);
+    if (share === 0) continue;
+
+    const sharedAccount: AccountDataWithFlows = {
+      ...account,
+      contributions: scaleFlows(account.contributions, share),
+      withdrawals: scaleFlows(account.withdrawals, share),
+      employerMatch: account.employerMatch * share,
+      realizedGains: account.realizedGains * share,
+      earningsWithdrawn: account.earningsWithdrawn * share,
+      rmds: account.rmds * share,
+    };
+
+    perAccountData[accountId] = sharedAccount;
+    realizedGains += sharedAccount.realizedGains;
+  }
+
+  return { ...data, perAccountData, realizedGains };
+}
+
+/**
+ * The share of one tax category's investment income that belongs on one owner's return.
+ *
+ * This is an **allocation basis, not a measurement**. The engine aggregates yields by tax category
+ * (`ReturnsData.yieldAmounts`), so it holds no per-account dividend or interest figure to split. What
+ * it does hold per account is the year's return amounts (`ReturnsData.perAccountData[].
+ * returnAmounts`), and this divides by those, attributed through `ownerOf`: a `primary` account's
+ * investment income lands wholly on the primary's return, a `partner` account's wholly on the
+ * partner's, and a `joint` (community-property) account's half on each.
+ *
+ * The consequence is visible and worth stating: the taxable-dividend line on a separate return is the
+ * household's line times the owner's share of the returning accounts, so a couple whose taxable
+ * brokerage sits entirely in the primary's name reports all of its dividends on the primary's return
+ * and none on the partner's. An exact split needs per-account yields in `ReturnsData`, which is a
+ * larger change than this item; until then this is the rule F10 implies.
+ *
+ * The weight is the **absolute** return amount, so a down year cannot turn a share negative, and it
+ * falls back to the account's balance when every return in the category is exactly zero — the case
+ * of a year with no price return at all, where yields are still paid.
+ */
+function investmentIncomeShare(
+  data: ReturnsData,
+  portfolio: PortfolioData,
+  ownership: ReturnOwnership,
+  returnOwner: HouseholdMemberRole,
+  category: TaxCategory
+): number {
+  let total = 0;
+  let mine = 0;
+
+  for (const [accountId, account] of Object.entries(data.perAccountData)) {
+    const accountData = portfolio.perAccountData[accountId];
+    if (accountData === undefined || taxCategoryForAccountType(accountData.type) !== category) continue;
+
+    const weight = Math.abs(sumReturnAmounts(account.returnAmounts)) || Math.abs(accountData.balance);
+    total += weight;
+    mine += weight * ownershipShare(ownership.accounts[accountId], returnOwner);
+  }
+
+  return total > 0 ? mine / total : 0;
+}
+
+/**
+ * One owner's half of the year's investment income.
+ *
+ * Only `yieldAmounts` is read on the tax path, so only it is divided. The two categories that are
+ * income at all are apportioned; tax-deferred and tax-free yields are not taxed on either return and
+ * are zeroed rather than copied, because a projection here is one return's year, not the household's.
+ */
+function returnsForSeparateReturn(
+  data: ReturnsData,
+  portfolio: PortfolioData,
+  ownership: ReturnOwnership,
+  returnOwner: HouseholdMemberRole
+): ReturnsData {
+  return {
+    ...data,
+    yieldAmounts: {
+      taxable: scaleAmounts(data.yieldAmounts.taxable, investmentIncomeShare(data, portfolio, ownership, returnOwner, 'taxable')),
+      cashSavings: scaleAmounts(
+        data.yieldAmounts.cashSavings,
+        investmentIncomeShare(data, portfolio, ownership, returnOwner, 'cashSavings')
+      ),
+      taxDeferred: zeroAssetAmounts(),
+      taxFree: zeroAssetAmounts(),
+    },
+  };
+}
+
+/**
+ * One owner's half of the year's physical assets.
+ *
+ * The §121 exclusion reads each asset's `realizedGains` and the total, so both are divided: community
+ * property halves, a separately owned property belongs to its owner. The remaining asset fields are
+ * not read on the tax path and are carried through unchanged.
+ */
+function physicalAssetsForSeparateReturn(
+  data: PhysicalAssetsData,
+  ownership: ReturnOwnership,
+  returnOwner: HouseholdMemberRole
+): PhysicalAssetsData {
+  const perAssetData: Record<string, PhysicalAssetData> = {};
+  let totalRealizedGains = 0;
+
+  for (const [assetId, asset] of Object.entries(data.perAssetData)) {
+    const share = ownershipShare(ownership.physicalAssets[assetId], returnOwner);
+    if (share === 0) continue;
+
+    perAssetData[assetId] = share === 1 ? asset : { ...asset, realizedGains: asset.realizedGains * share };
+    totalRealizedGains += asset.realizedGains * share;
+  }
+
+  return { ...data, perAssetData, totalRealizedGains };
+}
+
+/** One owner's share of the year's withheld payroll tax, apportioned by that owner's wages. */
+function wagePayrollForSeparateReturn(wages: WagePayrollTaxes, share: number): WagePayrollTaxes {
+  if (share === 1) return wages;
+
+  return {
+    socialSecurity: wages.socialSecurity * share,
+    medicare: wages.medicare * share,
+    additionalMedicare: wages.additionalMedicare * share,
+    stateDisability: wages.stateDisability * share,
+    total: wages.total * share,
+  };
+}
+
+/**
+ * Each owner's share of the wage payroll tax withheld this year.
+ *
+ * The payroll layer withholds per paycheque and `IncomesData.perOwnerData` records what it withheld
+ * for each owner, so that is the weight: the year's `WagePayrollTaxes` are apportioned in exactly
+ * the proportion they were withheld in. When nothing was withheld the whole argument is zero, so
+ * the split cannot change the result; the primary takes it then, which keeps the two shares summing
+ * to 1.
+ *
+ * This is an **apportionment, not a recomputation**. The OASDI wage base was applied to the
+ * household's wages in one sequence, so a couple whose two wages together exceed the base has the
+ * household's withholding divided between them rather than re-withheld spouse by spouse. The
+ * per-spouse wage base belongs to the payroll layer (§1-P3, P3-P4); a separate return only needs the
+ * tax it already paid.
+ */
+function withheldPayrollShare(data: IncomesData, returnOwner: HouseholdMemberRole): number {
+  const perOwner = data.perOwnerData;
+  if (perOwner === undefined) return returnOwner === 'primary' ? 1 : 0;
+
+  const total = perOwner.primary.totalFicaTax + perOwner.partner.totalFicaTax;
+
+  return total > 0 ? perOwner[returnOwner].totalFicaTax / total : returnOwner === 'primary' ? 1 : 0;
+}
+
+/** A zeroed owner total, for the second return of a household that has only one earner record. */
+const zeroOwnerTotals = (): OwnerIncomesData => ({
+  totalIncome: 0,
+  totalAmountWithheld: 0,
+  totalFicaTax: 0,
+  totalIncomeAfterPayrollDeductions: 0,
+  totalTaxFreeIncome: 0,
+  totalSocialSecurityIncome: 0,
+  totalWageIncome: 0,
+  totalSelfEmploymentIncome: 0,
+});
+
+/**
+ * One owner's share of the year's income.
+ *
+ * `perOwnerData` is absent only for a household of one (see `IncomesData.perOwnerData`), where the
+ * household's own totals already are the primary's — so the primary's return gets them unchanged and
+ * the partner's return is an empty one, which is what a separate return with no income is.
+ */
+function incomesForSeparateReturn(data: IncomesData, totals: OwnerIncomesData | undefined, returnOwner: HouseholdMemberRole): IncomesData {
+  if (totals !== undefined) return { ...data, ...totals };
+  if (returnOwner === 'primary') return data;
+
+  return { ...data, ...zeroOwnerTotals() };
+}
+
+/** Sums a record of amounts across the returns, so a key one return lacks is still carried. */
+function sumRecordOfAmounts(records: readonly Record<string, number>[]): Record<string, number> {
+  const keys = new Set(records.flatMap((record) => Object.keys(record)));
+
+  return Object.fromEntries([...keys].map((key) => [key, sum(records.map((record) => record[key] ?? 0))]));
+}
+
+/** Sums the income-composition block, keeping the one ratio in it a maximum rather than a sum. */
+function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesData {
+  const amount = (key: Exclude<keyof IncomeSourcesData, 'earlyWithdrawals' | 'maxTaxableSocialSecurityPercentage'>) =>
+    sum(records.map((record) => record[key]));
+
+  return {
+    realizedGains: amount('realizedGains'),
+    capitalLossDeduction: amount('capitalLossDeduction'),
+    section121Exclusion: amount('section121Exclusion'),
+    taxDeferredWithdrawals: amount('taxDeferredWithdrawals'),
+    taxableRetirementDistributions: amount('taxableRetirementDistributions'),
+    taxableDividendIncome: amount('taxableDividendIncome'),
+    taxableInterestIncome: amount('taxableInterestIncome'),
+    earnedIncome: amount('earnedIncome'),
+    socialSecurityIncome: amount('socialSecurityIncome'),
+    taxableSocialSecurityIncome: amount('taxableSocialSecurityIncome'),
+    // A share, not an amount: the household's top §86 percentage is the larger of the two returns'.
+    maxTaxableSocialSecurityPercentage: Math.max(...records.map((record) => record.maxTaxableSocialSecurityPercentage)),
+    provisionalIncome: amount('provisionalIncome'),
+    taxFreeIncome: amount('taxFreeIncome'),
+    grossIncome: amount('grossIncome'),
+    incomeTaxedAsOrdinary: amount('incomeTaxedAsOrdinary'),
+    incomeTaxedAsLtcg: amount('incomeTaxedAsLtcg'),
+    taxDeductibleContributions: amount('taxDeductibleContributions'),
+    adjustedGrossIncome: amount('adjustedGrossIncome'),
+    adjustedIncomeTaxedAsOrdinary: amount('adjustedIncomeTaxedAsOrdinary'),
+    adjustedIncomeTaxedAsCapitalGains: amount('adjustedIncomeTaxedAsCapitalGains'),
+    totalIncome: amount('totalIncome'),
+    earlyWithdrawals: {
+      rothEarnings: sum(records.map((record) => record.earlyWithdrawals.rothEarnings)),
+      '401kAndIra': sum(records.map((record) => record.earlyWithdrawals['401kAndIra'])),
+      hsa: sum(records.map((record) => record.earlyWithdrawals.hsa)),
+    },
+  };
+}
+
+/** Sums the deduction blocks of two returns. */
+function sumDeductions(records: readonly DeductionData[]): DeductionData {
+  return {
+    // The household took an itemized deduction if either return did. `standardDeduction` then
+    // carries the other return's standard deduction, which is truthful — that return took it.
+    type: records.some((record) => record.type === 'itemized') ? 'itemized' : 'standard',
+    standardDeduction: sum(records.map((record) => record.standardDeduction)),
+    itemized: {
+      mortgageInterest: sum(records.map((record) => record.itemized.mortgageInterest)),
+      charitable: sum(records.map((record) => record.itemized.charitable)),
+      stateAndLocalTaxes: sum(records.map((record) => record.itemized.stateAndLocalTaxes)),
+      medicalExpenses: sum(records.map((record) => record.itemized.medicalExpenses)),
+      total: sum(records.map((record) => record.itemized.total)),
+    },
+    saltCap: {
+      entered: sum(records.map((record) => record.saltCap.entered)),
+      allowed: sum(records.map((record) => record.saltCap.allowed)),
+      phaseDown: sum(records.map((record) => record.saltCap.phaseDown)),
+      resolvedYear: Math.max(...records.map((record) => record.saltCap.resolvedYear)),
+    },
+    seniorDeduction: sum(records.map((record) => record.seniorDeduction)),
+    total: sum(records.map((record) => record.total)),
+  };
+}
+
+/** Sums the two state returns. */
+function sumStateTaxes(records: readonly StateTaxesData[]): StateTaxesData {
+  const filed = records.filter((record) => record.jurisdiction !== 'none');
+  const source = filed.length > 0 ? filed : records;
+
+  return {
+    jurisdiction: filed.length > 0 ? 'CA' : 'none',
+    resolvedYear: source[0].resolvedYear,
+    income: sum(records.map((record) => record.income)),
+    deduction: {
+      type: records.some((record) => record.deduction.type === 'itemized') ? 'itemized' : 'standard',
+      standard: sum(records.map((record) => record.deduction.standard)),
+      itemized: sum(records.map((record) => record.deduction.itemized)),
+      limitation: sum(records.map((record) => record.deduction.limitation)),
+      taken: sum(records.map((record) => record.deduction.taken)),
+    },
+    taxableIncome: sum(records.map((record) => record.taxableIncome)),
+    bracketTax: sum(records.map((record) => record.bracketTax)),
+    behavioralHealthServicesTax: sum(records.map((record) => record.behavioralHealthServicesTax)),
+    exemptionCredits: sum(records.map((record) => record.exemptionCredits)),
+    total: sum(records.map((record) => record.total)),
+  };
+}
+
+/**
+ * The household's tax block for a year it files **two** returns in: the two returns, line by line.
+ *
+ * Every liability line is the sum of the two returns' lines, because the household's cash position is
+ * what the engine settles — two cheques for the same year are still one year's tax. The blocks that
+ * describe *a return* rather than an amount (the bracket schedule, the NIIT threshold, the IRMAA
+ * tier) are taken from the returns themselves rather than summed, since both returns file under the
+ * same status and therefore the same table.
+ *
+ * Ratios are recomputed from the summed parts, never averaged: `effectiveFederalIncomeTaxRate` is the
+ * household's tax over the household's income, which is the number a reader means by the phrase.
+ */
+function sumSeparateReturns(records: readonly TaxesData[]): TaxesData {
+  const federalIncomeTaxAmount = sum(records.map((record) => record.federalIncomeTaxes.federalIncomeTaxAmount));
+  const capitalGainsTaxAmount = sum(records.map((record) => record.capitalGainsTaxes.capitalGainsTaxAmount));
+  const totalIncome = sum(records.map((record) => record.incomeSources.totalIncome));
+  const adjustedGains = sum(records.map((record) => record.incomeSources.adjustedIncomeTaxedAsCapitalGains));
+  const capitalLossDeduction = sum(records.map((record) => record.federalIncomeTaxes.capitalLossDeduction ?? 0));
+  const socialSecurityIncome = sum(records.map((record) => record.socialSecurityTaxes.taxableSocialSecurityIncome));
+  const grossSocialSecurity = sum(records.map((record) => record.incomeSources.socialSecurityIncome));
+  const basisMagi = records.map((record) => record.irmaa.basisMagi).filter((magi): magi is number => magi !== null);
+  const basisTaxYear = records.map((record) => record.irmaa.basisTaxYear).find((year) => year !== null) ?? null;
+
+  return {
+    federalIncomeTaxes: {
+      taxableIncomeTaxedAsOrdinary: sum(records.map((record) => record.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary)),
+      federalIncomeTaxAmount,
+      effectiveFederalIncomeTaxRate: totalIncome > 0 ? federalIncomeTaxAmount / totalIncome : 0,
+      topMarginalFederalIncomeTaxRate: Math.max(...records.map((record) => record.federalIncomeTaxes.topMarginalFederalIncomeTaxRate)),
+      // Both returns are priced under the same filing status, so they carry the same schedule.
+      federalIncomeTaxBrackets: records[0].federalIncomeTaxes.federalIncomeTaxBrackets,
+      ...(capitalLossDeduction !== 0 ? { capitalLossDeduction } : {}),
+    },
+    capitalGainsTaxes: {
+      taxableIncomeTaxedAsCapitalGains: sum(records.map((record) => record.capitalGainsTaxes.taxableIncomeTaxedAsCapitalGains)),
+      capitalGainsTaxAmount,
+      effectiveCapitalGainsTaxRate: adjustedGains > 0 ? capitalGainsTaxAmount / adjustedGains : 0,
+      topMarginalCapitalGainsTaxRate: Math.max(...records.map((record) => record.capitalGainsTaxes.topMarginalCapitalGainsTaxRate)),
+      capitalGainsTaxBrackets: records[0].capitalGainsTaxes.capitalGainsTaxBrackets,
+    },
+    amt: {
+      regularIncomeTax: sum(records.map((record) => record.amt.regularIncomeTax)),
+      amtIncome: sum(records.map((record) => record.amt.amtIncome)),
+      addbacks: sum(records.map((record) => record.amt.addbacks)),
+      exemption: sum(records.map((record) => record.amt.exemption)),
+      ordinaryTax: sum(records.map((record) => record.amt.ordinaryTax)),
+      capitalGainsTax: sum(records.map((record) => record.amt.capitalGainsTax)),
+      tentativeMinimumTax: sum(records.map((record) => record.amt.tentativeMinimumTax)),
+      topUp: sum(records.map((record) => record.amt.topUp)),
+      creditApplied: sum(records.map((record) => record.amt.creditApplied)),
+      netCharge: sum(records.map((record) => record.amt.netCharge)),
+      applied: records.some((record) => record.amt.applied === 'amt') ? 'amt' : 'regular',
+      creditCarryforward: sum(records.map((record) => record.amt.creditCarryforward)),
+    },
+    irmaa: {
+      // Each return's surcharge is set by that return's own MAGI two years earlier, so the household
+      // figure is the two surcharges added: two separate Part B bills, both paid.
+      basisMagi: basisMagi.length > 0 ? sum(basisMagi) : null,
+      basisTaxYear,
+      chargedInTaxYear: records[0].irmaa.chargedInTaxYear,
+      tier: Math.max(...records.map((record) => record.irmaa.tier)),
+      partBMonthly: sum(records.map((record) => record.irmaa.partBMonthly)),
+      partDMonthly: sum(records.map((record) => record.irmaa.partDMonthly)),
+      total: sum(records.map((record) => record.irmaa.total)),
+    },
+    niit: {
+      netInvestmentIncome: sum(records.map((record) => record.niit.netInvestmentIncome)),
+      incomeSubjectToNiit: sum(records.map((record) => record.niit.incomeSubjectToNiit)),
+      niitAmount: sum(records.map((record) => record.niit.niitAmount)),
+      threshold: records[0].niit.threshold,
+    },
+    earlyWithdrawalPenalties: {
+      taxDeferredPenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.taxDeferredPenaltyAmount)),
+      taxFreePenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.taxFreePenaltyAmount)),
+      totalPenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.totalPenaltyAmount)),
+    },
+    socialSecurityTaxes: {
+      taxableSocialSecurityIncome: socialSecurityIncome,
+      maxTaxablePercentage: Math.max(...records.map((record) => record.socialSecurityTaxes.maxTaxablePercentage)),
+      actualTaxablePercentage: grossSocialSecurity > 0 ? socialSecurityIncome / grossSocialSecurity : 0,
+      provisionalIncome: sum(records.map((record) => record.socialSecurityTaxes.provisionalIncome)),
+    },
+    fica: {
+      wages: {
+        socialSecurity: sum(records.map((record) => record.fica.wages.socialSecurity)),
+        medicare: sum(records.map((record) => record.fica.wages.medicare)),
+        additionalMedicare: sum(records.map((record) => record.fica.wages.additionalMedicare)),
+        stateDisability: sum(records.map((record) => record.fica.wages.stateDisability)),
+        total: sum(records.map((record) => record.fica.wages.total)),
+      },
+      selfEmployment: {
+        netEarnings: sum(records.map((record) => record.fica.selfEmployment.netEarnings)),
+        taxableEarnings: sum(records.map((record) => record.fica.selfEmployment.taxableEarnings)),
+        socialSecurity: sum(records.map((record) => record.fica.selfEmployment.socialSecurity)),
+        medicare: sum(records.map((record) => record.fica.selfEmployment.medicare)),
+        additionalMedicare: sum(records.map((record) => record.fica.selfEmployment.additionalMedicare)),
+        total: sum(records.map((record) => record.fica.selfEmployment.total)),
+        halfDeduction: sum(records.map((record) => record.fica.selfEmployment.halfDeduction)),
+      },
+      total: sum(records.map((record) => record.fica.total)),
+    },
+    state: sumStateTaxes(records.map((record) => record.state)),
+    incomeSources: sumIncomeSources(records.map((record) => record.incomeSources)),
+    totalTaxLiability: sum(records.map((record) => record.totalTaxLiability)),
+    totalTaxesDue: sum(records.map((record) => record.totalTaxesDue)),
+    totalTaxesRefund: sum(records.map((record) => record.totalTaxesRefund)),
+    totalTaxableIncome: sum(records.map((record) => record.totalTaxableIncome)),
+    adjustments: sumRecordOfAmounts(records.map((record) => record.adjustments)),
+    deductions: sumRecordOfAmounts(records.map((record) => record.deductions)),
+    deduction: sumDeductions(records.map((record) => record.deduction)),
+  };
+}
+
 /** Computes annual federal taxes across all tax types for a simulation year */
 export class TaxProcessor {
-  private capitalLossCarryover = 0;
-  private capitalLossCarryoverSnapshot: number | null = null;
-  /** Minimum-tax credit available to later years (IRC §53), and its snapshot for the tax loop. */
-  private minimumTaxCreditCarryforward = 0;
-  private minimumTaxCreditSnapshot: number | null = null;
   /**
-   * Adjusted gross income by tax year, for the IRMAA lookback. Keyed by year and *overwritten* on
-   * every pass through a year, so the convergence loop (which re-settles a year up to ten times)
-   * leaves one entry per year rather than ten.
+   * Carryover state, per **return** (P3-P1b).
+   *
+   * A married couple filing separately files two returns, and each carries its own capital-loss
+   * carryover (the §1211(b) limit applies to a return) and its own minimum-tax credit (IRC §53). The
+   * maps are keyed by `returnKey`, which is `''` for a household that files one return — so a single
+   * or joint return keeps exactly the state it had before this item, and `process()`'s convergence
+   * loop sees the same values it always did.
+   *
+   * The scalar accessors below are what the computation reads and writes; nothing else in the class
+   * has to know which return it is pricing.
    */
-  private readonly magiByYear = new Map<TaxYear, number>();
+  private readonly capitalLossCarryoverByReturn = new Map<string, number>();
+  private readonly minimumTaxCreditByReturn = new Map<string, number>();
+  private carryoverSnapshot: { capitalLoss: Map<string, number>; minimumTaxCredit: Map<string, number> } | null = null;
+  /**
+   * Adjusted gross income by tax year, for the IRMAA lookback. Keyed by return, then by year, and
+   * *overwritten* on every pass through a year, so the convergence loop (which re-settles a year up
+   * to ten times) leaves one entry per year rather than ten. A separate return has its own MAGI
+   * history, because the premium it pays is set by the return **it** filed two years earlier.
+   */
+  private readonly magiByYearByReturn = new Map<string, Map<TaxYear, number>>();
+  /**
+   * Which return is being priced right now: `''` for the household's single return, or the owning
+   * member's role for one half of a separate-return pair. Set by `process()`/`processReturn()`.
+   */
+  private returnKey = '';
   /**
    * The year being settled — the year *asked for*, not the year the rules resolved from. They differ
    * whenever `getRules` falls back (a 2028 return uses the 2026 ruleset today), and the IRMAA
@@ -363,27 +831,66 @@ export class TaxProcessor {
   /**
    * Save carryover state before first tax calculation of the year.
    *
-   * Both carryforwards are saved: the capital-loss carryover and the minimum-tax credit, which is
-   * consumed by a year's return in exactly the same way (re-settling the year must not consume it
-   * twice).
+   * Both carryforwards are saved — the capital-loss carryover and the minimum-tax credit, which is
+   * consumed by a year's return in exactly the same way, so re-settling the year must not consume it
+   * twice — for **every** return the year files. A separate-return pair has two of each, and the
+   * snapshot has to cover both or a re-settlement would spend one spouse's carryover twice.
    */
   saveCarryoverSnapshot(): void {
-    this.capitalLossCarryoverSnapshot = this.capitalLossCarryover;
-    this.minimumTaxCreditSnapshot = this.minimumTaxCreditCarryforward;
+    this.carryoverSnapshot = {
+      capitalLoss: new Map(this.capitalLossCarryoverByReturn),
+      minimumTaxCredit: new Map(this.minimumTaxCreditByReturn),
+    };
   }
 
   /** Restore carryover state before each convergence iteration */
   restoreCarryoverSnapshot(): void {
-    if (this.capitalLossCarryoverSnapshot !== null) {
-      this.capitalLossCarryover = this.capitalLossCarryoverSnapshot;
+    if (this.carryoverSnapshot === null) return;
+
+    this.capitalLossCarryoverByReturn.clear();
+    for (const [key, value] of this.carryoverSnapshot.capitalLoss) this.capitalLossCarryoverByReturn.set(key, value);
+    this.minimumTaxCreditByReturn.clear();
+    for (const [key, value] of this.carryoverSnapshot.minimumTaxCredit) this.minimumTaxCreditByReturn.set(key, value);
+  }
+
+  /** The capital-loss carryover of the return being priced (IRC §1211(b)). */
+  private get capitalLossCarryover(): number {
+    return this.capitalLossCarryoverByReturn.get(this.returnKey) ?? 0;
+  }
+
+  private set capitalLossCarryover(value: number) {
+    this.capitalLossCarryoverByReturn.set(this.returnKey, value);
+  }
+
+  /** The minimum-tax credit of the return being priced (IRC §53). */
+  private get minimumTaxCreditCarryforward(): number {
+    return this.minimumTaxCreditByReturn.get(this.returnKey) ?? 0;
+  }
+
+  private set minimumTaxCreditCarryforward(value: number) {
+    this.minimumTaxCreditByReturn.set(this.returnKey, value);
+  }
+
+  /** The MAGI-by-year history of one return, created on first use. */
+  private magiByYearFor(returnKey: string): Map<TaxYear, number> {
+    let history = this.magiByYearByReturn.get(returnKey);
+    if (history === undefined) {
+      history = new Map<TaxYear, number>();
+      this.magiByYearByReturn.set(returnKey, history);
     }
-    if (this.minimumTaxCreditSnapshot !== null) {
-      this.minimumTaxCreditCarryforward = this.minimumTaxCreditSnapshot;
-    }
+
+    return history;
   }
 
   /**
-   * Calculates all federal taxes for one simulation year
+   * Calculates the year's taxes for the household.
+   *
+   * A household filing **one** return (single, joint, head of household) is priced by
+   * `processReturn()` directly, and nothing about that path changed when the separate-return split
+   * landed. A household filing **two** returns (§6013, `marriedFilingSeparately`) is priced by
+   * `processSeparateReturns()`, which splits the year's inputs per owner and calls `processReturn()`
+   * once for each — the same computation, twice, over two halves of the same year.
+   *
    * @param annualPortfolioDataBeforeTaxes - Portfolio data before tax withdrawals
    * @param annualIncomesData - Aggregated annual income data
    * @param annualReturnsData - Annual investment return data
@@ -399,6 +906,47 @@ export class TaxProcessor {
     annualPhysicalAssetsData: PhysicalAssetsData,
     annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes()
   ): TaxesData {
+    if (this.filingStatus === 'marriedFilingSeparately') {
+      return this.processSeparateReturns(
+        annualPortfolioDataBeforeTaxes,
+        annualIncomesData,
+        annualReturnsData,
+        annualPhysicalAssetsData,
+        annualWagePayrollTaxes
+      );
+    }
+
+    return this.processReturn(
+      annualPortfolioDataBeforeTaxes,
+      annualIncomesData,
+      annualReturnsData,
+      annualPhysicalAssetsData,
+      annualWagePayrollTaxes
+    );
+  }
+
+  /**
+   * Prices **one** return: the whole of a single/joint/HOH household's year, or one spouse's half of
+   * a separate-return year.
+   *
+   * This is the computation the class always performed, moved behind a method so it can be called
+   * twice. It is deliberately unchanged in every other respect: the single-return path passes the
+   * year's own inputs and the default `returnKey` of `''`, so its arithmetic and its carryover state
+   * are what they were before the split existed (the frozen golden corpus is the witness).
+   *
+   * @param returnKey - Which return's carryover state and MAGI history to use: `''` for a
+   *   household's only return, or the owning member's role for one half of a separate-return pair.
+   */
+  private processReturn(
+    annualPortfolioDataBeforeTaxes: PortfolioData,
+    annualIncomesData: IncomesData,
+    annualReturnsData: ReturnsData,
+    annualPhysicalAssetsData: PhysicalAssetsData,
+    annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes(),
+    returnKey = ''
+  ): TaxesData {
+    this.returnKey = returnKey;
+
     const fica = this.processPayrollTaxes(annualIncomesData, annualWagePayrollTaxes);
 
     const incomeData = this.getTaxableIncomeData(
@@ -525,6 +1073,107 @@ export class TaxProcessor {
   }
 
   /**
+   * Prices a **separate-return** year (§6013, P3-P1b): one return per spouse, then the two added.
+   *
+   * Each return is the ordinary computation over its own half of the year, so the split is the whole
+   * of this method's work. California is a community-property state (E2, F10), and the rule the
+   * helpers below apply is:
+   *
+   * | item | on each return |
+   * | --- | --- |
+   * | a `primary`/`partner` account, asset or income | its owner's return, in full |
+   * | a `joint` (community) item | half on each — the Form 8958 allocation |
+   * | an absent owner | reads as `primary`, as `ownerOf` does everywhere |
+   *
+   * `portfolioForSeparateReturn`, `returnsForSeparateReturn`, `physicalAssetsForSeparateReturn` and
+   * `incomesForSeparateReturn` do the entity-level dividing. Three things are not entity data and are
+   * handled here: the plan-level itemized deductions (halved, see `separateReturnDeductionSettings`),
+   * the wage payroll tax already withheld (apportioned, see `withheldPayrollShare`), and the pairing
+   * of the two results (`sumSeparateReturns`).
+   *
+   * Each return is priced with its own `returnKey`, so the three pieces of processor state that
+   * belong to a *return* rather than to a household stay separate: the capital-loss carryover
+   * (§1211(b)), the minimum-tax credit (§53) and the IRMAA lookback (a premium is set by the return
+   * that was filed two years earlier).
+   *
+   * Two things are deliberately not modelled. The §86(c)(1)(C) lived-apart exception: a separate
+   * return is always the collapsed 85%-from-dollar-one rule (see
+   * `getTaxablePortionOfSocialSecurityIncome`). And the partner's own age where the computation asks
+   * for one — the early-withdrawal gate and the senior deduction read `simulationState`, which runs on
+   * the primary's plan axis, so a partner of a different age is treated as the primary's age for those
+   * two gates. Per-member RMD ages are the engine's business (§1-P3) and are unaffected.
+   */
+  private processSeparateReturns(
+    annualPortfolioDataBeforeTaxes: PortfolioData,
+    annualIncomesData: IncomesData,
+    annualReturnsData: ReturnsData,
+    annualPhysicalAssetsData: PhysicalAssetsData,
+    annualWagePayrollTaxes: WagePayrollTaxes
+  ): TaxesData {
+    // No recorded ownership means every item reads as `primary` — `ownerOf`'s own default — so the
+    // partner's return is an empty one. A plan written before ownership existed therefore divides
+    // exactly as a single person's would, which is the only reading its data supports.
+    const ownership: ReturnOwnership = this.deductionSettings.ownership ?? { accounts: {}, physicalAssets: {} };
+    const householdSettings = this.deductionSettings;
+
+    try {
+      // Both returns take the same split settings (each deducts half the household's itemized
+      // lines). The state that differs per return is `returnKey`, which `processReturn()` sets.
+      this.deductionSettings = this.separateReturnDeductionSettings();
+
+      const returns = SEPARATE_RETURN_OWNERS.map((returnOwner) =>
+        this.processReturn(
+          portfolioForSeparateReturn(annualPortfolioDataBeforeTaxes, ownership, returnOwner),
+          incomesForSeparateReturn(annualIncomesData, annualIncomesData.perOwnerData?.[returnOwner], returnOwner),
+          returnsForSeparateReturn(annualReturnsData, annualPortfolioDataBeforeTaxes, ownership, returnOwner),
+          physicalAssetsForSeparateReturn(annualPhysicalAssetsData, ownership, returnOwner),
+          wagePayrollForSeparateReturn(annualWagePayrollTaxes, withheldPayrollShare(annualIncomesData, returnOwner)),
+          returnOwner
+        )
+      );
+
+      return sumSeparateReturns(returns);
+    } finally {
+      this.deductionSettings = householdSettings;
+    }
+  }
+
+  /**
+   * One separate return's slice of the plan-level deduction settings.
+   *
+   * The itemized block is a **household** figure — one mortgage, one property-tax bill, one
+   * charitable total — and in California the property those expenses are paid on is community
+   * property (F10), so each return deducts half of every entered line. That keeps the two returns
+   * adding up to the household's figure: giving each return the whole block would deduct the
+   * mortgage twice, and giving it all to the primary would put a community expense on one return.
+   *
+   * The SALT cap needs no halving here: `saltCapFor` applies §164(b)(7) to the separate return's cap
+   * and phase-down threshold itself, and each return's SALT line then carries its own California tax
+   * plus its half of the entered property and local taxes.
+   *
+   * `spouseQualifiesForSeniorDeduction` is dropped rather than halved: a separate return may not
+   * claim the senior deduction at all, which the table declares
+   * (`SeniorDeductionTable.eligible`). Ownership and the state residency carry through unchanged.
+   */
+  private separateReturnDeductionSettings(): TaxProcessorSettings {
+    const entered = this.deductionSettings.itemizedDeductions;
+
+    return {
+      ...this.deductionSettings,
+      itemizedDeductions:
+        entered === undefined
+          ? undefined
+          : {
+              mortgageInterest: entered.mortgageInterest / 2,
+              charitable: entered.charitable / 2,
+              stateAndLocalTaxes: entered.stateAndLocalTaxes / 2,
+              medicalExpenses: entered.medicalExpenses / 2,
+            },
+      spouseQualifiesForSeniorDeduction: undefined,
+    };
+  }
+
+  /**
    * The alternative minimum tax, computed beside the regular tax (IRC §55).
    *
    * The AMT is a parallel system: AMTI starts from the regular taxable income, adds back the
@@ -632,11 +1281,14 @@ export class TaxProcessor {
    *   the year charges 95.70 × 12 = $1,148.40
    */
   private processIrmaa({ magi, taxYear }: { magi: number; taxYear: TaxYear }): IrmaaData {
-    this.magiByYear.set(taxYear, magi);
+    // The lookback follows the *return*, not the household: a separate return's premium is set by
+    // the MAGI on that return two years earlier (P3-P1b).
+    const magiByYear = this.magiByYearFor(this.returnKey);
+    magiByYear.set(taxYear, magi);
 
     const table = this.ruleset.tables.medicareIrmaa.values;
     const basisTaxYear = taxYear - table.lookbackYears;
-    const basisMagi = this.magiByYear.get(basisTaxYear) ?? null;
+    const basisMagi = magiByYear.get(basisTaxYear) ?? null;
     const tiers = table.tiers[this.filingStatus];
 
     if (basisMagi === null) {
@@ -758,10 +1410,12 @@ export class TaxProcessor {
     const behavioralHealthServicesTax = Math.max(0, taxableIncome - surcharge.threshold[this.filingStatus]) * surcharge.rate;
 
     // Personal exemption credits: one per taxpayer, reduced by $6 for each $2,500 (or part) of AGI
-    // over the limit. It is a credit against the tax, so it cannot make the tax negative.
+    // over the limit — $1,250 on a separate return, which is why the step is per filing status. It
+    // is a credit against the tax, so it cannot make the tax negative. A separate return is one
+    // taxpayer, so `taxpayers` counts the joint return only.
     const credit = rules.tables.personalExemptionCredit.values;
     const taxpayers = this.filingStatus === 'marriedFilingJointly' ? 2 : 1;
-    const stepsOver = Math.ceil(Math.max(0, agi - credit.agiLimit[this.filingStatus]) / credit.reductionStep);
+    const stepsOver = Math.ceil(Math.max(0, agi - credit.agiLimit[this.filingStatus]) / credit.reductionStep[this.filingStatus]);
     const exemptionCredits = Math.max(0, credit.perTaxpayer * taxpayers - stepsOver * credit.reductionPerStep);
 
     return {
@@ -795,7 +1449,7 @@ export class TaxProcessor {
   private processDeductions(adjustedGrossIncome: number, stateIncomeTax: number): DeductionData {
     const standardDeduction = this.getStandardDeduction();
     const entered = this.deductionSettings.itemizedDeductions;
-    const salt = saltCapFor(this.taxYear, adjustedGrossIncome);
+    const salt = saltCapFor(this.taxYear, adjustedGrossIncome, this.filingStatus);
     const medicalFloor = this.ruleset.tables.medicalExpenseFloor.values;
 
     // The federal SALT deduction is state income tax **plus** the property and local taxes the plan
@@ -861,11 +1515,19 @@ export class TaxProcessor {
    * the tax inputs, so a joint return counts the spouse only when the plan says so; absent means
    * "under 65", the conservative reading.
    *
+   * A married individual filing separately claims nothing: the paragraph denies the deduction where
+   * the individual's spouse also claims it, and this engine prices one return at a time, so it
+   * cannot see the spouse's return to decide. The table declares the status ineligible, which is a
+   * statement about the return rather than a computed zero.
+   *
    * Hand check (2026, single, age 67, MAGI $80,000): 6,000 − 6% × (80,000 − 75,000) = $5,700.
    */
   private seniorDeductionFor(adjustedGrossIncome: number): number {
     const table = this.ruleset.tables.seniorDeduction.values;
     if (this.taxYear > table.lastTaxYear) return 0;
+    // Declared, not computed: a separate return may not claim the deduction at all (P3-P1b). See
+    // `SeniorDeductionTable.eligible` — a zero amount would look like a computed value.
+    if (!table.eligible[this.filingStatus]) return 0;
 
     const primaryQualifies = this.simulationState.time.age >= 65;
     const spouseQualifies =
@@ -1146,8 +1808,23 @@ export class TaxProcessor {
    * taxed regardless of income level.
    *
    * Every percentage below is read from the ruleset's §86 tiers — the dataset's
-   * `taxablePercentage` — rather than hard-coded, so a ruleset that changes a tier amount
-   * (e.g. the 85%-from-dollar-one flag in P3-P1b) flows through without touching this code.
+   * `taxablePercentage` — rather than hard-coded, so a ruleset that changes a tier amount flows
+   * through without touching this code.
+   *
+   * The one shape the three-tier walk cannot express is a **zero base amount**, which is what
+   * §86(c)(1)(C) and (c)(2)(C) give a married individual filing a separate return: both the base and
+   * the adjusted base amount are $0, so the 50% band has no width and the rule collapses to 85% of
+   * provisional income, capped at 85% of the benefits. The table declares that with
+   * `taxableFromFirstDollar`, and the collapsed form is applied from the tier row's own percentage
+   * rather than a literal 0.85. The lived-apart exception of §86(c)(1)(C) — which restores the
+   * single base amounts for spouses who were apart for the whole year — is **not modelled**: the
+   * engine has no separate-return input for it.
+   *
+   * Hand check (2026, separate return, $20,000 of benefits, $10,000 of other AGI):
+   *   provisional income = 10,000 + 50% × 20,000 = $20,000
+   *   taxable = min(85% × 20,000, 85% × 20,000) = $17,000 — the whole 85% of the benefit, from the
+   *   first dollar, where a single filer with the same numbers would report $0 (its first tier runs
+   *   to $25,000).
    */
   private getTaxablePortionOfSocialSecurityIncome({
     provisionalIncome,
@@ -1156,7 +1833,20 @@ export class TaxProcessor {
     provisionalIncome: number;
     socialSecurityIncome: number;
   }): { taxableSocialSecurityIncome: number; maxTaxableSocialSecurityPercentage: number } {
-    const tiers = this.getSocialSecurityTaxThresholds();
+    const table = this.ruleset.tables.socialSecurityTaxation.values;
+    const tiers = table.tiers[this.filingStatus];
+
+    if (table.taxableFromFirstDollar[this.filingStatus]) {
+      const collapsed = tiers[tiers.length - 1];
+      return {
+        taxableSocialSecurityIncome: Math.min(
+          provisionalIncome * collapsed.taxablePercentage,
+          socialSecurityIncome * collapsed.taxablePercentage
+        ),
+        maxTaxableSocialSecurityPercentage: collapsed.taxablePercentage,
+      };
+    }
+
     const [firstTier, secondTier] = tiers;
 
     if (provisionalIncome <= firstTier.max) {
@@ -1207,10 +1897,6 @@ export class TaxProcessor {
 
   private getCapitalGainsTaxBrackets(): CapitalGainsTaxBracket[] {
     return this.ruleset.tables.capitalGainsTaxBrackets.values[this.filingStatus];
-  }
-
-  private getSocialSecurityTaxThresholds(): SocialSecurityTaxThreshold[] {
-    return this.ruleset.tables.socialSecurityTaxation.values[this.filingStatus];
   }
 
   /** Applies Section 121 exclusion for primary residence sale gains */

@@ -207,6 +207,16 @@ const VERSION_7_FIELDS = ['itemizedDeductions', 'spouseQualifiesForSeniorDeducti
 const VERSION_8_FIELDS = ['stateResidency'];
 
 /**
+ * What the v9 bump (P3-P1b) added: a fourth `taxSettings.filingStatus` value, `'marriedFilingSeparately'`.
+ *
+ * It is a **value**, not a key, which is why the older-version fixtures below cannot use
+ * `stripFields`: `filingStatus` is required in every version (deleting it would fabricate a file no
+ * build ever wrote), so a v8 fixture is made by *substituting* a status a v8 build could write.
+ */
+const VERSION_9_FILING_STATUS = 'marriedFilingSeparately';
+const FILING_STATUS_A_V8_BUILD_WRITES = 'marriedFilingJointly';
+
+/**
  * Visits every household member in a payload, wherever the envelope keeps it.
  *
  * The v6 fields are stripped and counted through this rather than through `stripFields`, because
@@ -268,6 +278,25 @@ function countFields(value: unknown, fields: readonly string[]): number {
   const own = fields.filter((field) => field in record).length;
 
   return own + Object.values(record).reduce<number>((total, entry) => total + countFields(entry, fields), 0);
+}
+
+/**
+ * Rewrites every `filingStatus` in a payload from `from` to `to`, returning how many it changed.
+ *
+ * The v9 bump widened an enum rather than adding a field, so the v8 fixture is a **value
+ * substitution**: `marriedFilingSeparately` is rewritten to a status a v8 build could write, and the
+ * count is asserted in both directions so the strip cannot pass vacuously. Deleting the key instead
+ * would produce a file no version ever wrote — the field is required.
+ */
+function substituteFilingStatus(value: unknown, from: string, to: string): number {
+  if (Array.isArray(value)) return value.reduce<number>((total, entry) => total + substituteFilingStatus(entry, from, to), 0);
+  if (typeof value !== 'object' || value === null) return 0;
+
+  const record = value as Record<string, unknown>;
+  const own = record.filingStatus === from ? 1 : 0;
+  if (own === 1) record.filingStatus = to;
+
+  return own + Object.values(record).reduce<number>((total, entry) => total + substituteFilingStatus(entry, from, to), 0);
 }
 
 describe('the export guard is derived from the plans validator', () => {
@@ -426,8 +455,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 8 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8];
+    // an older file fails here, not in a support thread. Adding version 9 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -793,6 +822,60 @@ describe('malformed files report the exact field paths', () => {
     // The reader's default is California: the transformer leaves it undefined, and the tax layer
     // reads undefined as 'CA' (asserted in `taxes.test.ts`).
     expect(taxSettingsFromConvex(taxSettings as never).stateResidency).toBeUndefined();
+  });
+
+  it('round-trips married filing separately, the value version 9 adds', () => {
+    // P3-P1b widened `taxSettings.filingStatus`, so the new value has to survive the trip through
+    // the validator-derived schema: the Convex validator, the Zod schema and the envelope's own
+    // copy of the payload must all accept it, and nothing may rewrite it back to a joint return.
+    const plan = makePlanDoc({ taxSettings: { ...makePlanDoc().taxSettings, filingStatus: VERSION_9_FILING_STATUS } });
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.taxSettings).toHaveProperty('filingStatus', VERSION_9_FILING_STATUS);
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+  });
+
+  it('imports a version 8 plan whose filing status predates married filing separately', () => {
+    // v9 is an enum widening, not a new key: a v8 file cannot carry `marriedFilingSeparately`,
+    // because no build ever wrote it. The strip is therefore a **substitution** — the fixture really
+    // states the v9 value, a v8 build would have written a joint return instead, and the status it
+    // does state keeps exactly today's meaning.
+    const plan = makePlanDoc({ taxSettings: { ...makePlanDoc().taxSettings, filingStatus: VERSION_9_FILING_STATUS } });
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+    const v8 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v8.schemaVersion = 8;
+
+    // Non-vacuous in both directions: the value is there before the substitution and gone after it,
+    // and the status a v8 build could write is the one that replaced it.
+    expect(substituteFilingStatus(v8, VERSION_9_FILING_STATUS, FILING_STATUS_A_V8_BUILD_WRITES)).toBe(1);
+    expect(substituteFilingStatus(v8, VERSION_9_FILING_STATUS, FILING_STATUS_A_V8_BUILD_WRITES)).toBe(0);
+    expect(JSON.stringify(v8)).toContain(`"filingStatus":"${FILING_STATUS_A_V8_BUILD_WRITES}"`);
+
+    const parsed = parseEnvelope(JSON.stringify(v8));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(8);
+    expect(parsed.envelope).toStrictEqual(v8);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const taxSettings = (imported.plans[0] as unknown as { taxSettings: Record<string, unknown> }).taxSettings;
+    // A joint return in a v8 file is still a joint return: one return, not two.
+    expect(taxSettings).toHaveProperty('filingStatus', FILING_STATUS_A_V8_BUILD_WRITES);
+    expect(taxSettingsFromConvex(taxSettings as never).filingStatus).toBe(FILING_STATUS_A_V8_BUILD_WRITES);
   });
 
   it('warns about a v7 file that states no state residency, and still imports it', () => {

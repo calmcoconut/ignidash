@@ -22,6 +22,32 @@ import {
 type WithdrawalType = 'rmd' | 'regular';
 type ContributionType = 'self' | 'employer';
 
+/**
+ * The tax category an account type is reported under.
+ *
+ * The classes below each declare their own `taxCategory`, which is the authority for the engine's
+ * own aggregation. This map exists for the one place that has an account *type* and no instance: the
+ * returns data, which carries a per-account `type` but not a category. It is derived from the same
+ * four classes rather than from a second opinion, and it must move with them.
+ */
+export const taxCategoryForAccountType = (type: AccountInputs['type']): TaxCategory => {
+  switch (type) {
+    case 'savings':
+      return 'cashSavings';
+    case 'taxableBrokerage':
+      return 'taxable';
+    case 'roth401k':
+    case 'roth403b':
+    case 'rothIra':
+      return 'taxFree';
+    case '401k':
+    case '403b':
+    case 'ira':
+    case 'hsa':
+      return 'taxDeferred';
+  }
+};
+
 /** Snapshot of account state including cumulative flow totals */
 export interface AccountData {
   balance: number;

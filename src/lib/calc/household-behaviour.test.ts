@@ -191,10 +191,17 @@ describe('deriveFilingStatus', () => {
   });
 
   it('settles a couple jointly, whatever the stored field says', () => {
-    // Married filing separately lands with P3-P1b; today a couple's only status is joint.
     expect(deriveFilingStatus(TWO_MEMBER_HOUSEHOLD, 'single')).toBe('marriedFilingJointly');
     expect(deriveFilingStatus(TWO_MEMBER_HOUSEHOLD, 'headOfHousehold')).toBe('marriedFilingJointly');
     expect(deriveFilingStatus(TWO_MEMBER_HOUSEHOLD, 'marriedFilingJointly')).toBe('marriedFilingJointly');
+  });
+
+  it('honours a couple that chose married filing separately (P3-P1b)', () => {
+    // The one stored status a couple can choose: they file two returns, and the engine prices both.
+    expect(deriveFilingStatus(TWO_MEMBER_HOUSEHOLD, 'marriedFilingSeparately')).toBe('marriedFilingSeparately');
+    // A household of one can never file separately — there is no spouse to file against — so the
+    // stored value is left alone rather than being reinterpreted.
+    expect(deriveFilingStatus(SINGLE_MEMBER_HOUSEHOLD, 'marriedFilingSeparately')).toBe('marriedFilingSeparately');
   });
 });
 
@@ -227,6 +234,35 @@ describe('a run settles under the status its household derives', () => {
 
     // Piece 4 must not quietly file a one-member plan as single.
     expect(run(withHouseholdOfOne)).toStrictEqual(run(storedHeadOfHousehold));
+  });
+
+  it('prices two returns when the couple has chosen married filing separately', () => {
+    // P3-P1b end to end: the stored MFS status reaches the tax layer, which prices one return per
+    // spouse. This plan has a single earner on the primary's side, so the pair pays the marriage
+    // penalty: two narrower schedules and a second standard deduction that cannot offset the first
+    // spouse's income.
+    const jointPlan = asCoupleStoredAs('marriedFilingJointly');
+    const separatePlan = basePlan({
+      timeline: timelineWith(TWO_MEMBER_HOUSEHOLD),
+      taxSettings: { filingStatus: 'marriedFilingSeparately' },
+    });
+
+    const joint = run(jointPlan);
+    const separate = run(separatePlan);
+    const jointYear = joint.data.at(-1)!.taxes!;
+    const separateYear = separate.data.at(-1)!.taxes!;
+
+    expect(separateYear.totalTaxLiability).toBeGreaterThan(jointYear.totalTaxLiability);
+
+    // The split is real: a couple's year carries per-owner income totals, and the two members' add
+    // up to the household's (one earner here, so the partner's is empty).
+    const incomes = separate.data.at(-1)!.incomes!;
+    expect(incomes.perOwnerData?.partner.totalIncome).toBe(0);
+    expect(incomes.perOwnerData!.primary.totalIncome + incomes.perOwnerData!.partner.totalIncome).toBeCloseTo(incomes.totalIncome);
+
+    // A household of one never grows the field, which is what keeps a single-member run identical
+    // to what it was before this item (and is why the golden corpus does not move).
+    expect(run(basePlan()).data.at(-1)!.incomes).not.toHaveProperty('perOwnerData');
   });
 });
 
