@@ -15,6 +15,7 @@ import { simulationSettingsValidator } from './simulation_settings_validator';
 import { milestonesValidator } from './milestone_validator';
 import { conversionsValidator } from './conversion_validator';
 import { seppValidator } from './sepp_validator';
+import { netWorthJournalEntryValidator } from './net_worth_journal_validator';
 
 /**
  * Plan data fields shared between `plans` and `planSnapshots` tables.
@@ -45,4 +46,6 @@ export const planDataFields = {
   conversions: v.optional(conversionsValidator),
   // Substantially Equal Periodic Payments schedules (IRC §72(t)(2)(A)(iv)). Optional; absent means no SEPP schedules.
   sepp: v.optional(seppValidator),
+  // Net-worth journal manual history snapshots (P4-P7, R11). Optional; absent means no journal entries.
+  journal: v.optional(v.array(netWorthJournalEntryValidator)),
 };

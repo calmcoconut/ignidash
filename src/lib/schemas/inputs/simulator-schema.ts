@@ -23,6 +23,7 @@ import { simulationSettingsSchema } from './simulation-settings-form-schema';
 import { milestonesSchema } from './milestone-form-schema';
 import { conversionsSchema } from './conversion-form-schema';
 import { seppScheduleSchema } from './sepp-form-schema';
+import { journalFormSchema } from './journal-form-schema';
 
 export const simulatorSchema = z.object({
   // Shape-only timeline rules: the "as of today" cross-field rules need an explicit date,
@@ -48,6 +49,8 @@ export const simulatorSchema = z.object({
   conversions: conversionsSchema.optional(),
   // Substantially Equal Periodic Payments schedules (IRC §72(t)(2)(A)(iv)). Optional; absent means no SEPP schedules.
   sepp: z.array(seppScheduleSchema).optional(),
+  // Net-worth journal manual history snapshots (P4-P7, R11). Optional; absent means no journal entries.
+  journal: journalFormSchema.optional(),
 });
 
 export type SimulatorInputs = z.infer<typeof simulatorSchema>;

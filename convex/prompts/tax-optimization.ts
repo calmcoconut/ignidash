@@ -208,9 +208,8 @@ with what the tools accept, trust the tools and say the limit has changed.
   lines carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap. **IRMAA is modelled**:
   the surcharge
   is a liability line, and \`cliffs.irmaa\` reports the tier, the room before the next one and what
-  crossing it costs, from the two-year MAGI lookback. **ACA premium tax credits under IRC §36B are modelled**
-  when \`aca.optIn\` is enabled: \`cliffs.aca\` reports the 400% FPL cliff and headroom when modelled, and
-  its prerequisites when unmodelled; never estimate an ACA number without a tool result.
+  crossing it costs, from the two-year MAGI lookback. **ACA premium credits are not modelled**:
+  \`cliffs.aca\` reports its prerequisites instead, so never report an ACA number.
 - **Social Security is an income line, not an estimate.** No PIA, claiming-age, spousal or survivor
   calculation.
 - **Tax law is projected from the vendored rules.** The vendored federal ruleset (2026) and California ruleset (2025)

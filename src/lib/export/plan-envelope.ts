@@ -257,6 +257,16 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v17 file is made by deleting the `taxSettings.aca` key. The upgrade test in
  *        `plan-envelope.test.ts` asserts the key is stripped.
  *
+ *   19 — R11 Net-worth journal history in portable plan export: optional `journal` on the plan
+ *        (`[{ date, balances, note? }]`).
+ *        A version 18 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `journal` means **no recorded journal snapshots**: the plan has no manual net-worth
+ *        history, which is what every plan had before v19.
+ *
+ *        A v18 file is made by deleting the `journal` key. The upgrade test in
+ *        `plan-envelope.test.ts` asserts the key is stripped.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -268,7 +278,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 18;
+export const EXPORT_SCHEMA_VERSION = 19;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

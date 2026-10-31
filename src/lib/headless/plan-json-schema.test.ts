@@ -54,9 +54,9 @@ describe('the checked-in plan JSON Schema', () => {
     expect(document.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(document.type).toBe('object');
 
-    // The optional plan fields: a plan without a glide path, without milestones, or without
-    // conversions are complete plans.
-    const optionalPlanFields = ['glidePath', 'milestones', 'conversions', 'sepp'];
+    // The optional plan fields: a plan without a glide path, without milestones, without
+    // conversions, without SEPP schedules, or without journal snapshots are complete plans.
+    const optionalPlanFields = ['glidePath', 'milestones', 'conversions', 'sepp', 'journal'];
     const expectedRequired = Object.keys(simulatorSchema.shape)
       .filter((key) => !optionalPlanFields.includes(key))
       .sort();

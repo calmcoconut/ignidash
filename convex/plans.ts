@@ -9,6 +9,7 @@ import { deleteAllJournalEntriesForPlan } from './utils/net_worth_journal_utils'
 import { deleteAllSnapshotsForPlan } from './utils/snapshot_utils';
 import { getPlanForCurrentUserOrThrow, getAllPlansForUser } from './utils/plan_utils';
 import { removeDanglingSyncIds } from './utils/plan_export_utils';
+import { parseJournalDate } from '../src/lib/utils/net-worth-journal';
 import { timelineValidator } from './validators/timeline_validator';
 import { incomeValidator } from './validators/incomes_validator';
 import { expenseValidator } from './validators/expenses_validator';
@@ -24,6 +25,7 @@ import { simulationSettingsValidator } from './validators/simulation_settings_va
 import { milestonesValidator } from './validators/milestone_validator';
 import { conversionsValidator } from './validators/conversion_validator';
 import { seppValidator } from './validators/sepp_validator';
+import { netWorthJournalEntryValidator } from './validators/net_worth_journal_validator';
 import { basicTemplate } from './templates/basic';
 import { earlyRetirementTemplate } from './templates/early_retirement';
 
@@ -174,6 +176,7 @@ export const createPlanWithData = mutation({
     milestones: v.optional(milestonesValidator),
     conversions: v.optional(conversionsValidator),
     sepp: v.optional(seppValidator),
+    journal: v.optional(v.array(netWorthJournalEntryValidator)),
   },
   handler: async (ctx, { newPlanName, ...planData }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -182,7 +185,26 @@ export const createPlanWithData = mutation({
     if (plans.length >= 10) throw new ConvexError('Maximum of 10 plans reached');
 
     const cleaned = await removeDanglingSyncIds(ctx, userId, { name: newPlanName, ...planData });
-    return await ctx.db.insert('plans', { userId, ...cleaned });
+    const planId = await ctx.db.insert('plans', { userId, ...cleaned });
+
+    if (cleaned.journal && cleaned.journal.length > 0) {
+      for (const entry of cleaned.journal) {
+        const parsed = parseJournalDate(entry.date);
+        if (parsed) {
+          await ctx.db.insert('netWorthJournal', {
+            userId,
+            planId,
+            date: entry.date,
+            effectiveDate: parsed.effectiveDate,
+            balances: entry.balances,
+            ...(entry.note ? { note: entry.note } : {}),
+            updatedAt: Date.now(),
+          });
+        }
+      }
+    }
+
+    return planId;
   },
 });
 
@@ -220,6 +242,7 @@ export const clonePlan = mutation({
       milestones,
       conversions,
       sepp,
+      journal,
     } = plan;
     const clonedData = {
       timeline: structuredClone(timeline),
@@ -239,6 +262,7 @@ export const clonePlan = mutation({
       ...(milestones === undefined ? {} : { milestones: structuredClone(milestones) }),
       ...(conversions === undefined ? {} : { conversions: structuredClone(conversions) }),
       ...(sepp === undefined ? {} : { sepp: structuredClone(sepp) }),
+      ...(journal === undefined ? {} : { journal: structuredClone(journal) }),
     };
 
     return await ctx.db.insert('plans', { userId, name: newPlanName, isDefault: false, ...clonedData });

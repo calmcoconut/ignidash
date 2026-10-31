@@ -21,6 +21,7 @@ import {
   seppToConvex,
   taxSettingsFromConvex,
   taxSettingsToConvex,
+  journalFromConvex,
   arrayToRecord,
   recordToArray,
 } from './data-transformers';
@@ -702,5 +703,24 @@ describe('arrayToRecord / recordToArray', () => {
     const arr = recordToArray(rec);
     expect(arr).toHaveLength(2);
     expect(arr).toContainEqual({ id: 'a', value: 1 });
+  });
+});
+
+describe('journal roundtrips (R11)', () => {
+  it('should roundtrip journal entries through journalFromConvex', () => {
+    const journalEntries = [
+      {
+        date: '2026-06',
+        balances: { 'account-1': 100000 },
+        note: 'Snapshot',
+      },
+    ];
+    const from = journalFromConvex(journalEntries);
+    expect(from).toStrictEqual(journalEntries);
+  });
+
+  it('should preserve absent journal entries', () => {
+    const from = journalFromConvex(undefined);
+    expect(from).toBeUndefined();
   });
 });

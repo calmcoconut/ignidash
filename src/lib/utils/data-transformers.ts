@@ -33,6 +33,7 @@ import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schem
 import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
 import type { SeppScheduleInputs } from '@/lib/schemas/inputs/sepp-form-schema';
+import type { JournalEntryInputs } from '@/lib/schemas/inputs/journal-form-schema';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 
 // percentBonds is optional in Convex (not applicable to savings), but guaranteed by the
@@ -240,6 +241,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
   const milestones = milestonesFromConvex(plan.milestones);
   const conversions = conversionsFromConvex(plan.conversions);
   const sepp = seppFromConvex(plan.sepp);
+  const journal = journalFromConvex(plan.journal);
 
   return {
     timeline: timelineFromConvex(plan.timeline),
@@ -258,6 +260,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
     ...(milestones === undefined ? {} : { milestones }),
     ...(conversions === undefined ? {} : { conversions }),
     ...(sepp === undefined ? {} : { sepp }),
+    ...(journal === undefined ? {} : { journal }),
   };
 }
 
@@ -298,6 +301,13 @@ export function conversionsFromConvex(conversions: Doc<'plans'>['conversions']):
  */
 export function seppFromConvex(sepp: Doc<'plans'>['sepp']): SeppScheduleInputs[] | undefined {
   return sepp ? structuredClone(sepp) : undefined;
+}
+
+/**
+ * A plan's manual net-worth journal snapshots, or `undefined` when the plan has none (R11).
+ */
+export function journalFromConvex(journal: Doc<'plans'>['journal']): JournalEntryInputs[] | undefined {
+  return journal ? structuredClone(journal) : undefined;
 }
 
 export function accountToConvex(account: AccountInputs): Doc<'plans'>['accounts'][number] {
