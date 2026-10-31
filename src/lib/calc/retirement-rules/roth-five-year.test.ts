@@ -197,3 +197,49 @@ describe('the first-time-homebuyer exception', () => {
     expect(result.penaltyAmount).toBe(1_500);
   });
 });
+
+/**
+ * IRC §408A(d)(1) ordering: contributions first, then conversions in date order (FIFO), then
+ * earnings. FIFO only becomes observable when an older conversion has seasoned and a newer one
+ * has not, because the withdrawal spends the seasoned dollars first. Nothing else in this file
+ * sets up two conversions, which is why inverting the sort left every other test green.
+ */
+describe('conversion ordering (FIFO)', () => {
+  it('spends the oldest conversion first, so seasoned dollars come out before unseasoned ones', () => {
+    const events = [
+      // Deliberately newest-first: the function must sort, not trust input order.
+      conversion('2023-06-01', 10_000), // seasons 2028-06-01
+      conversion('2015-01-01', 10_000), // seasons 2020-01-01
+    ];
+
+    const result = rothWithdrawalTreatment({
+      events,
+      withdrawalDate: '2024-06-01',
+      age: 40, // under 59½, so the conversion clock is not excepted
+      amount: 10_000,
+    });
+
+    // All 10,000 comes from the seasoned 2015 conversion, so nothing is unseasoned and no §72(t)
+    // tax applies. Drawing the 2023 conversion first would make the whole 10,000 unseasoned and
+    // produce a $1,000 penalty.
+    expect(result.conversionPortion).toBe(10_000);
+    expect(result.unseasonedConversionPortion).toBe(0);
+    expect(result.penaltyAmount).toBe(0);
+  });
+
+  it('reaches the newer conversion only after the seasoned one is exhausted', () => {
+    const events = [conversion('2023-06-01', 10_000), conversion('2015-01-01', 4_000)];
+
+    const result = rothWithdrawalTreatment({
+      events,
+      withdrawalDate: '2024-06-01',
+      age: 40,
+      amount: 10_000,
+    });
+
+    // 4,000 seasoned dollars first, then 6,000 from the still-unseasoned 2023 conversion.
+    expect(result.conversionPortion).toBe(10_000);
+    expect(result.unseasonedConversionPortion).toBe(6_000);
+    expect(result.penaltyAmount).toBe(600);
+  });
+});

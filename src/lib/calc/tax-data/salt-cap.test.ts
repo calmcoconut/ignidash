@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { getSaltCap, LATEST_SALT_CAP_YEAR, saltCapFor } from './salt-cap';
+import { getSaltCap, LATEST_SALT_CAP_YEAR, saltCapAmountsFor, saltCapFor } from './salt-cap';
 
 describe('SALT cap schedule', () => {
   it('names 2026 at the statute’s $40,400 with the $505,000 phase-down threshold', () => {
@@ -57,5 +57,41 @@ describe('SALT cap schedule', () => {
 
   it('refuses a year before the schedule rather than borrowing a later cap', () => {
     expect(() => getSaltCap(2024)).toThrow(/No SALT cap for 2024/);
+  });
+});
+
+/**
+ * IRC §164(b)(7): a married-filing-separately return gets half the joint cap. The statute halves
+ * the cap *and* the phase-down threshold but NOT the floor — and that unhalved floor is the whole
+ * reason a separate return cannot sink below a joint one. Pinned here because `saltCapAmountsFor`
+ * had no test at all and nothing exercised the `marriedFilingSeparately` branch.
+ */
+describe('SALT cap on a separate return (IRC §164(b)(7))', () => {
+  it('halves the cap and threshold but keeps the $10,000 floor unhalved', () => {
+    const resolved = getSaltCap(2026);
+
+    expect(saltCapAmountsFor(resolved.values, 'marriedFilingJointly')).toEqual({
+      cap: 40400,
+      phaseDownThreshold: 505000,
+      floor: 10000,
+    });
+    expect(saltCapAmountsFor(resolved.values, 'marriedFilingSeparately')).toEqual({
+      cap: 20200,
+      phaseDownThreshold: 252500,
+      floor: 10000,
+    });
+  });
+
+  it('phases a separate return down from its own halved threshold and floors it at $10,000', () => {
+    // MAGI 252,500 is exactly the separate threshold → the full halved $20,200.
+    expect(saltCapFor(2026, 252500, 'marriedFilingSeparately').cap).toBeCloseTo(20200);
+
+    // MAGI 300,000 → 20,200 − 30% × (300,000 − 252,500) = 20,200 − 14,250 = $5,950, floored to
+    // $10,000. `phaseDown` reports the *effective* reduction (cap − allowed), not the raw $14,250.
+    // Had the floor been halved along with the cap, the clamp would sit at $5,000 and the cap would
+    // fall to $5,950 — so the `cap` assertion below is what makes that regression visible.
+    const floored = saltCapFor(2026, 300000, 'marriedFilingSeparately');
+    expect(floored.phaseDown).toBeCloseTo(10200);
+    expect(floored.cap).toBe(10000);
   });
 });

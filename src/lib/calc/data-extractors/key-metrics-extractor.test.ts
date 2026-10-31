@@ -733,3 +733,27 @@ describe('retirement age / chance of retirement source', () => {
     expect(metrics.success).toBeLessThanOrEqual(metrics.chanceOfRetirement);
   });
 });
+
+/**
+ * A characterization test for an unguarded path, not an endorsement of it.
+ *
+ * `extractMultiSimulationMetrics` has no zero-run guard, while `simulationYearCount` and both
+ * chart aggregators return `0`/`[]` for the same input. The engine never produces this today (the
+ * worker always asks for trials >= 1), but nothing stops it, and the failure mode is silent:
+ * `success` and both `chanceOf*` ratios are 0/0, and the two `StatsUtils.mean` calls return their
+ * −1 "empty list" sentinel — which then reads as a negative *dollar* figure.
+ *
+ * Pinned so that adding a guard is a deliberate change with a visible diff. If this test has to be
+ * updated because a guard landed, that is the intended outcome.
+ */
+describe('a zero-run result (known limitation)', () => {
+  it('yields NaN ratios and leaks the -1 mean sentinel into the dollar fields', () => {
+    const metrics = KeyMetricsExtractor.extractMultiSimulationMetrics({ simulations: [] });
+
+    expect(Number.isNaN(metrics.success)).toBe(true);
+    expect(Number.isNaN(metrics.chanceOfRetirement)).toBe(true);
+    expect(Number.isNaN(metrics.chanceOfBankruptcy)).toBe(true);
+    expect(metrics.lifetimeTaxesAndPenalties).toBe(-1);
+    expect(metrics.finalPortfolio).toBe(-1);
+  });
+});

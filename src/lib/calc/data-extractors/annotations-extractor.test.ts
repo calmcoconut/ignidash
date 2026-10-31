@@ -14,6 +14,7 @@ import {
   create401kAccount,
   createContributionRule,
   createDebtInput,
+  createFinancedAssetInput,
   createLivingExpense,
   createPhysicalAssetInput,
   createSavingsAccount,
@@ -213,5 +214,48 @@ describe('annotation density', () => {
 
     expect(ages).toEqual([...ages].sort((a, b) => a - b));
     expect(selectAnnotatedEvents(crowded, { isSmallScreen: true })).toEqual(first);
+  });
+});
+
+/**
+ * The asset-mortgage counterpart of a debt payoff. A physical asset whose `loanBalance` reaches 0
+ * emits a `debtPayoff` event keyed by the *asset* id, and that branch had no coverage — the word
+ * "loan" appears nowhere else in this file. It matters because the branch shares `debtPayoffSeen`
+ * with real debts to defend against an asset/debt id collision, so a regression here is silent.
+ */
+describe('an asset whose loan is paid off', () => {
+  it('emits one debtPayoff keyed by the asset id, not a debt id', () => {
+    const inputs = createSimulatorInputs({
+      timeline: { lifeExpectancy: 80, birthMonth: 1, birthYear: 1990, retirementStrategy: { type: 'fixedAge', retirementAge: 65 } },
+      // Zero returns and zero inflation, so the amortisation is exact rather than approximate.
+      marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 0 },
+      incomes: { salary: createWageIncome({ amount: 120000 }) },
+      expenses: { living: createLivingExpense({ amount: 40000 }) },
+      accounts: { savings: createSavingsAccount({ balance: 500000 }) },
+      physicalAssets: {
+        house: createFinancedAssetInput({
+          id: 'asset-1',
+          name: 'Rental',
+          appreciationRate: 0,
+          // Down payment (0) + loan (12,000) must equal the price, or the funding plan does not
+          // reconcile and the engine returns no data points at all.
+          purchasePrice: 12000,
+          purchaseDate: { type: 'now' },
+          saleDate: { type: 'atLifeExpectancy' },
+          // 0 % APR and $500/month against $12,000: cleared in exactly 24 months, well inside
+          // the horizon, so the branch goes from `loanBalance > 0` to `=== 0` during the run.
+          paymentMethod: { type: 'loan', downPayment: 0, loanBalance: 12000, apr: 0, monthlyPayment: 500 },
+        }),
+      },
+    });
+
+    const points = new FinancialSimulationEngine(inputs, TEST_CLOCK).runSimulation(new FixedReturnsProvider(inputs), inputs.timeline!);
+    const payoffs = extractSimulationEvents(points.data).filter((event) => event.kind === 'debtPayoff');
+
+    expect(payoffs).toHaveLength(1);
+    expect(payoffs[0]).toMatchObject({ kind: 'debtPayoff', scope: 'instrument', detail: 'Rental' });
+    // The id carries the *asset* id — this is the assertion that fails if the branch stops
+    // keying the payoff by the asset.
+    expect(payoffs[0].id).toMatch(/^debtPayoff:\d+:asset-1$/);
   });
 });
