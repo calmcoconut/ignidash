@@ -1,20 +1,29 @@
 'use client';
 
 import { useState, lazy, Suspense } from 'react';
-import { CalculatorIcon, TrendingUpIcon, BanknoteXIcon, HourglassIcon } from 'lucide-react';
+import { CalculatorIcon, TrendingUpIcon, BanknoteXIcon, HourglassIcon, CalendarClockIcon } from 'lucide-react';
 
 import IconButton from '@/components/ui/icon-button';
 import PageLoading from '@/components/ui/page-loading';
 import Drawer from '@/components/ui/drawer';
 import ColumnHeader from '@/components/ui/column-header';
 import { Skeleton } from '@/components/ui/skeleton';
-import { usePlanName, useMarketAssumptionsData, useTaxSettingsData, useTimelineData } from '@/hooks/use-convex-data';
+import { Dialog } from '@/components/catalyst/dialog';
+import {
+  usePlanName,
+  useMarketAssumptionsData,
+  useTaxSettingsData,
+  useTimelineData,
+  useSeppData,
+  useAccountsData,
+} from '@/hooks/use-convex-data';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 import { useHasOpenedTaxSettings, useUpdateHasOpenedTaxSettings } from '@/lib/stores/simulator-store';
 
 const ExpectedReturnsDrawer = lazy(() => import('./drawers/expected-returns-drawer'));
 const TaxSettingsDrawer = lazy(() => import('./drawers/tax-settings-drawer'));
 const TimelineDrawer = lazy(() => import('./drawers/timeline-drawer'));
+const SeppDialog = lazy(() => import('./dialogs/sepp-dialog'));
 
 export default function NumbersColumnHeader() {
   const planId = useSelectedPlanId();
@@ -23,10 +32,13 @@ export default function NumbersColumnHeader() {
   const [expectedReturnsOpen, setExpectedReturnsOpen] = useState(false);
   const [taxSettingsOpen, setTaxSettingsOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [seppOpen, setSeppOpen] = useState(false);
 
   const marketAssumptions = useMarketAssumptionsData();
   const taxSettings = useTaxSettingsData();
   const timeline = useTimelineData();
+  const { data: sepp } = useSeppData();
+  const { data: accounts } = useAccountsData();
 
   const expectedReturnsTitleComponent = (
     <div className="flex items-center gap-2">
@@ -73,6 +85,7 @@ export default function NumbersColumnHeader() {
               surfaceColor="emphasized"
             />
             <IconButton icon={HourglassIcon} label="Timeline" onClick={() => setTimelineOpen(true)} surfaceColor="emphasized" />
+            <IconButton icon={CalendarClockIcon} label="SEPP" onClick={() => setSeppOpen(true)} surfaceColor="emphasized" />
           </div>
         }
         className="left-76 w-96 border-r group-data-[state=collapsed]/sidebar:left-20"
@@ -93,6 +106,13 @@ export default function NumbersColumnHeader() {
           <TimelineDrawer setOpen={setTimelineOpen} timeline={timeline} />
         </Suspense>
       </Drawer>
+      {/* A SEPP schedule is a plan-level list saved whole, like the milestones — a dialog with one
+          Save, not a drawer of fields that write as you type. */}
+      <Dialog size="2xl" open={seppOpen} onClose={() => setSeppOpen(false)}>
+        <Suspense fallback={<PageLoading message="Loading SEPP schedules" />}>
+          <SeppDialog sepp={sepp} accounts={Object.values(accounts)} onClose={() => setSeppOpen(false)} />
+        </Suspense>
+      </Dialog>
     </>
   );
 }

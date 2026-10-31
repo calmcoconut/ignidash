@@ -35,6 +35,9 @@ import type * as net_worth_journal from "../net_worth_journal.js";
 // has still not run here. These are the two declarations codegen emits for a module and for a new
 // validator file, so replacing them needs no change to the consuming code.
 import type * as milestones from "../milestones.js";
+// HAND-MAINTAINED for the same reason: `sepp` (IRC §72(t) schedules) is a live module and codegen
+// has still not run here. These are the two declarations codegen emits for a module.
+import type * as sepp from "../sepp.js";
 import type * as onboarding from "../onboarding.js";
 import type * as physical_asset from "../physical_asset.js";
 import type * as plan_snapshots from "../plan_snapshots.js";
@@ -107,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   plan_snapshots: typeof plan_snapshots;
   plans: typeof plans;
   privacy_settings: typeof privacy_settings;
+  sepp: typeof sepp;
   simulation_settings: typeof simulation_settings;
   tax_settings: typeof tax_settings;
   "templates/basic": typeof templates_basic;

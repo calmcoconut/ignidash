@@ -16,6 +16,7 @@ import {
   baseContributionFromConvex,
   glidePathFromConvex,
   milestonesFromConvex,
+  seppFromConvex,
 } from '@/lib/utils/data-transformers';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 
@@ -186,6 +187,18 @@ export const useMilestonesData = () => {
   const q = useQuery(api.milestones.get, { planId });
   return {
     data: useMemo(() => (q ? (milestonesFromConvex(q) ?? []) : []), [q]),
+    isLoading: q === undefined,
+  };
+};
+
+// SEPP schedules (IRC §72(t)(2)(A)(iv)). Same shape as milestones: absent means "no schedules" and
+// the query answers `[]` for an absent field and for an empty list alike, so the editor's list is
+// the only value the dialog sees.
+export const useSeppData = () => {
+  const planId = useSelectedPlanId();
+  const q = useQuery(api.sepp.get, { planId });
+  return {
+    data: useMemo(() => (q ? (seppFromConvex(q) ?? []) : []), [q]),
     isLoading: q === undefined,
   };
 };
