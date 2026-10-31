@@ -186,6 +186,25 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v11 file is made by *deleting* the key, and the v11 fixture in `plan-envelope.test.ts`
  *        counts it before and after so the strip cannot pass vacuously.
  *
+ *   13 — R3 IRA basis: optional `accounts[*].nondeductibleBasis` on a traditional IRA. The field is
+ *        the after-tax money in the account (Form 8606 lines 2 and 5) and the engine apportions a
+ *        withdrawal with IRC §408(d)(2)'s fraction — basis / (year-end balance + distributions) —
+ *        so part of a distribution is tax-free instead of all of it being ordinary income. A
+ *        version 12 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `nondeductibleBasis` means **no after-tax basis**: every IRA dollar distributed is
+ *        taxable, which is exactly what every earlier build computed. A v12 plan therefore
+ *        re-simulates to the numbers it had, and the golden corpus — whose plans state no basis —
+ *        did not move. It is emphatically **not** a stated zero basis: the importer preserves the
+ *        absence rather than writing `0`, because "no after-tax money" and "after-tax money nobody
+ *        recorded" are different statements about the file even though both tax the whole
+ *        distribution. The field exists on the `ira` variant alone: a 401(k) balance follows §72,
+ *        not §408(d)(2), so offering the field there would store a number nothing reads.
+ *
+ *        A v12 file is made by *deleting* the key. The v12 fixture in `plan-envelope.test.ts` counts
+ *        it before and after so the strip cannot pass vacuously, and asserts the same plan *with* a
+ *        basis runs to a different number — a bump whose field moves nothing should not exist.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -197,7 +216,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 12;
+export const EXPORT_SCHEMA_VERSION = 13;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

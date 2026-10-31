@@ -7,6 +7,7 @@ import { earlyRetirementTemplate } from '../../../convex/templates/early_retirem
 import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inputs/household-schema';
 import { getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
 import {
+  accountFromConvex,
   expenseFromConvex,
   milestonesFromConvex,
   physicalAssetFromConvex,
@@ -515,7 +516,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1125,10 +1126,10 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion12Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    // The bump is really this build's, not the previous one's: reverting the constant to 11 makes
-    // this line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(12);
-    expect(EXPORT_SCHEMA_VERSION).toBe(12);
+    // The field really is carried by the newest build: reverting the constant below 13 makes this
+    // line fail before the field is even looked at.
+    expect(envelope.schemaVersion).toBe(13);
+    expect(EXPORT_SCHEMA_VERSION).toBe(13);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1182,6 +1183,83 @@ describe('malformed files report the exact field paths', () => {
     // And the *meaning* of the absence, where the engine reads it: no milestones at all (not an
     // empty list), which is the pre-P1-P7 plan exactly.
     expect(milestonesFromConvex(importedPlan.milestones)).toBeUndefined();
+  });
+
+  /**
+   * What the v13 bump (R3) added: `nondeductibleBasis` on a traditional IRA.
+   *
+   * One field inside one account, so a v12 fixture is the current payload with it deleted — counted
+   * in both directions so the strip cannot pass vacuously. Its absence is **no after-tax basis**,
+   * which taxes the whole distribution exactly as every earlier build did, so a v12 plan
+   * re-simulates byte-identically (the golden corpus, whose plans state no basis, is the witness).
+   */
+  const VERSION_13_FIELDS = ['nondeductibleBasis'];
+
+  const makeVersion13Plan = () => ({
+    ...makeVersion12Plan(),
+    accounts: [
+      { id: 'ira-1', name: 'Traditional IRA', balance: 120000, type: 'ira' as const, percentBonds: 40, nondeductibleBasis: 24000 },
+    ],
+  });
+
+  it('round-trips an IRA’s after-tax basis, the one thing version 13 adds', () => {
+    const plan = makeVersion13Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(13);
+    expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.accounts[0]).toHaveProperty('nondeductibleBasis', 24000);
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+
+    // And the value reaches the shape the engine reads. `accountFromConvex` is the only door into
+    // it, so a field that survives the file but not this call would be a field nothing uses.
+    const restoredAccount = accountFromConvex(restored.plan.accounts[0]);
+    if (restoredAccount.type !== 'ira') throw new Error('the fixture account is an IRA');
+    expect(restoredAccount.nondeductibleBasis).toBe(24000);
+  });
+
+  it('imports a version 12 plan as having no IRA basis, and keeps the field absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion13Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v12 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v12.schemaVersion = 12;
+
+    expect(countFields(v12, VERSION_13_FIELDS)).toBe(1);
+    stripFields(v12, VERSION_13_FIELDS);
+    expect(countFields(v12, VERSION_13_FIELDS)).toBe(0);
+    // The v12 fields are still there: this is a v12 file, not an older one.
+    expect(v12.plan).toHaveProperty('milestones');
+
+    const parsed = parseEnvelope(JSON.stringify(v12));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(12);
+    // Nothing invented on the way in: a re-export of an untouched v12 plan is the same file, and
+    // the key is still absent rather than rewritten to `0`. "No after-tax money" and "after-tax
+    // money nobody recorded" are different statements about the file even though both tax the
+    // whole distribution.
+    expect(parsed.envelope).toStrictEqual(v12);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedAccount = accountFromConvex(imported.plans[0].accounts[0]);
+    if (importedAccount.type !== 'ira') throw new Error('the fixture account is an IRA');
+    // Absent, not zero. The transformer carries the key as `undefined` for every optional account
+    // field (as `costBasis` and `contributionBasis` already do), which `JSON.stringify` drops, so
+    // the value the engine reads is the pre-R3 "no after-tax money" and never a stated `0`.
+    expect(importedAccount.nondeductibleBasis).toBeUndefined();
+    expect(JSON.stringify(importedAccount)).not.toContain('nondeductibleBasis');
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

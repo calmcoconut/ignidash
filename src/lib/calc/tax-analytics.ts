@@ -105,9 +105,11 @@ function realDollars<TValues>(table: TableMeta<TValues>, rules: TaxRuleset, taxY
  * same gross amount can cost different amounts at the margin. `ordinary` covers a pension, a
  * traditional-IRA/401(k) distribution and a Roth conversion — all of which raise taxable ordinary
  * income by a dollar per dollar and are not investment income for §1411 or earned income for
- * payroll. `taxDeferredWithdrawal` is kept separate from `rothConversion` even though they
- * coincide today: they differ once P3-P5 adds pro-rata basis (a conversion of after-tax basis is
- * not taxable), and §7-A3 needs the two labelled in its explanations.
+ * payroll. `taxDeferredWithdrawal` is kept separate from `rothConversion` even though the marginal
+ * path prices them alike today: neither is a modelled transaction, so both cost a dollar of ordinary
+ * income. They diverge once a conversion can carry after-tax basis through §408(d)(2) — a conversion
+ * of basis is not taxable — and §7-A3 needs the two labelled in its explanations. (Pro-rata basis
+ * recovery *is* modelled for IRA withdrawals, in the settled return rather than at the margin.)
  */
 export type MarginalIncomeType =
   | 'ordinary'

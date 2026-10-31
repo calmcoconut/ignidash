@@ -49,6 +49,7 @@ import { type AccountDataWithFlows, taxCategoryForAccountType } from './account'
 import { type AssetFlows, type TaxCategory, sumFlows, sumReturnAmounts, zeroAssetAmounts } from './asset';
 import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, type WagePayrollTaxes } from './payroll-taxes';
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
+import { prorateIraDistribution } from './retirement-rules/ira-basis';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { saltCapFor } from './tax-data/salt-cap';
 import { tableValuesInRealDollars, type RealDollarContext } from './tax-data/real-dollars';
@@ -175,6 +176,17 @@ export interface TaxProcessorSettings {
    * See `tax-data/real-dollars.ts` for which tables move and why `indexed` ones do not.
    */
   readonly inflationRatePercent?: number | undefined;
+  /**
+   * The after-tax (nondeductible) basis of each traditional IRA, keyed by account id.
+   *
+   * Form 8606 apportions **one** aggregate basis across every traditional, SEP and SIMPLE IRA the
+   * owner holds (IRC §408(d)(2)), so the tax layer needs the per-account figures rather than a
+   * total: a separate-return pair has to split them the same way the portfolio is split.
+   *
+   * Absent, or an account absent from the map, means **no after-tax basis** — every distributed
+   * dollar is taxable, which is what every plan written before this field computed.
+   */
+  readonly iraBasisByAccount?: Readonly<Record<string, number>> | undefined;
 }
 
 /**
@@ -793,7 +805,19 @@ export class TaxProcessor {
    */
   private readonly capitalLossCarryoverByReturn = new Map<string, number>();
   private readonly minimumTaxCreditByReturn = new Map<string, number>();
-  private carryoverSnapshot: { capitalLoss: Map<string, number>; minimumTaxCredit: Map<string, number> } | null = null;
+  /**
+   * Unrecovered after-tax IRA basis per return (IRC §408(d)(2)).
+   *
+   * It is a carryforward like the two above — a year's tax-free share spends basis that later years
+   * can no longer recover — so it is part of the re-settlement snapshot too. Seed from the plan's
+   * accounts on first use and then spend it down; see `iraBasisAtStartOfYear`.
+   */
+  private readonly iraBasisRemainingByReturn = new Map<string, number>();
+  private carryoverSnapshot: {
+    capitalLoss: Map<string, number>;
+    minimumTaxCredit: Map<string, number>;
+    iraBasis: Map<string, number>;
+  } | null = null;
   /**
    * Adjusted gross income by tax year, for the IRMAA lookback. Keyed by return, then by year, and
    * *overwritten* on every pass through a year, so the convergence loop (which re-settles a year up
@@ -883,6 +907,7 @@ export class TaxProcessor {
     this.carryoverSnapshot = {
       capitalLoss: new Map(this.capitalLossCarryoverByReturn),
       minimumTaxCredit: new Map(this.minimumTaxCreditByReturn),
+      iraBasis: new Map(this.iraBasisRemainingByReturn),
     };
   }
 
@@ -894,6 +919,8 @@ export class TaxProcessor {
     for (const [key, value] of this.carryoverSnapshot.capitalLoss) this.capitalLossCarryoverByReturn.set(key, value);
     this.minimumTaxCreditByReturn.clear();
     for (const [key, value] of this.carryoverSnapshot.minimumTaxCredit) this.minimumTaxCreditByReturn.set(key, value);
+    this.iraBasisRemainingByReturn.clear();
+    for (const [key, value] of this.carryoverSnapshot.iraBasis) this.iraBasisRemainingByReturn.set(key, value);
   }
 
   /** The capital-loss carryover of the return being priced (IRC §1211(b)). */
@@ -903,6 +930,32 @@ export class TaxProcessor {
 
   private set capitalLossCarryover(value: number) {
     this.capitalLossCarryoverByReturn.set(this.returnKey, value);
+  }
+
+  /**
+   * The after-tax IRA basis this return has left, at the start of the year being priced.
+   *
+   * Form 8606 line 2/5 is the basis at the beginning of the year; a distribution's tax-free share
+   * spends it, and next year starts from what is left. The first call seeds it from the plan: a
+   * single return owns every IRA's basis, and one half of a separate-return pair owns its share of
+   * it by the same `ownershipShare` rule the portfolio split uses — an IRA cannot really be joint,
+   * but the plan can say so, and reading it the same way everywhere is the only rule that cannot
+   * disagree with itself.
+   */
+  private iraBasisAtStartOfYear(): number {
+    const carried = this.iraBasisRemainingByReturn.get(this.returnKey);
+    if (carried !== undefined) return carried;
+
+    const byAccount = this.deductionSettings.iraBasisByAccount ?? {};
+    const role = this.returnKey === '' ? null : (this.returnKey as HouseholdMemberRole);
+    let initial = 0;
+    for (const [accountId, basis] of Object.entries(byAccount)) {
+      const share = role === null ? 1 : ownershipShare(this.deductionSettings.ownership?.accounts[accountId], role);
+      initial += basis * share;
+    }
+
+    this.iraBasisRemainingByReturn.set(this.returnKey, initial);
+    return initial;
   }
 
   /** The minimum-tax credit of the return being priced (IRC §53). */
@@ -1626,6 +1679,11 @@ export class TaxProcessor {
     let earlyRothEarningsWithdrawals = 0;
     let early401kAndIraWithdrawals = 0;
     let earlyHsaWithdrawals = 0;
+    // The §408(d)(2) aggregate: only an `ira` is apportioned by Form 8606, so its distributions and
+    // its year-end balance are tracked apart from the employer plans sharing `taxDeferredWithdrawals`.
+    let iraDistributions = 0;
+    let iraYearEndBalance = 0;
+    let earlyIraWithdrawals = 0;
 
     for (const account of Object.values(annualPortfolioDataBeforeTaxes.perAccountData)) {
       switch (account.type) {
@@ -1640,12 +1698,26 @@ export class TaxProcessor {
           break;
         }
         case '401k':
-        case '403b':
-        case 'ira': {
+        case '403b': {
           const annualWithdrawals = sumFlows(account.withdrawals);
 
           taxDeferredWithdrawals += annualWithdrawals;
           if (age < regularQualifiedWithdrawalAge) early401kAndIraWithdrawals += annualWithdrawals;
+          break;
+        }
+        case 'ira': {
+          const annualWithdrawals = sumFlows(account.withdrawals);
+
+          taxDeferredWithdrawals += annualWithdrawals;
+          iraDistributions += annualWithdrawals;
+          // Form 8606 line 6 is the 12/31 balance, which `balance` already is: the year's
+          // withdrawals have left it. The fraction adds the distributions back to get the balance
+          // the basis is measured against.
+          iraYearEndBalance += account.balance;
+          if (age < regularQualifiedWithdrawalAge) {
+            early401kAndIraWithdrawals += annualWithdrawals;
+            earlyIraWithdrawals += annualWithdrawals;
+          }
           break;
         }
         case 'hsa': {
@@ -1659,6 +1731,20 @@ export class TaxProcessor {
           break;
       }
     }
+
+    // IRC §408(d)(2): one basis is shared by every traditional IRA the owner holds, and every
+    // distribution carries the same tax-free fraction — basis / (year-end balance + distributions).
+    // The recovered basis is spent, so later years measure against what is left.
+    const iraSplit = prorateIraDistribution({
+      yearEndBalance: iraYearEndBalance,
+      basis: this.iraBasisAtStartOfYear(),
+      distribution: iraDistributions,
+    });
+    this.iraBasisRemainingByReturn.set(this.returnKey, iraSplit.remainingBasis);
+    // Only the includible part is income — and §72(t)'s 10% additional tax is charged on the
+    // includible part alone, so the early-withdrawal base shrinks by the same amount.
+    taxDeferredWithdrawals -= iraSplit.nontaxableAmount;
+    early401kAndIraWithdrawals = Math.max(0, early401kAndIraWithdrawals - Math.min(earlyIraWithdrawals, iraSplit.nontaxableAmount));
 
     const taxableRetirementDistributions = taxDeferredWithdrawals + earlyRothEarningsWithdrawals;
     const { realizedGains, capitalLossDeduction, section121Exclusion } = this.getRealizedGainsAndCapLossDeductionData(

@@ -573,9 +573,65 @@
                 "type": "string",
                 "enum": [
                   "401k",
-                  "403b",
-                  "ira"
+                  "403b"
                 ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "balance",
+              "percentBonds",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "balance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              },
+              "syncedFinanceId": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
+              "percentBonds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "type": {
+                "type": "string",
+                "const": "ira"
+              },
+              "nondeductibleBasis": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
               }
             },
             "required": [

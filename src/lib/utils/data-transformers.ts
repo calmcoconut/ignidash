@@ -58,9 +58,12 @@ export function accountFromConvex(account: Doc<'plans'>['accounts'][number]): Ac
     case 'roth403b':
     case 'rothIra':
       return { ...base, type: account.type, percentBonds: account.percentBonds!, contributionBasis: account.contributionBasis };
+    case 'ira':
+      // The one account type Form 8606 apportions. Absent stays absent: a plan with no after-tax
+      // money must not read back as a stated zero basis, which is a different claim.
+      return { ...base, type: 'ira', percentBonds: account.percentBonds!, nondeductibleBasis: account.nondeductibleBasis };
     case '401k':
     case '403b':
-    case 'ira':
     case 'hsa':
       return { ...base, type: account.type, percentBonds: account.percentBonds! };
   }
@@ -299,9 +302,10 @@ export function accountToConvex(account: AccountInputs): Doc<'plans'>['accounts'
     case 'roth403b':
     case 'rothIra':
       return { ...base, type: account.type, percentBonds: account.percentBonds, contributionBasis: account.contributionBasis };
+    case 'ira':
+      return { ...base, type: 'ira', percentBonds: account.percentBonds, nondeductibleBasis: account.nondeductibleBasis };
     case '401k':
     case '403b':
-    case 'ira':
     case 'hsa':
       return { ...base, type: account.type, percentBonds: account.percentBonds };
   }

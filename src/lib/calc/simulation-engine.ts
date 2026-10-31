@@ -35,6 +35,8 @@ import { ContributionRules } from './contribution-rules';
 import { PhaseIdentifier, type PhaseData } from './phase';
 import { ReturnsProcessor, type ReturnsData } from './returns';
 import { Incomes, IncomesProcessor, type IncomesData } from './incomes';
+import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
+
 import { PayrollTaxProcessor, type WagePayrollTaxes } from './payroll-taxes';
 import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
 import { derivePropertyTaxExpenses } from './property-tax';
@@ -286,6 +288,26 @@ export interface SimulationState {
  * - `year`/`month` are the calendar values of the month start, taken with `addMonths` on the clock's
  *   ISO date so no host timezone can move the fire date.
  */
+/**
+ * Each traditional IRA's after-tax basis, keyed by account id, for Form 8606's pro-rata rule.
+ *
+ * An IRA with no stated basis is left out rather than stored as zero: `iraBasisAtStartOfYear` reads
+ * an absent account as no basis, so the two spellings behave identically while the map stays small.
+ * The field exists on the `ira` variant alone — a 401(k) or HSA balance follows IRC §72, not
+ * §408(d)(2) — so this switch cannot silently collect a basis nothing would apportion.
+ */
+function iraBasisByAccountFrom(accounts: Record<string, AccountInputs>): Record<string, number> {
+  const basisByAccount: Record<string, number> = {};
+
+  for (const account of Object.values(accounts)) {
+    if (account.type !== 'ira') continue;
+    if (account.nondeductibleBasis === undefined || account.nondeductibleBasis <= 0) continue;
+    basisByAccount[account.id] = account.nondeductibleBasis;
+  }
+
+  return basisByAccount;
+}
+
 function milestoneSnapshotAt(
   simulationState: SimulationState,
   startCalendarDate: CalendarDate,
@@ -447,6 +469,11 @@ export class FinancialSimulationEngine {
       // The tax tables are nominal; the engine is in today's dollars. `TaxProcessor` needs the
       // assumption to deflate the tables that are fixed by statute (see `tax-data/real-dollars.ts`).
       inflationRatePercent: this.inputs.marketAssumptions.inflationRate,
+      // Form 8606 apportions one aggregate basis across every traditional IRA the owner holds
+      // (IRC §408(d)(2)), so the tax layer needs each account's after-tax money. An account that
+      // states none is absent from the map, which reads as no basis; the schema does not offer the
+      // field on a 401(k)/403(b)/HSA, because those follow §72 rather than §408(d)(2).
+      iraBasisByAccount: iraBasisByAccountFrom(this.inputs.accounts),
       ownership: {
         accounts: simulationContext.accountOwners ?? {},
         physicalAssets: simulationContext.physicalAssetOwners ?? {},

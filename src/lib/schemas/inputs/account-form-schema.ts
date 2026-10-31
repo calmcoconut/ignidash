@@ -48,10 +48,22 @@ export const accountFormSchema = z.discriminatedUnion('type', [
     contributionBasis: optionalCurrencyFieldAllowsZero('Contribution basis cannot be negative'),
   }),
 
-  // Tax Deferred
+  // Tax Deferred — employer plans. These have no after-tax basis in this model: Form 8606's
+  // pro-rata rule is an IRA rule (IRC §408(d)(2)), and an after-tax 401(k) balance follows §72
+  // instead, so the field is not offered where it would be ignored.
   z.object({
     ...investmentAccountSchema.shape,
-    type: z.enum(['401k', '403b', 'ira']),
+    type: z.enum(['401k', '403b']),
+  }),
+
+  // Traditional IRA — the account type Form 8606 apportions. `nondeductibleBasis` is the after-tax
+  // money in the account (lines 2/5), shared pro-rata with every other traditional/SEP/SIMPLE IRA
+  // the owner holds. Absent means **no after-tax basis**, which is what every plan written before
+  // this field had, so an absent basis keeps the whole distribution taxable exactly as before.
+  z.object({
+    ...investmentAccountSchema.shape,
+    type: z.literal('ira'),
+    nondeductibleBasis: optionalCurrencyFieldAllowsZero('Nondeductible basis cannot be negative'),
   }),
 
   // HSA

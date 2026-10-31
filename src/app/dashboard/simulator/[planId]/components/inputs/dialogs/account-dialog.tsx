@@ -140,10 +140,16 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
     if (type !== 'taxableBrokerage') {
       unregister('costBasis');
     }
+
+    // Only a traditional IRA carries Form 8606 basis: a 401(k)/403(b) follows §72, and an HSA is
+    // not a retirement account at all, so switching away must not leave a stale number behind.
+    if (type !== 'ira') {
+      unregister('nondeductibleBasis');
+    }
   }, [type, unregister]);
 
   const getBalanceColSpan = () => {
-    if (type === 'taxableBrokerage' || isRothAccount(type)) return 'col-span-1';
+    if (type === 'taxableBrokerage' || isRothAccount(type) || type === 'ira') return 'col-span-1';
     return 'col-span-2';
   };
 
@@ -154,6 +160,7 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
 
   const { error: costBasisError } = getFieldState('costBasis');
   const { error: contributionBasisError } = getFieldState('contributionBasis');
+  const { error: nondeductibleBasisError } = getFieldState('nondeductibleBasis');
   const { error: percentBondsError } = getFieldState('percentBonds');
 
   return (
@@ -273,6 +280,31 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
                       prefix={getCurrencySymbol()}
                     />
                     {contributionBasisError && <ErrorMessage>{contributionBasisError.message}</ErrorMessage>}
+                  </Field>
+                )}
+                {type === 'ira' && (
+                  <Field>
+                    <Label htmlFor="nondeductibleBasis" className="flex w-full items-center justify-between">
+                      <span className="whitespace-nowrap">Nondeductible Basis</span>
+                      <Tooltip>
+                        <TooltipTrigger className="text-muted-foreground">
+                          <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>The after-tax money you have put into your IRAs.</p>
+                          <p>Optional—Form 8606 makes this share of a withdrawal tax-free.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <NumberInput
+                      name="nondeductibleBasis"
+                      control={control}
+                      id="nondeductibleBasis"
+                      inputMode="decimal"
+                      placeholder="–"
+                      prefix={getCurrencySymbol()}
+                    />
+                    {nondeductibleBasisError && <ErrorMessage>{nondeductibleBasisError.message}</ErrorMessage>}
                   </Field>
                 )}
                 <Field className="col-span-2">

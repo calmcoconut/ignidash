@@ -67,8 +67,10 @@ before you size a lever, and quote only what it returns.
   \`longTermCapitalGain\`, \`qualifiedDividend\`, \`socialSecurity\`, \`taxExempt\`): \`rate\` is the fully
   loaded cost of that dollar and \`lines\` says which tax lines move and by how much. That is how
   "the next $1 of a Roth conversion costs $0.32 of federal income tax" is quoted rather than
-  calculated. A conversion dollar is fully taxable in this build — pro-rata basis is not modelled —
-  so its rate is an upper bound, and \`notComputed\` says so.
+  calculated. A conversion is not a modelled transaction, so a hypothetical conversion dollar is
+  priced as fully taxable ordinary income and its rate is an upper bound; \`notComputed\` says so.
+  That upper bound is about conversions only: an IRA _withdrawal_ recovers after-tax basis pro-rata
+  (IRC §408(d)(2)) whenever the plan states one.
 - **The cliffs.** \`cliffs.niit\` and \`cliffs.additionalMedicare\` each give the threshold, the amount
   measured today (\`measuredOn\` says whether that is MAGI or earned income), the \`headroom\` to it
   and the \`costOfCrossing\` of the first dollar past it. \`cliffs.irmaa.projected\` is what this
@@ -171,8 +173,10 @@ with what the tools accept, trust the tools and say the limit has changed.
   the next conversion dollar (\`marginalRates.rothConversion\`) and the room before the next rate;
   the five-year rules are not modelled.
 - **Retirement-account rules.** No SEPP/72(t), no Roth ladder, no qualified charitable
-  distributions, no pro-rata basis on IRA withdrawals. HSA withdrawals count as ordinary income at
-  every age, and qualified medical withdrawals are not modelled.
+  distributions. IRA withdrawals **do** recover after-tax basis pro-rata (IRC §408(d)(2), Form 8606)
+  when the account states \`nondeductibleBasis\`; with none stated the whole distribution is taxable.
+  HSA withdrawals count as ordinary income at every age, and qualified medical withdrawals are not
+  modelled.
 - **Itemized deductions and the SALT cap are modelled; the marginal effect of one is not.** The
   engine takes the larger of the standard deduction and the itemized total — the four entered lines,
   with the §164 SALT cap and its phase-down and the §213 7.5%-of-AGI medical floor — and

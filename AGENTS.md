@@ -133,7 +133,7 @@ charts without one are an accessibility regression.
 ## 4. The invariant that will bite you: the version constant
 
 **`EXPORT_SCHEMA_VERSION` in `src/lib/export/plan-envelope.ts` is a single-writer resource.**
-It is currently **12**. Its history:
+It is currently **13**. Its history:
 
 | v   | Change                                   |
 | --- | ---------------------------------------- |
@@ -149,6 +149,7 @@ It is currently **12**. Its history:
 | 10  | withdrawal strategies                    |
 | 11  | real estate (term, property tax, offset) |
 | 12  | milestones                               |
+| 13  | IRA after-tax basis (Form 8606 pro-rata) |
 
 Two people adding fields in parallel will produce a version number that claims to describe a
 shape it does not. **One field-adding change at a time.** If you need parallelism, batch by
