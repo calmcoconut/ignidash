@@ -8,6 +8,7 @@ import SectionContainer from '@/components/ui/section-container';
 
 import QuietNotice from '../quiet-notice';
 import NetWorthOverlaySection from '../sections/net-worth-overlay-section';
+import SensitivitySection from '../sections/sensitivity-section';
 import SimulationMetrics from '../simulation-metrics';
 import SingleSimulationResultsContent from './single-simulation-results-content';
 
@@ -40,6 +41,7 @@ export default function SingleSimulationResults({ inputs, simulationMode, journa
         <SimulationMetrics keyMetrics={keyMetrics} simulationResult={simulationResult} />
       </SectionContainer>
       <NetWorthOverlaySection data={simulationResult.data} entries={journalEntries} />
+      <SensitivitySection inputs={inputs} simulationMode={simulationMode} />
       <SingleSimulationResultsContent simulation={simulationResult} keyMetrics={keyMetrics} />
     </>
   );
