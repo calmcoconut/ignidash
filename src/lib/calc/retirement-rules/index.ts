@@ -12,6 +12,10 @@
  *
  * Nothing here reads a clock, a store or the network, and nothing writes to a plan: the engine
  * wiring is a separate item, which is why the modules take dates, ages and amounts as arguments.
+ *
+ * `sepp-tables` is data rather than a rule: the §1.401(a)(9)-9(b) Single Life Table and the
+ * monthly §1274(d) federal mid-term rates, vendored with a citation per value so `sepp` can price a
+ * payment without the caller supplying either. It refuses an age or a month it cannot cite.
  */
 
 export { prorateIraDistribution, roundForm8606Ratio, type IraDistributionBasisInputs, type IraDistributionBasisResult } from './ira-basis';
@@ -21,12 +25,34 @@ export {
   earlyDistributionPenalty,
   maximumSeppInterestRate,
   seppAnnualAmount,
+  seppAnnualAmountFromTables,
   seppAnnuityFactors,
   seppMustContinueUntil,
+  seppRateWindow,
   type EarlyDistributionException,
+  type SeppEligibleRateMonth,
   type SeppInputs,
   type SeppMethod,
+  type SeppRateWindow,
+  type SeppTableInputs,
+  type SeppTableResult,
 } from './sepp';
+
+export {
+  MID_TERM_RATES,
+  MID_TERM_RATE_SOURCE,
+  NEWEST_MID_TERM_RATE_MONTH,
+  SINGLE_LIFE_TABLE,
+  SINGLE_LIFE_TABLE_OLDEST_AGE,
+  SINGLE_LIFE_TABLE_SOURCE,
+  SINGLE_LIFE_TABLE_TERMINAL_AGE,
+  SINGLE_LIFE_TABLE_YOUNGEST_AGE,
+  federalMidTermRate,
+  offsetSeppRateMonth,
+  parseSeppRateMonth,
+  singleLifeExpectancy,
+  type SeppRateMonth,
+} from './sepp-tables';
 
 export {
   ROTH_FIRST_TIME_HOMEBUYER_LIMIT,
