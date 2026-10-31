@@ -1,5 +1,6 @@
 import { type SimulatorInputs, simulatorSchema } from '../src/lib/schemas/inputs/simulator-schema';
 import type { ISODateString } from '../src/lib/calc/clock';
+import { analyzeSimulationTaxYear } from '../src/lib/calc/tax-analytics';
 import { comparePlans, COMPARE_DELTA_MEANING } from '../src/lib/calc/compare';
 import { DEFAULT_MONTE_CARLO_TRIALS, type MonteCarloSummary } from '../src/lib/calc/monte-carlo';
 import type { SimulationResult } from '../src/lib/calc/simulation-engine';
@@ -91,6 +92,22 @@ export const CHAT_TOOL_DEFINITIONS: ChatToolDefinition[] = [
           variantId: { type: 'string', description: 'The id passed to simulateVariant.' },
         },
         required: ['variantId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getTaxAnalytics',
+      description:
+        'The settled tax shape of one year of the baseline projection (P3-P6): what the engine charged, how full each bracket is, how much taxable income fits before the next rate, the fully loaded rate on the next dollar of each income type, and the distance to the NIIT, additional-Medicare and IRMAA cliffs. The ACA cliff comes back as not evaluated, with what it would need. Read-only: it creates no variant and never changes the plan. Call it when a conversion, withdrawal or bracket question needs a number.',
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'number', description: 'Calendar year to analyse, e.g. 2029, as shown in the projection.' },
+        },
+        required: ['year'],
         additionalProperties: false,
       },
     },
@@ -250,6 +267,10 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
 
   const error = (message: string, extra: Json = {}): string => JSON.stringify({ error: message, ...extra });
 
+  /** The baseline projection's rows, computed at most once per turn: the analytics tool reads them. */
+  let baselineRowsCache: ReturnType<typeof projectFixed>['data'] | null = null;
+  const baselineRows = () => (baselineRowsCache ??= projectFixed(baseline, asOf, seed).data);
+
   const getPlanSummary = (): string => {
     const projection = project(baseline, asOf, seed);
 
@@ -339,6 +360,60 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
     });
   };
 
+  /**
+   * The tax analytics for one settled year (P3-P6, §7-A3).
+   *
+   * A read-only view of the baseline projection: it creates no variant, applies no patch and
+   * never touches the plan, so it costs one tool call and no variant budget. Every number comes
+   * from `analyzeSimulationTaxYear`, the same pure function the app calls — this tool only picks
+   * the row by calendar year and curates what the agent needs to quote.
+   */
+  const getTaxAnalytics = (args: Json): string => {
+    const year = args.year;
+    if (typeof year !== 'number' || !Number.isInteger(year)) {
+      return error('year must be a whole calendar year, e.g. 2029.');
+    }
+
+    const data = baselineRows();
+    // Rows are annual today, but take the year's LAST row so a monthly projection would still answer
+    // with the year's settled position rather than its first month.
+    let index = -1;
+    for (let row = data.length - 1; row >= 0; row--) {
+      if (Number(data[row].date.slice(0, 4)) === year) {
+        index = row;
+        break;
+      }
+    }
+
+    if (index < 0) {
+      const firstYear = Number(data[0].date.slice(0, 4));
+      const lastYear = Number(data[data.length - 1].date.slice(0, 4));
+
+      return error(`The projection has no year ${year}; it covers ${firstYear} to ${lastYear}.`, { firstYear, lastYear });
+    }
+
+    // Row 0 is the plan's initial state and carries no tax result, so a projection that starts in
+    // this year has no settled figures for it. Refuse rather than answer about another year.
+    if (!data[index].taxes) {
+      return error(`Year ${year} holds only the plan's starting state, which has no settled tax result; analyse the next year instead.`);
+    }
+
+    const analytics = analyzeSimulationTaxYear({ data, index, filingStatus: baseline.taxSettings.filingStatus });
+
+    return JSON.stringify({
+      year,
+      taxYear: analytics.taxYear,
+      filingStatus: analytics.filingStatus,
+      reported: analytics.reported,
+      bracketFill: analytics.bracketFill,
+      conversionHeadroom: analytics.conversionHeadroom,
+      marginalRates: analytics.marginalRates,
+      cliffs: analytics.cliffs,
+      jurisdictions: analytics.jurisdictions,
+      notComputed: analytics.notComputed,
+    });
+  };
+
   const execute = (name: string, args: unknown): string => {
     if (calls >= MAX_TOOL_CALLS_PER_TURN) {
       return error(`Tool budget exhausted: at most ${MAX_TOOL_CALLS_PER_TURN} tool calls per turn. Call nothing further and answer.`);
@@ -355,6 +430,8 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
           return simulateVariant(parsedArgs);
         case 'compareToBaseline':
           return compareToBaseline(parsedArgs);
+        case 'getTaxAnalytics':
+          return getTaxAnalytics(parsedArgs);
         default:
           return error(`Unknown tool "${name}".`);
       }

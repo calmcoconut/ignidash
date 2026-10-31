@@ -83,9 +83,47 @@ describe('tax-optimization prompt: stance (F1, rank never recommend)', () => {
 
 describe('tax-optimization prompt: what the engine does not model', () => {
   it('names the gaps the eval set deliberately leaves out', () => {
-    expect(markdown).toContain('**Federal income tax only.**');
+    expect(markdown).toContain('- **Federal income tax.**');
+    expect(markdown).toContain('do not report a California income tax figure');
     expect(markdown).toContain('Married filing');
     expect(markdown).toContain('separately is not available');
-    expect(markdown).toContain('no California return is computed');
+  });
+
+  it('separates what the analytics answers from what it does not', () => {
+    // The analytics reports IRMAA (the surcharge is a liability line) and cannot report ACA. A
+    // prompt that lumped them together would make the agent refuse a cliff it has and quote one it
+    // does not.
+    expect(markdown).toContain('**IRMAA is modelled**');
+    expect(markdown).toContain('**ACA premium credits are not modelled**');
+    expect(markdown).toContain('never report an ACA number');
+    // A conversion still cannot be run; only its next dollar can be priced.
+    expect(markdown).toContain('**Roth conversions are not modelled as a transaction.**');
+    expect(markdown).toContain('marginalRates.rothConversion');
+  });
+});
+
+describe('tax-optimization prompt: the analytics lever (§7-A3)', () => {
+  it('documents the analytics tool and the three things to read in it', () => {
+    expect(markdown).toContain('## Reading the tax analytics');
+    expect(markdown).toContain('`getTaxAnalytics(year)`');
+    expect(markdown).toContain('**Bracket headroom.**');
+    expect(markdown).toContain('**The next dollar.**');
+    expect(markdown).toContain('**The cliffs.**');
+    // Headroom is a taxable figure, not a gross withdrawal: grossing it up is the arithmetic the
+    // hard rules forbid.
+    expect(markdown).toContain('These are **taxable** amounts, not');
+  });
+
+  it('keeps the lever inside the stance', () => {
+    expect(markdown).toContain('**Report capacity, not a choice.**');
+    expect(markdown).toContain('and you never say');
+    expect(markdown).toContain('which size you would choose');
+  });
+
+  it('promises only the tools that exist', () => {
+    // The conversion-schedule lever is deferred until P3-P5 is wired; naming it here would send the
+    // agent looking for a tool it cannot call.
+    expect(markdown).not.toContain('getConversionSchedule');
+    expect(markdown).not.toContain('conversion schedule');
   });
 });

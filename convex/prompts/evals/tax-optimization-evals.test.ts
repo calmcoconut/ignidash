@@ -91,7 +91,9 @@ describe('tax-optimization eval set', () => {
 
     expect(mentions.map((evalCase) => evalCase.id)).toEqual(['mfj-high-income']);
     expect(mentions[0].covers).toContain('no CA return');
-    expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('no California return is computed');
+    // The prompt states the limit as the analytics reports it: the California section is marked
+    // pending, so no California income tax figure may be quoted.
+    expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('do not report a California income tax figure');
   });
 });
 

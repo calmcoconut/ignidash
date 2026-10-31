@@ -9,6 +9,7 @@ import { basicTemplate } from './templates/basic';
 import { simulatorFromConvex } from '../src/lib/utils/data-transformers';
 import { SimulationDataExtractor } from '../src/lib/calc/data-extractors/simulation-data-extractor';
 import { simulate, type MonteCarloOutcome, type SingleSimulationOutcome } from '../src/lib/calc/simulate';
+import { analyzeSimulationTaxYear } from '../src/lib/calc/tax-analytics';
 import { isToolCallingEnabled } from './utils/ai_utils';
 import { CHAT_TOOL_DEFINITIONS, MAX_TOOL_CALLS_PER_TURN, MAX_VARIANTS_PER_TURN, TOOL_SEED, createChatToolkit } from './chat_tools';
 
@@ -213,8 +214,13 @@ describe('chat tools', () => {
     expect(plan?.name).toBe('Tool Plan');
   });
 
-  it('exposes exactly the three tools the plan specifies', () => {
-    expect(CHAT_TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual(['getPlanSummary', 'simulateVariant', 'compareToBaseline']);
+  it('exposes exactly the four tools the plan specifies', () => {
+    expect(CHAT_TOOL_DEFINITIONS.map((tool) => tool.function.name)).toEqual([
+      'getPlanSummary',
+      'simulateVariant',
+      'compareToBaseline',
+      'getTaxAnalytics',
+    ]);
   });
 
   it('is reachable from the Convex runtime the messenger uses', async () => {
@@ -226,6 +232,132 @@ describe('chat tools', () => {
     // The gate query exists on the chat surface (it needs auth to answer, so it is not called
     // here; convex-test has no Better-Auth component registered).
     expect(typeof api.messages.canUseTools).toBe('object');
+  });
+});
+
+describe('getTaxAnalytics (§7-A3, P3-P6)', () => {
+  /** The baseline inputs and projection rows the tool reads, computed the way the tool does. */
+  async function baseline(t: ReturnType<typeof convexTest>, planId: Doc<'plans'>['_id']) {
+    const inputs = await t.run(async (ctx) => {
+      const plan = await ctx.db.get(planId);
+      if (!plan) throw new Error('plan missing');
+
+      return simulatorFromConvex(plan);
+    });
+    const outcome = simulate(inputs, { mode: 'fixedReturns' as const, seed: TOOL_SEED, asOf: AS_OF });
+    if (outcome.mode !== 'fixedReturns') throw new Error('expected a single run');
+
+    return { inputs, data: outcome.result.data };
+  }
+
+  /** The tool analyses the year's LAST row: a year has a row per month, and that is its settled state. */
+  function lastIndexFor(data: ReadonlyArray<{ date: string }>, year: number): number {
+    for (let index = data.length - 1; index >= 0; index--) if (Number(data[index].date.slice(0, 4)) === year) return index;
+    throw new Error(`the projection has no row for ${year}`);
+  }
+
+  it('returns exactly what the pure function returns for the same row', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await insertPlan(t);
+    const toolkit = await createToolkit(t, planId);
+    const { inputs, data } = await baseline(t, planId);
+    const before = await t.run(async (ctx) => ctx.db.get(planId));
+
+    // A mid-run year: its last row is settled and its two-year IRMAA lookback is available.
+    const year = Number(data[Math.min(40, data.length - 1)].date.slice(0, 4));
+    const expected = analyzeSimulationTaxYear({
+      data,
+      index: lastIndexFor(data, year),
+      filingStatus: inputs.taxSettings.filingStatus,
+    });
+
+    const result = JSON.parse(toolkit.execute('getTaxAnalytics', { year })) as Record<string, unknown>;
+
+    expect(result.error).toBeUndefined();
+    expect(result.year).toBe(year);
+    expect(result.reported).toStrictEqual(expected.reported);
+    expect(result.bracketFill).toStrictEqual(expected.bracketFill);
+    expect(result.conversionHeadroom).toStrictEqual(expected.conversionHeadroom);
+    expect(result.marginalRates).toStrictEqual(expected.marginalRates);
+    expect(result.cliffs).toStrictEqual(expected.cliffs);
+    expect(result.jurisdictions).toStrictEqual(expected.jurisdictions);
+    expect(result.notComputed).toStrictEqual(expected.notComputed);
+
+    // Read-only: the plan is untouched and no variant was created.
+    expect(await t.run(async (ctx) => ctx.db.get(planId))).toEqual(before);
+    expect(toolkit.variantIds()).toEqual([]);
+  });
+
+  it('refuses the projection’s own starting year, which has no settled tax result', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await insertPlan(t);
+    const toolkit = await createToolkit(t, planId);
+    const { data } = await baseline(t, planId);
+
+    // Row 0 is the initial state: the engine has not settled a year yet. The tool says so instead
+    // of sliding to the next year and answering a question nobody asked.
+    const firstYear = Number(data[0].date.slice(0, 4));
+    const result = JSON.parse(toolkit.execute('getTaxAnalytics', { year: firstYear })) as { error?: string; reported?: unknown };
+
+    expect(result.error).toMatch(/starting state/);
+    expect(result.reported).toBeUndefined();
+
+    // The next year is settled, so the same call against it works.
+    const nextYear = Number(data[1].date.slice(0, 4));
+    expect((JSON.parse(toolkit.execute('getTaxAnalytics', { year: nextYear })) as { error?: string }).error).toBeUndefined();
+  });
+
+  it('refuses a year it cannot analyse instead of guessing one', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await insertPlan(t);
+    const toolkit = await createToolkit(t, planId);
+
+    const fractional = JSON.parse(toolkit.execute('getTaxAnalytics', { year: 2029.5 })) as { error?: string };
+    expect(fractional.error).toMatch(/whole calendar year/);
+
+    const missing = JSON.parse(toolkit.execute('getTaxAnalytics', {})) as { error?: string };
+    expect(missing.error).toMatch(/whole calendar year/);
+
+    // Outside the projection: the error names the span so the model can retry with a real year.
+    const outside = JSON.parse(toolkit.execute('getTaxAnalytics', { year: 1900 })) as { error?: string; reported?: unknown };
+    expect(outside.error).toMatch(/covers \d{4} to \d{4}/);
+    expect(outside.reported).toBeUndefined();
+  });
+
+  it('costs one tool call, creates no variant, and stops at the tool budget', async () => {
+    const t = convexTest(schema, modules);
+    const planId = await insertPlan(t);
+    const toolkit = await createToolkit(t, planId);
+    const { data } = await baseline(t, planId);
+    const year = Number(data[Math.min(10, data.length - 1)].date.slice(0, 4));
+
+    for (let call = 1; call < MAX_TOOL_CALLS_PER_TURN; call++) {
+      const result = JSON.parse(toolkit.execute('getTaxAnalytics', { year })) as { error?: string };
+      expect(result.error).toBeUndefined();
+    }
+
+    // Eleven calls used, eleven counted, and the variant budget untouched.
+    expect(toolkit.callCount()).toBe(MAX_TOOL_CALLS_PER_TURN - 1);
+    expect(toolkit.variantIds()).toEqual([]);
+
+    // The twelfth is still allowed; the thirteenth is refused, with no numbers attached.
+    expect((JSON.parse(toolkit.execute('getTaxAnalytics', { year })) as { error?: string }).error).toBeUndefined();
+    const exhausted = JSON.parse(toolkit.execute('getTaxAnalytics', { year })) as { error?: string };
+    expect(exhausted.error).toMatch(/Tool budget exhausted/);
+  });
+
+  it('describes only the levers the toolkit can run, and reports the ACA cliff as unsupported', () => {
+    // The conversion-schedule lever is deferred until P3-P5 is wired: a description that named it
+    // would send the model looking for a tool that does not exist.
+    for (const tool of CHAT_TOOL_DEFINITIONS) {
+      expect(tool.function.description).not.toMatch(/getConversionSchedule|conversion schedule/i);
+    }
+
+    const description = CHAT_TOOL_DEFINITIONS.find((tool) => tool.function.name === 'getTaxAnalytics')?.function.description ?? '';
+    expect(description).toMatch(/IRMAA/);
+    // ACA premium credits are P3-P7b: the analytics returns `supported: false`, so the description
+    // must not promise a distance to a cliff the tool cannot measure.
+    expect(description).toMatch(/ACA cliff comes back as not evaluated/);
   });
 });
 
