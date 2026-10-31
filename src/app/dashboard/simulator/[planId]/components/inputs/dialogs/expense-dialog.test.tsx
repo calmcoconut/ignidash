@@ -16,13 +16,14 @@ vi.mock('@/hooks/use-selected-plan-id', () => ({ useSelectedPlanId: () => 'plan-
 vi.mock('@/hooks/use-convex-data', () => ({ useTimelineData: () => null }));
 
 import { Dialog } from '@/components/catalyst/dialog';
+import type { ExpenseInputs } from '@/lib/schemas/inputs/expense-form-schema';
 import ExpenseDialog from './expense-dialog';
 
 /** The drawer is mounted inside Headless UI's Dialog in the app; its title needs that parent. */
-const renderDialog = () =>
+const renderDialog = (selectedExpense: ExpenseInputs | null = null) =>
   render(
     <Dialog open onClose={() => {}}>
-      <ExpenseDialog onClose={onClose} selectedExpense={null} numExpenses={0} />
+      <ExpenseDialog onClose={onClose} selectedExpense={selectedExpense} numExpenses={0} />
     </Dialog>
   );
 
@@ -103,5 +104,131 @@ describe('the essential spending switch', () => {
     // Storing `essential: false` would be a statement the old documents never made.
     expect(expense).not.toHaveProperty('essential');
     expect(expense).toMatchObject({ amount: 60000 });
+  });
+});
+
+/** A stored expense as the read transformer hands it over: absent flags already resolved to `false`. */
+const storedExpense = (overrides: Partial<ExpenseInputs> = {}): ExpenseInputs => ({
+  id: 'expense-1',
+  name: 'Medical bills',
+  amount: 5000,
+  amountBasis: undefined,
+  owner: 'primary',
+  frequency: 'yearly',
+  timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+  growth: { growthRate: 0 },
+  disabled: false,
+  essential: false,
+  qualifiedMedical: false,
+  satisfyFromIra: false,
+  ...overrides,
+});
+
+describe('the qualified medical switch', () => {
+  it('describes what the engine does with the flag, not a California non-conformity it does not model', () => {
+    renderDialog();
+
+    const description = screen.getByRole('switch', { name: 'Qualified medical expense' }).closest('[data-slot=field]') as HTMLElement;
+
+    // Measured on a California plan: the flag moves the federal return (taxable ordinary income
+    // 253,900 → 133,900 and the 20% HSA penalty 24,000 → 0 for a $120,000 qualified withdrawal) and
+    // does not move the California income base at all — `processStateTaxes` adds HSA *earnings* to
+    // that base, never a qualified withdrawal. The old copy claimed California "does not conform",
+    // which reads as a California tax on the withdrawal.
+    expect(description.textContent).toContain('leaves it out of federal taxable income');
+    expect(description.textContent).toContain('California differs in this model only on HSA earnings');
+    expect(description.textContent).not.toContain('but California does not conform');
+  });
+
+  it('submits `qualifiedMedical: true` once the user turns it on', async () => {
+    renderDialog();
+
+    const medicalSwitch = screen.getByRole('switch', { name: 'Qualified medical expense' });
+    expect(medicalSwitch.getAttribute('aria-checked')).toBe('false');
+
+    fireEvent.click(medicalSwitch);
+    expect(medicalSwitch.getAttribute('aria-checked')).toBe('true');
+
+    fillAmountAndSave();
+
+    await waitFor(() => expect(upsertExpense).toHaveBeenCalledTimes(1));
+    expect(upsertExpense.mock.calls[0][0].expense).toMatchObject({ amount: 24000, qualifiedMedical: true });
+  });
+
+  it('leaves the flag off the payload when it is off', async () => {
+    renderDialog();
+
+    fillAmountAndSave('60000');
+
+    await waitFor(() => expect(upsertExpense).toHaveBeenCalledTimes(1));
+    // Absent, not `false`: the document made no statement about this expense.
+    expect(upsertExpense.mock.calls[0][0].expense).not.toHaveProperty('qualifiedMedical');
+  });
+
+  it('keeps a stored `true` when the expense is edited for an unrelated field', async () => {
+    renderDialog(storedExpense({ qualifiedMedical: true }));
+
+    expect(screen.getByRole('switch', { name: 'Qualified medical expense' }).getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Medical bills (updated)' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(upsertExpense).toHaveBeenCalledTimes(1));
+    expect(upsertExpense.mock.calls[0][0].expense).toMatchObject({
+      id: 'expense-1',
+      name: 'Medical bills (updated)',
+      qualifiedMedical: true,
+    });
+  });
+});
+
+describe('the satisfy-from-IRA switch', () => {
+  it('submits `satisfyFromIra: true` once the user turns it on', async () => {
+    renderDialog();
+
+    const qcdSwitch = screen.getByRole('switch', { name: 'Satisfy from IRA (QCD)' });
+    expect(qcdSwitch.getAttribute('aria-checked')).toBe('false');
+
+    fireEvent.click(qcdSwitch);
+    expect(qcdSwitch.getAttribute('aria-checked')).toBe('true');
+
+    fillAmountAndSave();
+
+    await waitFor(() => expect(upsertExpense).toHaveBeenCalledTimes(1));
+    expect(upsertExpense.mock.calls[0][0].expense).toMatchObject({ amount: 24000, satisfyFromIra: true });
+  });
+
+  it('leaves the flag off the payload when it is off', async () => {
+    renderDialog();
+
+    fillAmountAndSave('60000');
+
+    await waitFor(() => expect(upsertExpense).toHaveBeenCalledTimes(1));
+    expect(upsertExpense.mock.calls[0][0].expense).not.toHaveProperty('satisfyFromIra');
+  });
+});
+
+describe('the three expense switches and their labels', () => {
+  it('gives each switch its own accessible name', () => {
+    renderDialog();
+
+    // Role queries resolve the computed accessible name, so a switch named by more than one label
+    // fails here: `SwitchField` renders the `Field` a Headless UI label registry would share.
+    const essential = screen.getByRole('switch', { name: 'Essential spending' });
+    const medical = screen.getByRole('switch', { name: 'Qualified medical expense' });
+    const qcd = screen.getByRole('switch', { name: 'Satisfy from IRA (QCD)' });
+
+    const labelledBy = (element: Element) => (element.getAttribute('aria-labelledby') ?? '').split(' ').filter(Boolean);
+    for (const [element, other] of [
+      [medical, essential],
+      [qcd, essential],
+      [qcd, medical],
+    ] as const) {
+      expect(labelledBy(element)).not.toHaveLength(0);
+      expect(labelledBy(element).filter((id) => labelledBy(other).includes(id))).toEqual([]);
+    }
+
+    // No switch answers to a merged name.
+    expect(screen.queryByRole('switch', { name: 'Essential spending Qualified medical expense' })).toBeNull();
   });
 });

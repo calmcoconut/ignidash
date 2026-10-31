@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { currencyFieldAllowsZero } from '@/lib/utils/zod-utils';
+import { currencyFieldAllowsZero, optionalCoerceNumber, optionalCurrencyFieldAllowsZero } from '@/lib/utils/zod-utils';
 
 /**
  * The filing statuses the engine can settle a return under (IRC §1(a), §1(d) and §1(b)).
@@ -60,16 +60,28 @@ export type StateResidencyInputs = z.infer<typeof stateResidencySchema>;
  * ACA Premium Tax Credit (IRC §36B) opt-in and benchmark parameters (R8).
  *
  * Absent by default, meaning ACA PTC modeling is disabled (`optIn: false`).
+ *
+ * The three numbers are optional and **absent is a claim, not a zero**: absent means the operator
+ * did not state the figure, while a stated `0` is a real answer. So they coerce a blank form input
+ * to `undefined` (`optionalCoerceNumber` / `optionalCurrencyFieldAllowsZero`) instead of letting
+ * `Number('')` reach `z.number()` as `NaN` — otherwise clearing a field would make the drawer
+ * unsavable, and coercing it to `0` would store a statement nobody made.
  */
 export const acaSettingsSchema = z.object({
   /** Whether ACA Premium Tax Credit estimation is enabled for this plan. */
   optIn: z.boolean(),
-  /** Household size for federal poverty line lookup. If omitted, resolved from household or filing status. */
-  householdSize: z.number().int().min(1).max(20).optional(),
+  /** Household size for federal poverty line lookup. If omitted, resolved from the filing status. */
+  householdSize: optionalCoerceNumber(
+    z
+      .number('Must be a valid number')
+      .int('Household size must be a whole number')
+      .min(1, 'Household size must be at least 1')
+      .max(20, 'Household size must be at most 20')
+  ),
   /** Benchmark second-lowest-cost silver plan (SLCSP) premium in plan dollars, annual. */
-  slcsp: currencyFieldAllowsZero('SLCSP premium cannot be negative').optional(),
+  slcsp: optionalCurrencyFieldAllowsZero('SLCSP premium cannot be negative'),
   /** Actual health insurance premium paid for the coverage year (§36B(b)(2) cap), annual. */
-  actualPremium: currencyFieldAllowsZero('Actual premium cannot be negative').optional(),
+  actualPremium: optionalCurrencyFieldAllowsZero('Actual premium cannot be negative'),
 });
 
 export type AcaSettingsInputs = z.infer<typeof acaSettingsSchema>;

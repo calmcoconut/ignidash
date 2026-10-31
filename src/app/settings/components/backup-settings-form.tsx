@@ -184,9 +184,15 @@ export default function BackupSettingsForm({ showSuccessNotification }: BackupSe
               <ArrowDownToLineIcon className="text-primary h-6 w-6" aria-hidden="true" />
               Backup &amp; restore
             </Legend>
-            <Description>
-              One plan, or every plan plus the net-worth tracker, as a versioned JSON file. Restoring a full backup replaces your finances.
-            </Description>
+            {/* Headless UI's <Description> only resolves inside a <Field>: with a bare <Fieldset> parent it throws at
+                render time, which took the whole settings page down. The sentence introduces the card, so it gets a
+                field of its own rather than being dropped. */}
+            <Field>
+              <Description>
+                One plan, or every plan plus the net-worth tracker, as a versioned JSON file. Restoring a full backup replaces your
+                finances.
+              </Description>
+            </Field>
             <FieldGroup>
               <Field>
                 <Label htmlFor="exportPlanId">Export a plan</Label>

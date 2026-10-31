@@ -28,6 +28,30 @@ interface TaxSettingsDrawerProps {
   taxSettings: TaxSettingsInputs | null;
 }
 
+/**
+ * Drop the ACA numbers the user left blank (Phase 0a).
+ *
+ * Absent and zero are different claims in this plan: absent says "the operator did not state this
+ * figure", a stated `0` says they stated zero. The form registers all three numeric controls, so a
+ * field nobody filled in arrives as `undefined` — rebuilding the block without those keys is what
+ * keeps a plan's `taxSettings.aca` byte-identical when the drawer is saved untouched, which is
+ * exactly what the old code failed to do (it dropped the whole `aca` block).
+ */
+function withStatedAca(taxSettings: TaxSettingsInputs): TaxSettingsInputs {
+  const aca = taxSettings.aca;
+  if (aca === undefined) return taxSettings;
+
+  return {
+    ...taxSettings,
+    aca: {
+      optIn: aca.optIn,
+      ...(aca.householdSize !== undefined ? { householdSize: aca.householdSize } : {}),
+      ...(aca.slcsp !== undefined ? { slcsp: aca.slcsp } : {}),
+      ...(aca.actualPremium !== undefined ? { actualPremium: aca.actualPremium } : {}),
+    },
+  };
+}
+
 export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsDrawerProps) {
   const planId = useSelectedPlanId();
 
@@ -42,6 +66,14 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
         medicalExpenses: settings?.itemizedDeductions?.medicalExpenses ?? 0,
       },
       spouseQualifiesForSeniorDeduction: settings?.spouseQualifiesForSeniorDeduction ?? false,
+      // The ACA block must survive a save: the mutation replaces the whole `taxSettings` object, so
+      // anything the form does not carry is erased. Unstated numbers stay `undefined`, never 0.
+      aca: {
+        optIn: settings?.aca?.optIn ?? false,
+        householdSize: settings?.aca?.householdSize,
+        slcsp: settings?.aca?.slcsp,
+        actualPremium: settings?.aca?.actualPremium,
+      },
     }),
     []
   );
@@ -69,7 +101,7 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
   const onSubmit = async (data: TaxSettingsInputs) => {
     try {
       setSaveError(null);
-      await updateTaxSettings({ taxSettings: taxSettingsToConvex(data), planId });
+      await updateTaxSettings({ taxSettings: taxSettingsToConvex(withStatedAca(data)), planId });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save tax settings.');
@@ -118,10 +150,15 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                 <Divider />
                 <Fieldset aria-label="Itemized deductions">
                   <legend className="text-base font-semibold text-zinc-950 dark:text-white">Itemized Deductions</legend>
-                  <Description className="mt-1">
-                    Enter yearly amounts. The return takes whichever is larger — these or the standard deduction — and the engine applies
-                    the statutory caps: the SALT limit and the 7.5%-of-AGI floor on medical expenses.
-                  </Description>
+                  {/* Headless UI's <Description> only resolves inside a <Field>: with a bare <Fieldset> parent it throws
+                      at render time, which took the whole drawer down. The sentence introduces the group, so it gets a
+                      field of its own rather than being dropped. */}
+                  <Field>
+                    <Description className="mt-1">
+                      Enter yearly amounts. The return takes whichever is larger — these or the standard deduction — and the engine applies
+                      the statutory caps: the SALT limit and the 7.5%-of-AGI floor on medical expenses.
+                    </Description>
+                  </Field>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field>
                       <Label htmlFor="itemizedDeductions.mortgageInterest">Mortgage Interest</Label>
@@ -196,6 +233,71 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                     render={({ field: { onChange, value, name } }) => <Switch name={name} checked={value ?? false} onChange={onChange} />}
                   />
                 </SwitchField>
+                <Divider />
+                <Fieldset aria-label="ACA Premium Tax Credit">
+                  <legend className="text-base font-semibold text-zinc-950 dark:text-white">ACA Premium Tax Credit</legend>
+                  <SwitchField>
+                    <Label>Model the ACA Premium Tax Credit</Label>
+                    <Description>
+                      For a plan that buys health insurance on the individual market: the credit is the benchmark silver premium for your
+                      household, less the share of income the return says you pay, and it never exceeds the premium you actually paid. Off
+                      by default.
+                    </Description>
+                    <Controller
+                      name="aca.optIn"
+                      control={control}
+                      render={({ field: { onChange, value, name } }) => <Switch name={name} checked={value ?? false} onChange={onChange} />}
+                    />
+                  </SwitchField>
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field>
+                      <Label htmlFor="aca.householdSize">Household Size</Label>
+                      <NumberInput
+                        name="aca.householdSize"
+                        control={control}
+                        id="aca.householdSize"
+                        inputMode="numeric"
+                        placeholder="–"
+                        decimalScale={0}
+                        disableThousandsSeparator
+                      />
+                      {errors.aca?.householdSize && <ErrorMessage>{errors.aca.householdSize.message}</ErrorMessage>}
+                      <Description>Everyone on the policy. Leave blank to assume two on a joint return and one otherwise.</Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="aca.slcsp">Benchmark Silver Premium</Label>
+                      <NumberInput
+                        name="aca.slcsp"
+                        control={control}
+                        id="aca.slcsp"
+                        inputMode="decimal"
+                        placeholder="–"
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.aca?.slcsp && <ErrorMessage>{errors.aca.slcsp.message}</ErrorMessage>}
+                      <Description>
+                        The second-lowest-cost silver plan for your area, per year. Nothing is modelled without it — this is the premium the
+                        credit is measured against.
+                      </Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="aca.actualPremium">Actual Premium</Label>
+                      <NumberInput
+                        name="aca.actualPremium"
+                        control={control}
+                        id="aca.actualPremium"
+                        inputMode="decimal"
+                        placeholder="–"
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.aca?.actualPremium && <ErrorMessage>{errors.aca.actualPremium.message}</ErrorMessage>}
+                      <Description>
+                        What you actually pay for the plan, per year. The credit is capped at this figure. Leave blank to use the benchmark
+                        alone.
+                      </Description>
+                    </Field>
+                  </div>
+                </Fieldset>
                 <Divider />
               </FieldGroup>
             </Fieldset>

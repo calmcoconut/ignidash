@@ -304,6 +304,36 @@ export default function ExpenseDialog({ onClose, selectedExpense: _selectedExpen
                   )}
                 />
               </SwitchField>
+              {/* One `SwitchField` per flag: each renders its own Headless UI `Field`, so each switch is
+                  named only by its own label. Two labels in one Field name both controls. */}
+              <SwitchField>
+                <Label>Qualified medical expense</Label>
+                <Description>
+                  An HSA withdrawal for medical care: the model leaves it out of federal taxable income and out of the 20% HSA penalty (IRC
+                  §223(f)(1), §223(f)(4)). California differs in this model only on HSA earnings — this switch does not add the withdrawal
+                  to California income.
+                </Description>
+                <Controller
+                  name="qualifiedMedical"
+                  defaultValue={false}
+                  control={control}
+                  render={({ field: { onChange, value, name } }) => (
+                    <Switch name={name} checked={value ?? false} onChange={onChange} color="rose" />
+                  )}
+                />
+              </SwitchField>
+              <SwitchField>
+                <Label>Satisfy from IRA (QCD)</Label>
+                <Description>Paid directly from an IRA as a QCD: allowed from age 70½, and it never adds to taxable income.</Description>
+                <Controller
+                  name="satisfyFromIra"
+                  defaultValue={false}
+                  control={control}
+                  render={({ field: { onChange, value, name } }) => (
+                    <Switch name={name} checked={value ?? false} onChange={onChange} color="rose" />
+                  )}
+                />
+              </SwitchField>
               <Disclosure as="div" className="border-border/25 border-t pt-4">
                 {({ open, close }) => (
                   <>
