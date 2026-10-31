@@ -58,7 +58,7 @@ export const useSecondaryNavigationItems = () => {
 
 export const useCurrentPageTitle = (): string => {
   const currentPath = usePathname();
-  const item = useNavigationItems().find((item) => isCurrentPath(item.href, currentPath));
+  const item = useNavigationItems().find((item) => isCurrentPath(currentPath, item.href));
   return item?.name || 'Dashboard';
 };
 

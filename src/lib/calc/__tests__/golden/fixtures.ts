@@ -1,7 +1,7 @@
 /**
  * Fixture plans for the frozen golden corpus (parity plan P2-P1b).
  *
- * Three plans, each chosen for what it can catch rather than for looking realistic:
+ * Four plans, each chosen for what it can catch rather than for looking realistic:
  *
  * | fixture | catches |
  * | --- | --- |

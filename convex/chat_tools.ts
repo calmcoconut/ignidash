@@ -135,7 +135,19 @@ export interface ChatToolkit {
 
 type Json = Record<string, unknown>;
 
-const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+/**
+ * A JSON round-trip copy, matching what crosses the tool's JSON boundary.
+ *
+ * The `undefined` case is guarded because `JSON.stringify(undefined)` returns `undefined` rather
+ * than a string, which would make `JSON.parse` throw a SyntaxError. The remaining JSON semantics
+ * are deliberate: `NaN`/`Infinity` become `null` and a `Date` becomes a string, which is exactly
+ * what these values mean once they are JSON.
+ */
+const clone = <T>(value: T): T => {
+  const json: string | undefined = JSON.stringify(value);
+
+  return json === undefined ? value : (JSON.parse(json) as T);
+};
 
 const isPlainObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
 

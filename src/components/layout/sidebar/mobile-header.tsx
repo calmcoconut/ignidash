@@ -16,7 +16,7 @@ import AccountDropdownMenu from './auth/account-dropdown-menu';
 
 function CurrentPageIcon(props: React.ComponentProps<'svg'>) {
   const currentPath = usePathname();
-  const item = useNavigationItems().find((item) => isCurrentPath(item.href, currentPath));
+  const item = useNavigationItems().find((item) => isCurrentPath(currentPath, item.href));
 
   if (!item) return <LayoutDashboardIcon {...props} />;
 
