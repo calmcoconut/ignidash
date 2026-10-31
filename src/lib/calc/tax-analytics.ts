@@ -542,6 +542,14 @@ function withDelta(model: YearModel, incomeType: MarginalIncomeType, amount: num
       socialSecurity = amount;
       provisionalIncome = amount * 0.5;
       break;
+    default: {
+      // Exhaustiveness guard. A member added to `MarginalIncomeType` without a treatment here fails
+      // to compile on the assignment below, because TypeScript narrows the residual case to `never`.
+      // The throw covers the runtime route into this switch that bypassed the type — an unhandled
+      // type would otherwise price at zero, and a zero in a tax figure reads as "free".
+      const unpriced: never = incomeType;
+      throw new Error(`tax-analytics: no marginal treatment for income type "${String(unpriced)}"`);
+    }
   }
 
   const newlyTaxableSocialSecurity = Math.min(model.socialSecurityPhaseInShare * provisionalIncome, model.socialSecurityPhaseInCapacity);

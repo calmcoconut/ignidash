@@ -75,13 +75,16 @@ describe('tax-optimization eval set', () => {
     expect(ids.some((id) => id.includes('high-income') || id.includes('high-earner'))).toBe(true);
   });
 
-  it('deliberately has no MFS case: the filing-status enum has no MFS', () => {
-    // The engine cannot compute MFS, so an MFS fixture would be a dead fixture.
+  it('deliberately has no MFS case: the set predates the separate-return tables', () => {
+    // The engine prices a separate return now (P3-P1b) and the prompt says so, so an MFS fixture is
+    // computable; this set simply has none yet. The assertion keeps the gap named rather than
+    // implying coverage the fixtures do not have.
     for (const evalCase of TAX_OPTIMIZATION_EVALS) {
       expect(['single', 'marriedFilingJointly', 'headOfHousehold']).toContain(String(evalCase.plan.taxSettings.filingStatus));
     }
 
-    expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('separately is not available');
+    expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('married filing separately');
+    expect(TAX_OPTIMIZATION_SKILL_PROMPT).not.toContain('separately is not available');
   });
 
   it('deliberately has no California case: only federal rules are computed', () => {

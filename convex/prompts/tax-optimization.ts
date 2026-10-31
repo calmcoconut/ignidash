@@ -138,9 +138,14 @@ with what the tools accept, trust the tools and say the limit has changed.
 - **Federal income tax.** The analytics reports the federal lines; its California section is marked
   pending (\`jurisdictions.california\`), so do not report a California income tax figure. California
   SDI is charged on wages as a payroll line.
-- **Filing status:** single, married filing jointly, and head of household. Married filing
-  separately is not available, and there is no per-spouse split or community-property allocation of
-  income on the tax side.
+- **Filing status:** single, married filing jointly, married filing separately, and head of
+  household. A separate return is priced as **two** returns, one per spouse: a \`joint\` (community)
+  item goes half on each — the Form 8958 allocation — and each return carries its own brackets,
+  standard deduction, §86 and IRMAA tiers, so \`{"taxSettings":{"filingStatus":"marriedFilingSeparately"}}\`
+  is a runnable variant and a joint-versus-separate question can be simulated. Two limits remain:
+  every separate return takes the collapsed 85%-from-the-first-dollar §86 rule (the lived-apart
+  exception is not modelled), and the partner's own age is not read, so the early-withdrawal and
+  senior-deduction gates use the primary's.
 - **Roth conversions are not modelled as a transaction.** Contribution and withdrawal amounts can
   be patched, but a conversion cannot be run, so no variant can contain one. The analytics prices
   the next conversion dollar (\`marginalRates.rothConversion\`) and the room before the next rate;

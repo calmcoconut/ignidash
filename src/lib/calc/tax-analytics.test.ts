@@ -462,6 +462,65 @@ describe('cliffs', () => {
     expect(joint.headroomToNextTier).toBe(54000);
   });
 
+  it('resolves an IRMAA tier for every filing status, the separate return included', () => {
+    // CMS publishes three columns — individual, joint, and the separate return at half the joint
+    // thresholds — and a head of household uses the individual one. Every status must therefore find
+    // a tier at every MAGI: a status the table missed would read as `undefined`, and `undefined` in a
+    // surcharge reads as "no surcharge", which is the wrong number rather than a crash.
+    const statuses: FilingStatus[] = ['single', 'marriedFilingJointly', 'marriedFilingSeparately', 'headOfHousehold'];
+
+    // Hand check at $400,000 of MAGI against the 2026 columns: single 205k/500k → tier 4, joint
+    // 342k/410k → tier 3, separate 205k/375k → tier 5, and HOH is the single column → tier 4.
+    const tiers = Object.fromEntries(
+      statuses.map((filingStatus) => [filingStatus, irmaaCliff({ magi: 400000, taxYear: TAX_YEAR, filingStatus }).tier.tier])
+    );
+    expect(tiers).toEqual({ single: 4, marriedFilingJointly: 3, marriedFilingSeparately: 5, headOfHousehold: 4 });
+
+    for (const filingStatus of statuses) {
+      const cliff = irmaaCliff({ magi: 150000, taxYear: TAX_YEAR, filingStatus });
+      // A tier that exists, not merely one that is not null: the premium is the standard Part B
+      // amount or more, and the lookback is the same for everyone.
+      expect(Number.isFinite(cliff.tier.monthlyPremium)).toBe(true);
+      expect(cliff.tier.monthlyPremium).toBeGreaterThanOrEqual(202.9);
+      expect(cliff.tier.min).toBeGreaterThanOrEqual(0);
+      expect(cliff.premiumYear).toBe(TAX_YEAR + 2);
+      expect(cliff.headroomToNextTier === null || cliff.headroomToNextTier > 0).toBe(true);
+    }
+
+    // The separate return's top boundary is the joint $750,000 halved ($375,000), not the single
+    // $500,000: $400,000 still has $100,000 of room on a single return and none at all separately.
+    expect(irmaaCliff({ magi: 400000, taxYear: TAX_YEAR, filingStatus: 'single' }).headroomToNextTier).toBe(100000);
+    expect(irmaaCliff({ magi: 400000, taxYear: TAX_YEAR, filingStatus: 'marriedFilingSeparately' }).headroomToNextTier).toBeNull();
+  });
+
+  it('reads the separate-return column of every status-keyed table a settled year needs', () => {
+    // §1411(b)(2) and §3101(b)(2)(A) put the separate-return thresholds at half the joint amounts
+    // ($125,000): a plan that fell back to the single column would overstate the headroom by $75,000.
+    const input = makeInput({
+      filingStatus: 'marriedFilingSeparately',
+      taxableOrdinary: 400000,
+      magi: 100000,
+      netInvestmentIncome: 100000,
+      wages: 100000,
+    });
+    const analytics = analyzeTaxYear(input);
+
+    expect(analytics.cliffs.niit).toMatchObject({ threshold: 125000, current: 100000, headroom: 25000 });
+    expect(analytics.cliffs.additionalMedicare).toMatchObject({ threshold: 125000, current: 100000, headroom: 25000 });
+
+    // The ordinary schedule is the separate-return one: $400,000 of taxable ordinary income is in the
+    // 37% band on a separate return (which starts at 384,350, half the joint 768,700) and the 35% band
+    // on a single one.
+    expect(analytics.marginalRates.ordinary.rate).toBeCloseTo(0.37, 10);
+    const single = analyzeTaxYear(makeInput({ taxableOrdinary: 400000, magi: 100000, netInvestmentIncome: 100000, wages: 100000 }));
+    expect(single.marginalRates.ordinary.rate).toBeCloseTo(0.35, 10);
+
+    // And no income type is left unpriced under the status the tables only recently gained.
+    for (const [incomeType, rate] of Object.entries(analytics.marginalRates)) {
+      expect(Number.isFinite(rate.rate), incomeType).toBe(true);
+    }
+  });
+
   it('uses the two-year lookback for premiums charged this year, and says when it cannot', () => {
     // MAGI 108,000 in 2024 charges the standard premium in 2026; the 2026 MAGI projects the 2028
     // premium. The 2024 MAGI is inside tier 0, so nothing is surcharged in 2026.

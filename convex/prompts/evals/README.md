@@ -49,11 +49,11 @@ prompt, so the rubric and the prompt cannot drift apart silently.
 
 ## What the set deliberately omits
 
-The engine cannot compute these today, so a fixture would only test the refusal path — except that
-`refused-patches` covers exactly that, using the same levers a user would ask about:
+Most of these the engine cannot compute today, so a fixture would only test the refusal path — except
+that `refused-patches` covers exactly that, using the same levers a user would ask about:
 
-- **Married filing separately.** The filing-status enum is single / married filing jointly / head of
-  household. No case uses MFS, and the test asserts it.
+- **Married filing separately.** The engine prices a separate return as two returns (P3-P1b), so an
+  MFS case is computable; this set has none yet, and the test asserts that.
 - **California state tax.** Federal rules only; California SDI is a payroll line, not a state return.
   The one case that mentions California is a user's claim in a request, documented as federal-only,
   so nothing in the set asserts a state-tax number.

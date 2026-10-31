@@ -85,8 +85,15 @@ describe('tax-optimization prompt: what the engine does not model', () => {
   it('names the gaps the eval set deliberately leaves out', () => {
     expect(markdown).toContain('- **Federal income tax.**');
     expect(markdown).toContain('do not report a California income tax figure');
-    expect(markdown).toContain('Married filing');
-    expect(markdown).toContain('separately is not available');
+  });
+
+  it('offers every filing status the engine prices, the separate return included', () => {
+    // MFS shipped with the couples work (P3-P1b). A prompt that still called it unavailable would
+    // have the agent refuse a lever `simulateVariant` accepts.
+    expect(markdown).toContain('single, married filing jointly, married filing separately, and head of');
+    expect(markdown).toContain('priced as **two** returns, one per spouse');
+    expect(markdown).toContain('"filingStatus":"marriedFilingSeparately"');
+    expect(markdown).not.toContain('separately is not available');
   });
 
   it('separates what the analytics answers from what it does not', () => {

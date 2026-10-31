@@ -11,8 +11,8 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  * Evals run **on demand** against a real chat (see the README beside this file). Nothing here
  * calls a provider, and no test drives the agent.
  *
- * Deliberately **not** covered, because the engine cannot compute them yet:
- * - **MFS.** The filing-status enum is single / married filing jointly / head of household.
+ * Deliberately **not** covered:
+ * - **MFS.** The engine prices a separate return (P3-P1b), but no fixture in this set uses it yet.
  * - **California state tax.** Federal rules only; CA SDI is a payroll line, not a state return.
  * - **Roth conversions, SEPP, QCDs, pro-rata IRA basis, itemized deductions/SALT, AMT/IRMAA, ACA
  *   credits, Social Security claiming.** The skill may be *asked* about these; the correct
