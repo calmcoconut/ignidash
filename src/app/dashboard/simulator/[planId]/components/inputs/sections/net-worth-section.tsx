@@ -3,7 +3,7 @@
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useState, RefObject, useCallback } from 'react';
-import { LandmarkIcon, PiggyBankIcon, TrendingUpIcon, RouteIcon, HomeIcon } from 'lucide-react';
+import { LandmarkIcon, PiggyBankIcon, TrendingUpIcon, RouteIcon, HomeIcon, TargetIcon } from 'lucide-react';
 import { PlusIcon } from '@heroicons/react/16/solid';
 
 import {
@@ -11,6 +11,7 @@ import {
   useAssetData,
   useLiabilityData,
   useGlidePathData,
+  useMilestonesData,
   usePhysicalAssetsData,
   useMarketAssumptionsData,
 } from '@/hooks/use-convex-data';
@@ -34,6 +35,7 @@ import DataListEmptyStateButton from '@/components/ui/data-list-empty-state-butt
 import AccountDialog from '../dialogs/account-dialog';
 import SavingsDialog from '../dialogs/savings-dialog';
 import GlidePathDialog from '../dialogs/glide-path-dialog';
+import MilestonesDialog from '../dialogs/milestones-dialog';
 import PhysicalAssetDialog from '../dialogs/physical-asset-dialog';
 
 function getAccountDesc(account: AccountInputs) {
@@ -116,6 +118,7 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
   const [accountToDelete, setAccountToDelete] = useState<{ id: string; name: string } | null>(null);
 
   const [glidePathDialogOpen, setGlidePathDialogOpen] = useState(false);
+  const [milestonesDialogOpen, setMilestonesDialogOpen] = useState(false);
 
   const [physicalAssetDialogOpen, setPhysicalAssetDialogOpen] = useState(false);
   const [selectedPhysicalAsset, setSelectedPhysicalAsset] = useState<PhysicalAssetInputs | null>(null);
@@ -128,6 +131,7 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
   const numPhysicalAssets = Object.keys(physicalAssets).length;
 
   const { data: glidePath } = useGlidePathData();
+  const { data: milestones } = useMilestonesData();
 
   const nwAssets = useAssetData();
   const nwLiabilities = useLiabilityData();
@@ -173,6 +177,10 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
 
   const handleGlidePathDialogClose = () => {
     setGlidePathDialogOpen(false);
+  };
+
+  const handleMilestonesDialogClose = () => {
+    setMilestonesDialogOpen(false);
   };
 
   const handlePhysicalAssetDialogClose = () => {
@@ -231,6 +239,9 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
                   <Button outline onClick={() => setGlidePathDialogOpen(true)}>
                     <RouteIcon data-slot="icon" />
                   </Button>
+                  <Button outline onClick={() => setMilestonesDialogOpen(true)} aria-label="Milestones">
+                    <TargetIcon data-slot="icon" />
+                  </Button>
                   <Button outline onClick={() => setSavingsDialogOpen(true)} disabled={!!selectedSavings}>
                     <PlusIcon />
                     Savings
@@ -277,6 +288,9 @@ export default function NetWorthSection(props: NetWorthSectionProps) {
       </Dialog>
       <Dialog size="xl" open={glidePathDialogOpen} onClose={handleGlidePathDialogClose}>
         <GlidePathDialog glidePath={glidePath} accounts={Object.values(accounts)} onClose={handleGlidePathDialogClose} />
+      </Dialog>
+      <Dialog size="xl" open={milestonesDialogOpen} onClose={handleMilestonesDialogClose}>
+        <MilestonesDialog milestones={milestones} accounts={Object.values(accounts)} onClose={handleMilestonesDialogClose} />
       </Dialog>
       <Dialog size="xl" open={physicalAssetDialogOpen} onClose={handlePhysicalAssetDialogClose}>
         <PhysicalAssetDialog

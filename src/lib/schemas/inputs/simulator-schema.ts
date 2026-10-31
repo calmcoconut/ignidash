@@ -20,6 +20,7 @@ import { marketAssumptionsFormSchema } from './market-assumptions-form-schema';
 import { taxSettingsFormSchema } from './tax-settings-form-schema';
 import { privacySettingsFormSchema } from './privacy-settings-form-schema';
 import { simulationSettingsSchema } from './simulation-settings-form-schema';
+import { milestonesSchema } from './milestone-form-schema';
 
 export const simulatorSchema = z.object({
   // Shape-only timeline rules: the "as of today" cross-field rules need an explicit date,
@@ -37,6 +38,10 @@ export const simulatorSchema = z.object({
   taxSettings: taxSettingsFormSchema,
   privacySettings: privacySettingsFormSchema,
   simulationSettings: simulationSettingsSchema,
+  // User milestones (P1-P7). Optional, and absent means **no milestones**: a plan written before
+  // the field existed simulates exactly as it did (`SimulationResult.milestones` is absent too),
+  // and the export envelope reads the absence the same way (schema version 12).
+  milestones: milestonesSchema.optional(),
 });
 
 export type SimulatorInputs = z.infer<typeof simulatorSchema>;

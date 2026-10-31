@@ -41,6 +41,9 @@ import { derivePropertyTaxExpenses } from './property-tax';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
+import { PENDING_MILESTONE_LATCH, type MilestoneLatchState, type MilestoneSnapshot, tickMilestoneLatch } from './milestones';
+import type { MilestoneFireDate } from './milestones';
+import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema';
 import { TaxProcessor, type ReturnOwnership, type TaxesData, type TaxProcessorSettings } from './taxes';
 import { taxYearFor } from './tax-data';
 import type { TaxYear } from './tax-data/types';
@@ -163,6 +166,20 @@ export function basisStepUpFraction(
   return ownerOf(input) === deceased ? 0.5 : 0;
 }
 
+/**
+ * One milestone's outcome for a run.
+ *
+ * `firedAt` is the **month start at which the condition first held** — the latch's stamp, not a
+ * later month that happened to satisfy it — or `null` when the milestone was never reached inside
+ * the horizon. There is no "still met" flag: once fired, a milestone is met for the rest of the run
+ * by construction (the latch has no reset), which is why the report can answer with one date.
+ */
+export interface MilestoneRunReport {
+  readonly id: string;
+  readonly name: string;
+  readonly firedAt: MilestoneFireDate | null;
+}
+
 /** A single year's output data from the simulation */
 export interface SimulationDataPoint {
   date: ISODateString;
@@ -201,6 +218,14 @@ export interface SimulationResult {
      */
     truncatedAtYear?: number;
   };
+  /**
+   * Each milestone's outcome, in the plan's own order (P1-P7).
+   *
+   * **Absent when the plan has no milestones**: the key is only present for a plan that states
+   * some, so a plan without them produces exactly the result object — and therefore exactly the
+   * bytes — it produced before milestones existed (the golden corpus is the witness).
+   */
+  milestones?: MilestoneRunReport[];
 }
 
 /** Immutable simulation parameters derived from user inputs */
@@ -240,6 +265,53 @@ export interface SimulationState {
   portfolio: Portfolio;
   phase: PhaseData | null;
   annualData: { expenses: ExpensesData[]; debts: DebtsData[]; physicalAssets: PhysicalAssetsData[] };
+}
+
+/**
+ * The month-start reading a milestone is evaluated against (P1-P7).
+ *
+ * Everything is read at one instant — this month's start, before any of the month's transactions —
+ * so two milestones evaluated in the same month cannot disagree about what the plan looked like:
+ *
+ * - `age`, `portfolio` and `accounts` come from the live month-start state, so a "net worth ≥ $1M"
+ *   milestone fires in the month the balance crosses, not in the January after it;
+ * - `netWorth` is `portfolio + physical assets − debt`, the same definition
+ *   `SimulationDataExtractor.getAssetsAndLiabilitiesData` uses for the net-worth chart (asserted in
+ *   `milestones-wiring.test.ts`), with the portfolio taken live and the assets/debts from the last
+ *   settled data point — the engine settles those annually, so a monthly figure for them does not
+ *   exist to read;
+ * - `income` and `expense` are the last settled data point's totals for the same reason: the
+ *   incomes and expenses processors accumulate a period and report it at settlement. They are `0`
+ *   before the first settlement (the initial data point carries no flows);
+ * - `year`/`month` are the calendar values of the month start, taken with `addMonths` on the clock's
+ *   ISO date so no host timezone can move the fire date.
+ */
+function milestoneSnapshotAt(
+  simulationState: SimulationState,
+  startCalendarDate: CalendarDate,
+  lastSettled: SimulationDataPoint
+): MilestoneSnapshot {
+  const { year, month } = addMonths(startCalendarDate, simulationState.time.month);
+
+  const portfolio = simulationState.portfolio.getTotalValue();
+  const accounts = Object.fromEntries(
+    simulationState.portfolio.getAccounts().map((account) => [account.getAccountID(), account.getBalance()])
+  );
+
+  const marketValue = lastSettled.physicalAssets?.totalMarketValue ?? 0;
+  const securedDebt = lastSettled.physicalAssets?.totalLoanBalance ?? 0;
+  const unsecuredDebt = lastSettled.debts?.totalDebtBalance ?? 0;
+
+  return {
+    age: simulationState.time.age,
+    year,
+    month,
+    portfolio,
+    income: lastSettled.incomes?.totalIncome ?? 0,
+    expense: lastSettled.expenses?.totalExpenses ?? 0,
+    netWorth: portfolio + marketValue - (securedDebt + unsecuredDebt),
+    accounts,
+  };
 }
 
 /**
@@ -386,8 +458,27 @@ export class FinancialSimulationEngine {
     // The basis step-up happens once, at the first death (P1-P3 piece 4).
     let survivorBasisSteppedUp = false;
 
+    // One latch per milestone (P1-P7), carried across every month start, in plan order. The latch is
+    // what makes a milestone an *event*: it fires once, in the first month its condition holds, and
+    // never un-fires. `PENDING_MILESTONE_LATCH` is shared and frozen, and each tick returns the
+    // state to carry into the next month — no boolean the engine could reset.
+    const planMilestones: MilestoneInputs[] = this.inputs.milestones ?? [];
+    let milestoneLatches: MilestoneLatchState[] = planMilestones.map(() => PENDING_MILESTONE_LATCH);
+
     while (simulationState.time.date < simulationContext.endDate) {
       this.incrementSimulationTime(simulationState, startCalendarDate, simulationContext.startAge);
+
+      // Milestones are evaluated on the month-start tick (P1-P7): here, immediately after the clock
+      // advances into this month and before any of the month's transactions — the same boundary the
+      // RMD check below keys off. That placement is what makes a milestone dated to a month fire in
+      // *that* month's start rather than at the end of the previous one, and it means every milestone
+      // sees the identical reading, which is why `references` never has to order an evaluation.
+      if (planMilestones.length > 0) {
+        const snapshot = milestoneSnapshotAt(simulationState, startCalendarDate, resultData[resultData.length - 1]);
+        milestoneLatches = planMilestones.map(
+          (milestone, index) => tickMilestoneLatch(milestoneLatches[index], milestone.condition, snapshot).state
+        );
+      }
 
       if (
         simulationContext.firstDeath !== undefined &&
@@ -543,7 +634,20 @@ export class FinancialSimulationEngine {
       rmdAge: simulationContext.rmdAge,
     };
 
-    return { data: resultData, context };
+    return {
+      data: resultData,
+      context,
+      // Absent — not `[]` — when the plan states no milestones, so a plan without them returns the
+      // same object it returned before this field existed and the golden corpus does not move.
+      ...(planMilestones.length === 0
+        ? {}
+        : {
+            milestones: planMilestones.map((milestone, index): MilestoneRunReport => {
+              const latch = milestoneLatches[index];
+              return { id: milestone.id, name: milestone.name, firedAt: latch.status === 'fired' ? latch.firedAt : null };
+            }),
+          }),
+    };
   }
 
   private incrementSimulationTime(simulationState: SimulationState, startCalendarDate: CalendarDate, startAge: number): void {

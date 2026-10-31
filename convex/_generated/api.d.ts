@@ -31,6 +31,10 @@ import type * as migrations from "../migrations.js";
 // codegen can run it will replace both with no change to the consuming code. Delete this comment
 // at that point — until then, a module added to `convex/` needs the same two lines by hand.
 import type * as net_worth_journal from "../net_worth_journal.js";
+// HAND-MAINTAINED for the same reason: `milestones` (P1-P7 wiring) is a live module and codegen
+// has still not run here. These are the two declarations codegen emits for a module and for a new
+// validator file, so replacing them needs no change to the consuming code.
+import type * as milestones from "../milestones.js";
 import type * as onboarding from "../onboarding.js";
 import type * as physical_asset from "../physical_asset.js";
 import type * as plan_snapshots from "../plan_snapshots.js";
@@ -63,6 +67,7 @@ import type * as validators_incomes_validator from "../validators/incomes_valida
 import type * as validators_key_metrics_validator from "../validators/key_metrics_validator.js";
 import type * as validators_liability_validator from "../validators/liability_validator.js";
 import type * as validators_market_assumptions_validator from "../validators/market_assumptions_validator.js";
+import type * as validators_milestone_validator from "../validators/milestone_validator.js";
 import type * as validators_physical_asset_validator from "../validators/physical_asset_validator.js";
 import type * as validators_plan_data_fields from "../validators/plan_data_fields.js";
 import type * as validators_privacy_settings_validator from "../validators/privacy_settings_validator.js";
@@ -96,6 +101,7 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   migrations: typeof migrations;
   net_worth_journal: typeof net_worth_journal;
+  milestones: typeof milestones;
   onboarding: typeof onboarding;
   physical_asset: typeof physical_asset;
   plan_snapshots: typeof plan_snapshots;
@@ -128,6 +134,7 @@ declare const fullApi: ApiFromModules<{
   "validators/key_metrics_validator": typeof validators_key_metrics_validator;
   "validators/liability_validator": typeof validators_liability_validator;
   "validators/market_assumptions_validator": typeof validators_market_assumptions_validator;
+  "validators/milestone_validator": typeof validators_milestone_validator;
   "validators/physical_asset_validator": typeof validators_physical_asset_validator;
   "validators/plan_data_fields": typeof validators_plan_data_fields;
   "validators/privacy_settings_validator": typeof validators_privacy_settings_validator;

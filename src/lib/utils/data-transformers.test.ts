@@ -15,6 +15,8 @@ import {
   simulationSettingsFromConvex,
   simulationSettingsToConvex,
   simulatorFromConvex,
+  milestonesFromConvex,
+  milestonesToConvex,
   arrayToRecord,
   recordToArray,
 } from './data-transformers';
@@ -565,6 +567,73 @@ describe('simulatorFromConvex', () => {
     expect(Object.keys(simulator.incomes)).toHaveLength(0);
     expect(Object.keys(simulator.debts)).toHaveLength(0);
     expect(Object.keys(simulator.physicalAssets)).toHaveLength(0);
+  });
+});
+
+// ============================================================================
+// Milestone transforms
+// ============================================================================
+
+describe('Milestone transforms', () => {
+  const milestone = {
+    id: 'milestone-1',
+    name: 'Net worth goal',
+    condition: {
+      op: 'and' as const,
+      children: [
+        { metric: 'netWorth' as const, operator: '>=' as const, value: 1_000_000 },
+        { metric: 'account' as const, accountId: 'acct-2', operator: '>' as const, value: 100_000 },
+      ],
+    },
+    references: ['milestone-0'],
+  };
+
+  it('should carry a milestone back from Convex with the condition untouched', () => {
+    const zod = milestonesFromConvex([milestone])!;
+
+    // The stored condition *is* the evaluator's expression: no re-keying, no flattening.
+    expect(zod).toStrictEqual([milestone]);
+  });
+
+  it('should roundtrip a milestone through both directions', () => {
+    const back = milestonesToConvex(milestonesFromConvex([milestone])!);
+
+    expect(back).toStrictEqual([milestone]);
+  });
+
+  it('should read an absent field as no milestones, not as an empty list', () => {
+    expect(milestonesFromConvex(undefined)).toBeUndefined();
+    expect(milestonesFromConvex([])).toStrictEqual([]);
+    expect(milestonesToConvex([])).toStrictEqual([]);
+  });
+
+  it('should hand the plan`s milestones to the engine through simulatorFromConvex', () => {
+    const plan = {
+      _id: 'plan-1' as Doc<'plans'>['_id'],
+      _creationTime: 0,
+      userId: 'user-1',
+      name: 'Milestone Plan',
+      isDefault: true,
+      timeline: null,
+      incomes: [],
+      accounts: [],
+      expenses: [],
+      contributionRules: [],
+      baseContributionRule: { type: 'save' as const },
+      marketAssumptions: { stockReturn: 9, stockYield: 2, bondReturn: 4, bondYield: 3.5, cashReturn: 3, inflationRate: 3 },
+      taxSettings: { filingStatus: 'single' as const },
+      privacySettings: { isPrivate: true },
+      simulationSettings: { simulationSeed: 0, simulationMode: 'fixedReturns' as const },
+      milestones: [milestone],
+    } as Doc<'plans'>;
+
+    expect(simulatorFromConvex(plan).milestones).toStrictEqual([milestone]);
+
+    // Absent stays absent: the engine must not be handed an empty list, or "no milestones" would be
+    // two different values by the time it reaches the latch.
+    const withoutField = { ...plan } as Record<string, unknown>;
+    delete withoutField.milestones;
+    expect(simulatorFromConvex(withoutField as unknown as Doc<'plans'>).milestones).toBeUndefined();
   });
 });
 

@@ -47,15 +47,18 @@ describe('the checked-in plan JSON Schema', () => {
     expect(published).toEqual([planJsonSchemaFileName()]);
   });
 
-  it('describes the simulator input, with every required field and an optional glide path', () => {
+  it('describes the simulator input, with every required field and the optional plan fields', () => {
     const { document } = generatePlanJsonSchema();
     const required = document.required as string[];
 
     expect(document.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(document.type).toBe('object');
 
+    // The two optional plan fields: a plan without a glide path and a plan without milestones are
+    // both complete plans (the second one is every plan written before schema version 12).
+    const optionalPlanFields = ['glidePath', 'milestones'];
     const expectedRequired = Object.keys(simulatorSchema.shape)
-      .filter((key) => key !== 'glidePath')
+      .filter((key) => !optionalPlanFields.includes(key))
       .sort();
     expect([...required].sort()).toEqual(expectedRequired);
     expect(Object.keys(document.properties as Record<string, unknown>).sort()).toEqual(Object.keys(simulatorSchema.shape).sort());

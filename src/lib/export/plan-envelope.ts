@@ -44,13 +44,13 @@ export type { ImportIssue };
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 11 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8,
- * P3-P1b, P1-P4 and P1-P5).
+ * Export/import envelope, version 12 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8,
+ * P3-P1b, P1-P4, P1-P5 and P1-P7).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 11, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 11, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 12, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 12, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -170,6 +170,22 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        *deleting* them, and the v10 fixture in `plan-envelope.test.ts` counts them before and
  *        after so the strip cannot pass vacuously.
  *
+ *   12 — P1-P7 milestones: optional plan-level `milestones`, a list of
+ *        `{ id, name, condition, references }`. `condition` is the milestone evaluator's own
+ *        expression (`and`/`or` groups over `age`, `year`, `portfolio`, `account`, `income`,
+ *        `expense` and `netWorth`), and `references` holds the ids of milestones it depends on. A
+ *        version 11 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `milestones` means **no milestones**, and that is every earlier build's behaviour
+ *        exactly: the engine evaluates nothing, adds no `milestones` key to its result, and the run
+ *        is byte-identical to what a v11 build produced — the golden corpus, whose fixtures state no
+ *        milestones, did not move. It is emphatically **not** "one milestone with no condition": a
+ *        milestone whose group is empty is never met (`evaluate.ts`), so reading absence that way
+ *        would invent a condition nobody wrote. The importer preserves the absence rather than
+ *        writing `[]`, and `simulatorFromConvex` hands the engine `undefined`, never an empty list.
+ *        A v11 file is made by *deleting* the key, and the v11 fixture in `plan-envelope.test.ts`
+ *        counts it before and after so the strip cannot pass vacuously.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -181,7 +197,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 11;
+export const EXPORT_SCHEMA_VERSION = 12;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

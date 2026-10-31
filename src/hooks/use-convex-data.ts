@@ -15,6 +15,7 @@ import {
   contributionFromConvex,
   baseContributionFromConvex,
   glidePathFromConvex,
+  milestonesFromConvex,
 } from '@/lib/utils/data-transformers';
 import { useSelectedPlanId } from '@/hooks/use-selected-plan-id';
 
@@ -174,6 +175,17 @@ export const useGlidePathData = () => {
   const q = useQuery(api.glide_path.get, { planId });
   return {
     data: useMemo(() => (q ? glidePathFromConvex(q) : undefined), [q]),
+    isLoading: q === undefined,
+  };
+};
+
+// Milestones (P1-P7). The editor's list: an absent field and an empty list both mean "no
+// milestones", and the query answers `[]` for both, so this hook never hands back `undefined`.
+export const useMilestonesData = () => {
+  const planId = useSelectedPlanId();
+  const q = useQuery(api.milestones.get, { planId });
+  return {
+    data: useMemo(() => (q ? (milestonesFromConvex(q) ?? []) : []), [q]),
     isLoading: q === undefined,
   };
 };

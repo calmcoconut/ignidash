@@ -30,6 +30,7 @@ import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 import type { AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
 import type { LiabilityInputs } from '@/lib/schemas/finances/liability-form-schema';
 import type { GlidePathInputs } from '@/lib/schemas/inputs/glide-path-form-schema';
+import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema';
 import type { SimulationResult } from '@/lib/calc/simulation-engine';
 
 // ============================================================================
@@ -228,6 +229,9 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
   const debts = Object.fromEntries((plan.debts ?? []).map((debt) => [debt.id, debtFromConvex(debt)]));
   const physicalAssets = Object.fromEntries((plan.physicalAssets ?? []).map((asset) => [asset.id, physicalAssetFromConvex(asset)]));
   const contributionRules = Object.fromEntries(plan.contributionRules.map((rule) => [rule.id, contributionFromConvex(rule)]));
+  // Absent stays absent rather than becoming an `undefined` key: "no milestones" is one value from
+  // the document to the engine (see `milestonesFromConvex`).
+  const milestones = milestonesFromConvex(plan.milestones);
 
   return {
     timeline: timelineFromConvex(plan.timeline),
@@ -243,6 +247,7 @@ export function simulatorFromConvex(plan: Doc<'plans'>): SimulatorInputs {
     taxSettings: taxSettingsFromConvex(plan.taxSettings),
     privacySettings: privacySettingsFromConvex(plan.privacySettings),
     simulationSettings: simulationSettingsFromConvex(plan.simulationSettings),
+    ...(milestones === undefined ? {} : { milestones }),
   };
 }
 
@@ -256,6 +261,19 @@ export function liabilityFromConvex(liability: Doc<'finances'>['liabilities'][nu
 
 export function glidePathFromConvex(glidePath: Doc<'plans'>['glidePath']): GlidePathInputs | undefined {
   return glidePath ? structuredClone(glidePath) : undefined;
+}
+
+/**
+ * A plan's milestones, or `undefined` when the plan has none.
+ *
+ * `undefined` rather than `[]`, so "no milestones" stays one value all the way through: the field
+ * is absent from a plan written before it existed, `simulatorFromConvex` omits it, and the engine
+ * reads the omission as "evaluate nothing" — the same run a pre-P1-P7 build produced. `[]` would be
+ * a second spelling of the same thing; the editor is the one place that wants a list, and it does
+ * `?? []` (see `convex/milestones.ts`).
+ */
+export function milestonesFromConvex(milestones: Doc<'plans'>['milestones']): MilestoneInputs[] | undefined {
+  return milestones ? structuredClone(milestones) : undefined;
 }
 
 // ============================================================================
@@ -465,6 +483,19 @@ export function liabilityToConvex(liability: LiabilityInputs): Doc<'finances'>['
 
 export function glidePathToConvex(glidePath: GlidePathInputs): NonNullable<Doc<'plans'>['glidePath']> {
   return structuredClone(glidePath);
+}
+
+/**
+ * The plan's milestones in the stored shape.
+ *
+ * One milestone maps field-for-field: the condition is the core's own expression, so nothing is
+ * flattened or re-keyed here. The stored expression is depth-bounded (three nested groups — a
+ * Convex validator cannot be cyclic) while the app schema accepts any depth the evaluator does; the
+ * editor builds one group, and a hand-written file deeper than the bound is refused by the import
+ * validator rather than written to the database.
+ */
+export function milestonesToConvex(milestones: MilestoneInputs[]): NonNullable<Doc<'plans'>['milestones']> {
+  return structuredClone(milestones) as NonNullable<Doc<'plans'>['milestones']>;
 }
 
 // ============================================================================

@@ -12,6 +12,7 @@ import { marketAssumptionsValidator } from './market_assumptions_validator';
 import { taxSettingsValidator } from './tax_settings_validator';
 import { privacySettingsValidator } from './privacy_settings_validator';
 import { simulationSettingsValidator } from './simulation_settings_validator';
+import { milestonesValidator } from './milestone_validator';
 
 /**
  * Plan data fields shared between `plans` and `planSnapshots` tables.
@@ -34,4 +35,8 @@ export const planDataFields = {
   taxSettings: taxSettingsValidator,
   privacySettings: privacySettingsValidator,
   simulationSettings: simulationSettingsValidator,
+  // User milestones (P1-P7). Optional because it is newer than the table: absent means *no
+  // milestones*, which is what every plan written before this field had, and the engine reads the
+  // absence as "evaluate nothing" (`SimulationResult.milestones` stays absent too).
+  milestones: v.optional(milestonesValidator),
 };

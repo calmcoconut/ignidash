@@ -35,6 +35,16 @@ const GLIDE_PATH = {
   enabled: true,
 };
 
+/** A plan milestone (P1-P7), carried through the import mutation like every other plan field. */
+const MILESTONES = [
+  {
+    id: 'net-worth-goal',
+    name: 'Net worth goal',
+    condition: { op: 'and' as const, children: [{ metric: 'netWorth' as const, operator: '>=' as const, value: 1_000_000 }] },
+    references: [],
+  },
+];
+
 /**
  * The values `TIME_BINDING_FIELDS` expects to survive an export → import round trip.
  *
@@ -108,6 +118,7 @@ function seedPlan(overrides: Partial<Omit<Doc<'plans'>, '_id' | '_creationTime'>
     userId: TEST_USER,
     name: 'Source Plan',
     glidePath: GLIDE_PATH,
+    milestones: MILESTONES,
     incomes: [SEED_INCOME],
     expenses: [SEED_EXPENSE],
     accounts: [
@@ -224,6 +235,8 @@ describe('export → import through the real mutations', () => {
       // The whole plan payload survives: every validator field, not just glidePath.
       expect(toPlanExport(importedDoc!)).toStrictEqual(expectedPlan);
       expect(importedDoc!.glidePath).toStrictEqual(GLIDE_PATH);
+      // The milestone list crosses the import mutation whole, condition included (P1-P7).
+      expect(importedDoc!.milestones).toStrictEqual(MILESTONES);
 
       // ...including the time-binding fields by value, not merely "the call succeeded".
       expect(importedDoc!.incomes[0].amountBasis).toBe(TIME_BINDING_FIXTURES.income.amountBasis);

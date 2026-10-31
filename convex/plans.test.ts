@@ -35,7 +35,7 @@ function optionalPlanFieldNames(): string[] {
 }
 
 /** One distinct value per optional plan field, so a dropped field is visible. */
-const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets' | 'glidePath'> = {
+const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets' | 'glidePath' | 'milestones'> = {
   debts: [
     {
       id: 'debt-1',
@@ -76,6 +76,22 @@ const OPTIONAL_PLAN_FIELD_FIXTURES: Pick<Doc<'plans'>, 'debts' | 'physicalAssets
     targetBondAllocation: 60,
     enabled: true,
   },
+  // P1-P7: a milestone with a reference, so a clone that dropped the list (or the references inside
+  // it) fails the whole-field comparison below.
+  milestones: [
+    {
+      id: 'net-worth-goal',
+      name: 'Net worth goal',
+      condition: {
+        op: 'and',
+        children: [
+          { metric: 'netWorth', operator: '>=', value: 1_000_000 },
+          { metric: 'account', accountId: 'account-1', operator: '>', value: 100_000 },
+        ],
+      },
+      references: [],
+    },
+  ],
 };
 
 /**

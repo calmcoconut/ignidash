@@ -8,6 +8,7 @@ import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inpu
 import { getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
 import {
   expenseFromConvex,
+  milestonesFromConvex,
   physicalAssetFromConvex,
   simulationSettingsFromConvex,
   taxSettingsFromConvex,
@@ -245,6 +246,33 @@ const VERSION_10_FIELDS = ['withdrawalStrategy', 'essential'];
 const VERSION_11_FIELDS = ['termMonths', 'offsetAccountId', 'propertyTax'];
 
 /**
+ * What the v12 bump (P1-P7) added: the plan-level `milestones` list.
+ *
+ * One key at the top of the plan payload, so a v11 fixture is the current payload with it deleted —
+ * counted in both directions so the strip cannot pass vacuously. Its absence is not a default value
+ * but the pre-milestone behaviour: the engine evaluates nothing and adds no `milestones` key to its
+ * result, so a v11 plan re-simulates byte-identically (the golden corpus is the witness).
+ */
+const VERSION_12_FIELDS = ['milestones'];
+
+/**
+ * The v12 milestone the fixtures below state: a nested condition and a reference, so the whole
+ * stored expression travels rather than only the key.
+ */
+const VERSION_12_MILESTONE: NonNullable<Doc<'plans'>['milestones']>[number] = {
+  id: 'net-worth-goal',
+  name: 'Net worth goal',
+  condition: {
+    op: 'and',
+    children: [
+      { metric: 'netWorth', operator: '>=', value: 1_000_000 },
+      { op: 'or', children: [{ metric: 'age', operator: '>=', value: 60 }] },
+    ],
+  },
+  references: [],
+};
+
+/**
  * Visits every household member in a payload, wherever the envelope keeps it.
  *
  * The v6 fields are stripped and counted through this rather than through `stripFields`, because
@@ -333,7 +361,10 @@ describe('the export guard is derived from the plans validator', () => {
   });
 
   it('actually copies each of those fields out of a fully populated plan', () => {
-    const exported = toPlanExport(makePlanDoc());
+    // The base fixture is a v8-shaped plan (each later bump's fields sit inside blocks it already
+    // has, or in a per-version fixture), so the one top-level field added since is stated here: a
+    // plan with a milestone, which is what makes `planExportKeys()` fully populated.
+    const exported = toPlanExport(makePlanDoc({ milestones: [VERSION_12_MILESTONE] }));
 
     expect(Object.keys(exported).sort()).toEqual(EXPECTED_PLAN_EXPORT_KEYS);
 
@@ -483,8 +514,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 11 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    // an older file fails here, not in a support thread. Adding version 12 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1010,7 +1041,7 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion11Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(11);
+    expect(envelope.schemaVersion).toBe(EXPORT_SCHEMA_VERSION);
     // All three really are in the payload: a term and an offset inside `paymentMethod`, a tax block
     // beside it.
     expect(countFields(envelope, VERSION_11_FIELDS)).toBe(3);
@@ -1082,6 +1113,121 @@ describe('malformed files report the exact field paths', () => {
     expect(derivePropertyTaxExpenses([asset], { inflationRatePercent: 3, stateResidency: 'CA' }, TEST_TIME_BINDING_CONTEXT)).toStrictEqual(
       []
     );
+  });
+
+  /**
+   * A plan carrying the v12 addition. Returned as a document so the round trip, the v11 strip and the
+   * v10→v11→v12 chain can share it.
+   */
+  const makeVersion12Plan = () => ({ ...makeVersion11Plan(), milestones: [VERSION_12_MILESTONE] });
+
+  it('round-trips the milestone list, the one thing version 12 adds', () => {
+    const plan = makeVersion12Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    // The bump is really this build's, not the previous one's: reverting the constant to 11 makes
+    // this line fail before the field is even looked at.
+    expect(envelope.schemaVersion).toBe(12);
+    expect(EXPORT_SCHEMA_VERSION).toBe(12);
+    expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.milestones).toHaveLength(1);
+    // The condition is the evaluator's own expression, nesting and all: import neither flattens nor
+    // re-keys it.
+    expect(restored.plan.milestones![0].condition).toStrictEqual(VERSION_12_MILESTONE.condition);
+    expect(restored.plan.milestones![0]).toStrictEqual(VERSION_12_MILESTONE);
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+  });
+
+  it('imports a version 11 plan as having no milestones, and keeps the field absent', () => {
+    // v12 adds the field, so no v11 build ever wrote it. The strip is a **value deletion** with a
+    // count in both directions, so the fixture cannot pass without having had work to do.
+    const envelope = createPlanEnvelope({ plan: makeVersion12Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v11 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v11.schemaVersion = 11;
+
+    expect(countFields(v11, VERSION_12_FIELDS)).toBe(1);
+    stripFields(v11, VERSION_12_FIELDS);
+    expect(countFields(v11, VERSION_12_FIELDS)).toBe(0);
+    // The v11 fields are still there: this is a v11 file, not an older one.
+    expect(((v11.plan as Record<string, unknown>).physicalAssets as Array<Record<string, unknown>>)[0].paymentMethod).toHaveProperty(
+      'termMonths',
+      360
+    );
+
+    const parsed = parseEnvelope(JSON.stringify(v11));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(11);
+    // Nothing invented on the way in: a re-export of an untouched v11 plan is the same file, and the
+    // key is still absent rather than rewritten to `[]`.
+    expect(parsed.envelope).toStrictEqual(v11);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan).not.toHaveProperty('milestones');
+
+    // And the *meaning* of the absence, where the engine reads it: no milestones at all (not an
+    // empty list), which is the pre-P1-P7 plan exactly.
+    expect(milestonesFromConvex(importedPlan.milestones)).toBeUndefined();
+  });
+
+  it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {
+    // One file, downgraded twice: strip the v12 field, then the three v11 fields, and what is left
+    // is a v10 plan. Each step is counted, so neither strip can pass vacuously, and the imported
+    // plan is asked for all four meanings at once.
+    const envelope = createPlanEnvelope({ plan: makeVersion12Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const chained = structuredClone(envelope) as unknown as Record<string, unknown>;
+
+    chained.schemaVersion = 11;
+    expect(countFields(chained, VERSION_12_FIELDS)).toBe(1);
+    stripFields(chained, VERSION_12_FIELDS);
+    expect(countFields(chained, VERSION_12_FIELDS)).toBe(0);
+
+    chained.schemaVersion = 10;
+    expect(countFields(chained, VERSION_11_FIELDS)).toBe(3);
+    stripFields(chained, VERSION_11_FIELDS);
+    expect(countFields(chained, VERSION_11_FIELDS)).toBe(0);
+    // A v10 field of an earlier bump is still there, so the file is a v10 one and not older.
+    expect((chained.plan as Record<string, unknown>).taxSettings).toHaveProperty('stateResidency', 'none');
+
+    const parsed = parseEnvelope(JSON.stringify(chained));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(10);
+    expect(parsed.envelope).toStrictEqual(chained);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+
+    // v12 absent → no milestones; v11 absent → the stored payment drives the loan, no offset, no
+    // property tax. Four absences, all preserved, none replaced by a default the file never stated.
+    expect(milestonesFromConvex(importedPlan.milestones)).toBeUndefined();
+    expect(importedPlan.physicalAssets![0].paymentMethod).not.toHaveProperty('termMonths');
+    expect(importedPlan.physicalAssets![0].paymentMethod).not.toHaveProperty('offsetAccountId');
+    expect(importedPlan).not.toHaveProperty('propertyTax');
+    expect(physicalAssetFromConvex(importedPlan.physicalAssets![0]).paymentMethod).toMatchObject({ type: 'loan', monthlyPayment: 2500 });
   });
 
   it('warns about a v7 file that states no state residency, and still imports it', () => {

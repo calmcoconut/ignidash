@@ -21,6 +21,7 @@ import { marketAssumptionsValidator } from './validators/market_assumptions_vali
 import { taxSettingsValidator } from './validators/tax_settings_validator';
 import { privacySettingsValidator } from './validators/privacy_settings_validator';
 import { simulationSettingsValidator } from './validators/simulation_settings_validator';
+import { milestonesValidator } from './validators/milestone_validator';
 import { basicTemplate } from './templates/basic';
 import { earlyRetirementTemplate } from './templates/early_retirement';
 
@@ -179,6 +180,7 @@ export const createPlanWithData = mutation({
     taxSettings: taxSettingsValidator,
     privacySettings: privacySettingsValidator,
     simulationSettings: simulationSettingsValidator,
+    milestones: v.optional(milestonesValidator),
   },
   handler: async (ctx, { newPlanName, ...planData }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -222,6 +224,7 @@ export const clonePlan = mutation({
       taxSettings,
       privacySettings,
       simulationSettings,
+      milestones,
     } = plan;
     const clonedData = {
       timeline: structuredClone(timeline),
@@ -238,6 +241,7 @@ export const clonePlan = mutation({
       taxSettings: structuredClone(taxSettings),
       privacySettings: structuredClone(privacySettings),
       simulationSettings: structuredClone(simulationSettings),
+      ...(milestones === undefined ? {} : { milestones: structuredClone(milestones) }),
     };
 
     return await ctx.db.insert('plans', { userId, name: newPlanName, isDefault: false, ...clonedData });

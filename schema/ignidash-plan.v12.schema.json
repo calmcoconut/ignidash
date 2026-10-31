@@ -1,0 +1,3382 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "timeline": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "birthMonth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
+            "birthYear": {
+              "type": "integer",
+              "minimum": 1925,
+              "maximum": 2025
+            },
+            "lifeExpectancy": {
+              "type": "number",
+              "minimum": 50,
+              "maximum": 110
+            },
+            "retirementStrategy": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "retirementAge": {
+                      "type": "number",
+                      "minimum": 19,
+                      "maximum": 73
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "fixedAge"
+                    }
+                  },
+                  "required": [
+                    "retirementAge",
+                    "type"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "safeWithdrawalRate": {
+                      "type": "number",
+                      "minimum": 2,
+                      "maximum": 6
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "swrTarget"
+                    }
+                  },
+                  "required": [
+                    "safeWithdrawalRate",
+                    "type"
+                  ]
+                }
+              ]
+            },
+            "household": {
+              "type": "object",
+              "properties": {
+                "members": {
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "primary",
+                          "partner"
+                        ]
+                      },
+                      "birthMonth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12
+                      },
+                      "birthYear": {
+                        "type": "integer",
+                        "minimum": 1925,
+                        "maximum": 2025
+                      },
+                      "lifeExpectancy": {
+                        "type": "integer",
+                        "minimum": 50,
+                        "maximum": 110
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "role"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "members"
+              ]
+            }
+          },
+          "required": [
+            "birthMonth",
+            "birthYear",
+            "lifeExpectancy",
+            "retirementStrategy"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "incomes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "amount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999
+          },
+          "amountBasis": {
+            "type": "string",
+            "enum": [
+              "real",
+              "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
+            ]
+          },
+          "growth": {
+            "type": "object",
+            "properties": {
+              "growthRate": {
+                "type": "number",
+                "minimum": -50,
+                "maximum": 50
+              },
+              "growthLimit": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              }
+            }
+          },
+          "taxes": {
+            "type": "object",
+            "properties": {
+              "incomeType": {
+                "type": "string",
+                "enum": [
+                  "wage",
+                  "socialSecurity",
+                  "exempt",
+                  "selfEmployment",
+                  "pension"
+                ]
+              },
+              "withholding": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 50
+              }
+            },
+            "required": [
+              "incomeType"
+            ]
+          },
+          "socialSecurity": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "estimated"
+                ]
+              },
+              "aime": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "pia": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "claimAge": {
+                "type": "integer",
+                "minimum": 62,
+                "maximum": 70
+              },
+              "colaRate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+              }
+            },
+            "required": [
+              "mode",
+              "claimAge"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "yearly",
+              "oneTime",
+              "quarterly",
+              "monthly",
+              "biweekly",
+              "weekly"
+            ]
+          },
+          "timeframe": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "now",
+                      "atRetirement",
+                      "atLifeExpectancy",
+                      "customDate",
+                      "customAge"
+                    ]
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "year": {
+                    "type": "integer",
+                    "minimum": 1900,
+                    "maximum": 2100
+                  },
+                  "age": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 120
+                  },
+                  "everyNYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "recurrenceYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "end": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "now",
+                      "atRetirement",
+                      "atLifeExpectancy",
+                      "customDate",
+                      "customAge"
+                    ]
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "year": {
+                    "type": "integer",
+                    "minimum": 1900,
+                    "maximum": 2100
+                  },
+                  "age": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 120
+                  },
+                  "everyNYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "recurrenceYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "start"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "amount",
+          "taxes",
+          "frequency",
+          "timeframe"
+        ]
+      }
+    },
+    "accounts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "balance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              },
+              "syncedFinanceId": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "const": "savings"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "balance",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "balance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              },
+              "syncedFinanceId": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
+              "percentBonds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "type": {
+                "type": "string",
+                "const": "taxableBrokerage"
+              },
+              "costBasis": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "balance",
+              "percentBonds",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "balance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              },
+              "syncedFinanceId": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
+              "percentBonds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "roth401k",
+                  "roth403b",
+                  "rothIra"
+                ]
+              },
+              "contributionBasis": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "balance",
+              "percentBonds",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "balance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              },
+              "syncedFinanceId": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
+              "percentBonds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "401k",
+                  "403b",
+                  "ira"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "balance",
+              "percentBonds",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 50
+              },
+              "balance": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              },
+              "syncedFinanceId": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string",
+                "enum": [
+                  "primary",
+                  "partner",
+                  "joint"
+                ]
+              },
+              "propertyRegime": {
+                "type": "string",
+                "enum": [
+                  "community",
+                  "jointTenancy"
+                ]
+              },
+              "percentBonds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "type": {
+                "type": "string",
+                "const": "hsa"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "balance",
+              "percentBonds",
+              "type"
+            ]
+          }
+        ]
+      }
+    },
+    "glidePath": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "endTimePoint": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "customDate",
+                "customAge"
+              ]
+            },
+            "month": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
+            "year": {
+              "type": "integer",
+              "minimum": 1900,
+              "maximum": 2100
+            },
+            "age": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 120
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        "targetBondAllocation": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "endTimePoint",
+        "targetBondAllocation"
+      ]
+    },
+    "expenses": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "amount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999
+          },
+          "amountBasis": {
+            "type": "string",
+            "enum": [
+              "real",
+              "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
+            ]
+          },
+          "growth": {
+            "type": "object",
+            "properties": {
+              "growthRate": {
+                "type": "number",
+                "minimum": -50,
+                "maximum": 50
+              },
+              "growthLimit": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              }
+            }
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "essential": {
+            "type": "boolean"
+          },
+          "frequency": {
+            "type": "string",
+            "enum": [
+              "yearly",
+              "oneTime",
+              "quarterly",
+              "monthly",
+              "biweekly",
+              "weekly"
+            ]
+          },
+          "timeframe": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "now",
+                      "atRetirement",
+                      "atLifeExpectancy",
+                      "customDate",
+                      "customAge"
+                    ]
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "year": {
+                    "type": "integer",
+                    "minimum": 1900,
+                    "maximum": 2100
+                  },
+                  "age": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 120
+                  },
+                  "everyNYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "recurrenceYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "end": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "now",
+                      "atRetirement",
+                      "atLifeExpectancy",
+                      "customDate",
+                      "customAge"
+                    ]
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12
+                  },
+                  "year": {
+                    "type": "integer",
+                    "minimum": 1900,
+                    "maximum": 2100
+                  },
+                  "age": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 120
+                  },
+                  "everyNYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "recurrenceYears": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
+            "required": [
+              "start"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "amount",
+          "frequency",
+          "timeframe"
+        ]
+      }
+    },
+    "debts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "balance": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999
+          },
+          "apr": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 40
+          },
+          "interestType": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "compound"
+            ]
+          },
+          "compoundingFrequency": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "monthly"
+            ]
+          },
+          "startDate": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "now",
+                  "atRetirement",
+                  "atLifeExpectancy",
+                  "customDate",
+                  "customAge"
+                ]
+              },
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 1900,
+                "maximum": 2100
+              },
+              "age": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 120
+              },
+              "everyNYears": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "recurrenceYears": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "monthlyPayment": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999
+          },
+          "amountBasis": {
+            "type": "string",
+            "enum": [
+              "real",
+              "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
+            ]
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "syncedFinanceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "balance",
+          "apr",
+          "interestType",
+          "startDate",
+          "monthlyPayment"
+        ]
+      }
+    },
+    "physicalAssets": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "assetType": {
+            "type": "string",
+            "enum": [
+              "primaryResidence",
+              "other"
+            ]
+          },
+          "purchaseDate": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "now",
+                  "atRetirement",
+                  "atLifeExpectancy",
+                  "customDate",
+                  "customAge"
+                ]
+              },
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 1900,
+                "maximum": 2100
+              },
+              "age": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 120
+              },
+              "everyNYears": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "recurrenceYears": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "purchasePrice": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999
+          },
+          "marketValue": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999
+          },
+          "appreciationRate": {
+            "type": "number",
+            "minimum": -30,
+            "maximum": 20
+          },
+          "amountBasis": {
+            "type": "string",
+            "enum": [
+              "real",
+              "nominal"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "partner",
+              "joint"
+            ]
+          },
+          "propertyRegime": {
+            "type": "string",
+            "enum": [
+              "community",
+              "jointTenancy"
+            ]
+          },
+          "saleDate": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "now",
+                  "atRetirement",
+                  "atLifeExpectancy",
+                  "customDate",
+                  "customAge"
+                ]
+              },
+              "month": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              },
+              "year": {
+                "type": "integer",
+                "minimum": 1900,
+                "maximum": 2100
+              },
+              "age": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 120
+              },
+              "everyNYears": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "recurrenceYears": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "paymentMethod": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "cash"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "loan"
+                  },
+                  "downPayment": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 99999999999
+                  },
+                  "loanBalance": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 99999999999
+                  },
+                  "apr": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 25
+                  },
+                  "monthlyPayment": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 99999999999
+                  },
+                  "termMonths": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 600
+                  },
+                  "offsetAccountId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "type",
+                  "loanBalance",
+                  "apr",
+                  "monthlyPayment"
+                ]
+              }
+            ]
+          },
+          "propertyTax": {
+            "type": "object",
+            "properties": {
+              "ratePercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "annualAmount": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              }
+            }
+          },
+          "syncedAssetId": {
+            "type": "string"
+          },
+          "syncedLiabilityId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "assetType",
+          "purchaseDate",
+          "purchasePrice",
+          "appreciationRate",
+          "saleDate",
+          "paymentMethod"
+        ]
+      }
+    },
+    "contributionRules": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "accountId": {
+                "type": "string"
+              },
+              "rank": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "maxBalance": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "incomeId": {
+                "type": "string"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "employerMatch": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "enableMegaBackdoorRoth": {
+                "type": "boolean"
+              },
+              "contributionType": {
+                "type": "string",
+                "const": "dollarAmount"
+              },
+              "dollarAmount": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              }
+            },
+            "required": [
+              "id",
+              "accountId",
+              "rank",
+              "contributionType",
+              "dollarAmount"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "accountId": {
+                "type": "string"
+              },
+              "rank": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "maxBalance": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "incomeId": {
+                "type": "string"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "employerMatch": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "enableMegaBackdoorRoth": {
+                "type": "boolean"
+              },
+              "contributionType": {
+                "type": "string",
+                "const": "percentRemaining"
+              },
+              "percentRemaining": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "id",
+              "accountId",
+              "rank",
+              "contributionType",
+              "percentRemaining"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "accountId": {
+                "type": "string"
+              },
+              "rank": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "maxBalance": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "incomeId": {
+                "type": "string"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "employerMatch": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 99999999999
+              },
+              "enableMegaBackdoorRoth": {
+                "type": "boolean"
+              },
+              "contributionType": {
+                "type": "string",
+                "const": "unlimited"
+              }
+            },
+            "required": [
+              "id",
+              "accountId",
+              "rank",
+              "contributionType"
+            ]
+          }
+        ]
+      }
+    },
+    "baseContributionRule": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "spend",
+            "save"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "marketAssumptions": {
+      "type": "object",
+      "properties": {
+        "stockReturn": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "stockYield": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "bondReturn": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "bondYield": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "cashReturn": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "inflationRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 8
+        }
+      },
+      "required": [
+        "stockReturn",
+        "stockYield",
+        "bondReturn",
+        "bondYield",
+        "cashReturn",
+        "inflationRate"
+      ]
+    },
+    "taxSettings": {
+      "type": "object",
+      "properties": {
+        "filingStatus": {
+          "type": "string",
+          "enum": [
+            "single",
+            "marriedFilingJointly",
+            "marriedFilingSeparately",
+            "headOfHousehold"
+          ]
+        },
+        "stateResidency": {
+          "type": "string",
+          "enum": [
+            "CA",
+            "none"
+          ]
+        },
+        "itemizedDeductions": {
+          "type": "object",
+          "properties": {
+            "mortgageInterest": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            },
+            "charitable": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            },
+            "stateAndLocalTaxes": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            },
+            "medicalExpenses": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 99999999999
+            }
+          },
+          "required": [
+            "mortgageInterest",
+            "charitable",
+            "stateAndLocalTaxes",
+            "medicalExpenses"
+          ]
+        },
+        "spouseQualifiesForSeniorDeduction": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "filingStatus"
+      ]
+    },
+    "privacySettings": {
+      "type": "object",
+      "properties": {
+        "isPrivate": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "isPrivate"
+      ]
+    },
+    "simulationSettings": {
+      "type": "object",
+      "properties": {
+        "simulationSeed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 99999
+        },
+        "simulationMode": {
+          "type": "string",
+          "enum": [
+            "fixedReturns",
+            "stochasticReturns",
+            "historicalReturns",
+            "monteCarloStochasticReturns",
+            "monteCarloHistoricalReturns"
+          ]
+        },
+        "historicalStartYearOverride": {
+          "type": "number",
+          "minimum": 1928,
+          "maximum": 2024
+        },
+        "historicalRetirementStartYearOverride": {
+          "type": "number",
+          "minimum": 1928,
+          "maximum": 2024
+        },
+        "asOfDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "historicalBacktest": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "looping",
+                "truncate"
+              ]
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        },
+        "withdrawalStrategy": {
+          "type": "string",
+          "enum": [
+            "ordered",
+            "vpw",
+            "xPercentRule",
+            "guytonKlinger"
+          ]
+        }
+      },
+      "required": [
+        "simulationSeed",
+        "simulationMode"
+      ]
+    },
+    "milestones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 50
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "and",
+                      "or"
+                    ]
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "op": {
+                              "type": "string",
+                              "enum": [
+                                "and",
+                                "or"
+                              ]
+                            },
+                            "children": {
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "op": {
+                                        "type": "string",
+                                        "enum": [
+                                          "and",
+                                          "or"
+                                        ]
+                                      },
+                                      "children": {
+                                        "type": "array",
+                                        "items": {
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "account"
+                                                },
+                                                "accountId": {
+                                                  "type": "string",
+                                                  "minLength": 1
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "accountId",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "age"
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "year"
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "portfolio"
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "income"
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "expense"
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            },
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "metric": {
+                                                  "type": "string",
+                                                  "const": "netWorth"
+                                                },
+                                                "operator": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "<",
+                                                    "<=",
+                                                    "==",
+                                                    ">=",
+                                                    ">"
+                                                  ]
+                                                },
+                                                "value": {
+                                                  "type": "number"
+                                                }
+                                              },
+                                              "required": [
+                                                "metric",
+                                                "operator",
+                                                "value"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "op",
+                                      "children"
+                                    ]
+                                  },
+                                  {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "account"
+                                          },
+                                          "accountId": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "accountId",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "age"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "year"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "portfolio"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "income"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "expense"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "netWorth"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "op",
+                            "children"
+                          ]
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "op": {
+                                  "type": "string",
+                                  "enum": [
+                                    "and",
+                                    "or"
+                                  ]
+                                },
+                                "children": {
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "account"
+                                          },
+                                          "accountId": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "accountId",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "age"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "year"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "portfolio"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "income"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "expense"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "netWorth"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "op",
+                                "children"
+                              ]
+                            },
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "account"
+                                    },
+                                    "accountId": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "accountId",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "age"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "year"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "portfolio"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "income"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "expense"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "netWorth"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "op",
+                  "children"
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "enum": [
+                          "and",
+                          "or"
+                        ]
+                      },
+                      "children": {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "op": {
+                                  "type": "string",
+                                  "enum": [
+                                    "and",
+                                    "or"
+                                  ]
+                                },
+                                "children": {
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "account"
+                                          },
+                                          "accountId": {
+                                            "type": "string",
+                                            "minLength": 1
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "accountId",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "age"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "year"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "portfolio"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "income"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "expense"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      },
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "metric": {
+                                            "type": "string",
+                                            "const": "netWorth"
+                                          },
+                                          "operator": {
+                                            "type": "string",
+                                            "enum": [
+                                              "<",
+                                              "<=",
+                                              "==",
+                                              ">=",
+                                              ">"
+                                            ]
+                                          },
+                                          "value": {
+                                            "type": "number"
+                                          }
+                                        },
+                                        "required": [
+                                          "metric",
+                                          "operator",
+                                          "value"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "op",
+                                "children"
+                              ]
+                            },
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "account"
+                                    },
+                                    "accountId": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "accountId",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "age"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "year"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "portfolio"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "income"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "expense"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "netWorth"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "op",
+                      "children"
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "op": {
+                            "type": "string",
+                            "enum": [
+                              "and",
+                              "or"
+                            ]
+                          },
+                          "children": {
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "account"
+                                    },
+                                    "accountId": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "accountId",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "age"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "year"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "portfolio"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "income"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "expense"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "metric": {
+                                      "type": "string",
+                                      "const": "netWorth"
+                                    },
+                                    "operator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "<",
+                                        "<=",
+                                        "==",
+                                        ">=",
+                                        ">"
+                                      ]
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "metric",
+                                    "operator",
+                                    "value"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "op",
+                          "children"
+                        ]
+                      },
+                      {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "account"
+                              },
+                              "accountId": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "accountId",
+                              "operator",
+                              "value"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "age"
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "operator",
+                              "value"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "year"
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "operator",
+                              "value"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "portfolio"
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "operator",
+                              "value"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "income"
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "operator",
+                              "value"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "expense"
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "operator",
+                              "value"
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "metric": {
+                                "type": "string",
+                                "const": "netWorth"
+                              },
+                              "operator": {
+                                "type": "string",
+                                "enum": [
+                                  "<",
+                                  "<=",
+                                  "==",
+                                  ">=",
+                                  ">"
+                                ]
+                              },
+                              "value": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "metric",
+                              "operator",
+                              "value"
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "condition",
+          "references"
+        ]
+      }
+    }
+  },
+  "required": [
+    "timeline",
+    "incomes",
+    "accounts",
+    "expenses",
+    "debts",
+    "physicalAssets",
+    "contributionRules",
+    "baseContributionRule",
+    "marketAssumptions",
+    "taxSettings",
+    "privacySettings",
+    "simulationSettings"
+  ],
+  "title": "Ignidash simulator input",
+  "description": "A complete financial plan as the Ignidash engine reads it: the object passed to simulate() (the simulator input), not the export envelope. Shape and per-field bounds only; generated from simulatorSchema, do not edit by hand.",
+  "$comment": "Publishes SHAPE and PER-FIELD BOUNDS only: z.toJSONSchema() drops every .refine()/.superRefine(), so this document ACCEPTS files the app refuses. Rule classes it does not carry: cross-field refinements; clock-relative timeline rules; unknown-key strictness. Two differences run the other way: debts/physicalAssets are required here (simulate() throws on undefined) but optional to import, and timeline:null is accepted here but simulate() refuses it. Narrowed where JSON Schema can: asOfDate must match ^\\d{4}-\\d{2}-\\d{2}$ — shape only, so it still accepts a rollover date like 2026-02-30. See docs/HEADLESS.md for one example per class."
+}
