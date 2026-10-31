@@ -39,7 +39,7 @@ const process = (processor: TaxProcessor) =>
 /** A copy of the 2026 ruleset whose §86 tiers all use `taxablePercentage`. */
 function withSocialSecurityPercentage(taxablePercentage: number): FederalTaxRuleset {
   const base = getRules(2026);
-  const tiers = (values: SocialSecurityTaxThreshold[]) => values.map((tier) => ({ ...tier, taxablePercentage }));
+  const tiers = (values: readonly SocialSecurityTaxThreshold[]) => values.map((tier) => ({ ...tier, taxablePercentage }));
 
   return {
     ...base,
@@ -48,9 +48,16 @@ function withSocialSecurityPercentage(taxablePercentage: number): FederalTaxRule
       socialSecurityTaxation: {
         ...base.tables.socialSecurityTaxation,
         values: {
-          single: tiers(base.tables.socialSecurityTaxation.values.single),
-          marriedFilingJointly: tiers(base.tables.socialSecurityTaxation.values.marriedFilingJointly),
-          headOfHousehold: tiers(base.tables.socialSecurityTaxation.values.headOfHousehold),
+          // The tiers are per filing status (P3-P1b), so every status's array is rewritten; the
+          // `taxableFromFirstDollar` flags ride along untouched, because this override is about the
+          // tier percentages and not about the separate return's collapsed rule.
+          tiers: {
+            single: tiers(base.tables.socialSecurityTaxation.values.tiers.single),
+            marriedFilingJointly: tiers(base.tables.socialSecurityTaxation.values.tiers.marriedFilingJointly),
+            marriedFilingSeparately: tiers(base.tables.socialSecurityTaxation.values.tiers.marriedFilingSeparately),
+            headOfHousehold: tiers(base.tables.socialSecurityTaxation.values.tiers.headOfHousehold),
+          },
+          taxableFromFirstDollar: base.tables.socialSecurityTaxation.values.taxableFromFirstDollar,
         },
       },
     },
