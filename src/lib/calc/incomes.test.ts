@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 
 import type { IncomeInputs } from '@/lib/schemas/inputs/income-form-schema';
 
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
+import { createSavingsAccount, createSimulatorInputs } from '@/lib/calc/__tests__/test-utils';
+
 import { Income, Incomes, IncomesProcessor } from './incomes';
 import { PayrollTaxProcessor } from './payroll-taxes';
 import type { SimulationState } from './simulation-engine';
-import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
+import { simulate } from './simulate';
+import type { TimeBindingContext } from './time-binding';
 
 /**
  * Payroll withholding is applied by `IncomesProcessor` from the tax layer's
@@ -827,5 +831,231 @@ describe('IncomesProcessor Tests', () => {
     expect(annualData.totalFicaTax).toBeCloseTo(10740);
     // Net: 120000 - 26400 - 10740 = 82860
     expect(annualData.totalIncomeAfterPayrollDeductions).toBeCloseTo(82860);
+  });
+});
+
+/**
+ * P1-P8: an income with a `socialSecurity` block is **paid** from the estimate.
+ *
+ * The estimator in `social-security.ts` came first; these tests are about which figure the engine
+ * pays, and what that figure costs in tax. Every expectation is worked by hand from the vendored
+ * 2025 bend points:
+ *
+ *   PIA(AIME 5,000) = 1,226 × 0.90 + (5,000 − 1,226) × 0.32 = 1,103.40 + 1,207.68 = 2,311.08
+ *
+ * and the claiming factors for the 1990 birth year this test context starts from (plan start
+ * 2025-01-01 at age 35 → birth year 1990 → full retirement age 67, `fra-table.ts`):
+ *
+ *   claim 62 → 60 months early → 20% + 10% = 30% reduction → 0.70 → 1,617.756
+ *   claim 67 → no adjustment                              → 1.00 → 2,311.08
+ *   claim 70 → 36 months late → 36 × 2/3% = 24% credit    → 1.24 → 2,865.7392
+ *
+ * The stored `amount` on every fixture below is $1, a figure that cannot be mistaken for any
+ * of the benefits, so "the estimate was paid" and "the amount was paid" can never be confused.
+ */
+const createSocialSecurityIncome = (overrides: Partial<IncomeInputs> = {}): IncomeInputs =>
+  createIncomeInput({
+    name: 'Social Security',
+    amount: 1,
+    frequency: 'monthly',
+    taxes: { incomeType: 'socialSecurity', withholding: 0 },
+    socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67 },
+    ...overrides,
+  });
+
+describe('Social Security: the estimate decides the paid benefit (P1-P8)', () => {
+  it('pays the estimated benefit at the full retirement age', () => {
+    const income = new Income(createSocialSecurityIncome(), TEST_TIME_BINDING_CONTEXT);
+
+    const estimate = income.getSocialSecurityEstimate();
+    expect(estimate?.pia).toBeCloseTo(2311.08, 10);
+    // Birth year 1990 → FRA 67 for every cohort from 1960 on.
+    expect(estimate?.fullRetirementAge.totalMonths).toBe(804);
+
+    const month = income.processMonthlyAmount(0);
+    expect(month.income).toBeCloseTo(2311.08, 10);
+    // The benefit is tagged as Social Security income, which is what routes it through §86 —
+    // it must not be reported as tax-free or as ordinary (earned) income.
+    expect(month.socialSecurityIncome).toBeCloseTo(2311.08, 10);
+    expect(month.taxFreeIncome).toBe(0);
+    expect(month.amountWithheld).toBe(0);
+  });
+
+  it('pays 70% of the PIA when the claim starts at 62', () => {
+    const income = new Income(
+      createSocialSecurityIncome({ socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 62 } }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+    // 2,311.08 × 0.70 = 1,617.756
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(1617.756, 10);
+  });
+
+  it('pays 124% of the PIA when the claim starts at 70', () => {
+    const income = new Income(
+      createSocialSecurityIncome({ socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 70 } }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+    // 2,311.08 × 1.24 = 2,865.7392
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(2865.7392, 10);
+  });
+
+  it('grows the benefit by the COLA in real terms', () => {
+    const context: TimeBindingContext = {
+      ...TEST_TIME_BINDING_CONTEXT,
+      marketAssumptions: { ...TEST_TIME_BINDING_CONTEXT.marketAssumptions, inflationRate: 3 },
+    };
+    const income = new Income(
+      createSocialSecurityIncome({ socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67, colaRate: 4 } }),
+      context
+    );
+
+    // Plan start: no COLA has accrued yet.
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(2311.08, 10);
+
+    // Two years of a 4% COLA against the plan's 3% inflation: (1.04 / 1.03)^2 = 1.0816 / 1.0609
+    // = 1.0195117, so 2,311.08 × 1.0195117 = 2,356.17 — growth in real dollars, not nominal.
+    const grown = income.processMonthlyAmount(2).income;
+    expect(grown).toBeCloseTo(2311.08 * (1.04 ** 2 / 1.03 ** 2), 10);
+    expect(grown).toBeCloseTo(2356.17, 2);
+  });
+
+  it('leaves the real benefit unchanged when the COLA matches inflation', () => {
+    const context: TimeBindingContext = {
+      ...TEST_TIME_BINDING_CONTEXT,
+      marketAssumptions: { ...TEST_TIME_BINDING_CONTEXT.marketAssumptions, inflationRate: 3 },
+    };
+    const income = new Income(
+      createSocialSecurityIncome({ socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67, colaRate: 3 } }),
+      context
+    );
+
+    // COLA 3% against inflation 3% → real growth 0, so year five pays exactly year zero's benefit.
+    expect(income.processMonthlyAmount(5).income).toBeCloseTo(2311.08, 10);
+  });
+});
+
+describe('Social Security: which figure wins when an amount is also stored (P1-P8)', () => {
+  it('pays the estimate rather than the stored amount', () => {
+    const income = new Income(createSocialSecurityIncome({ amount: 9999 }), TEST_TIME_BINDING_CONTEXT);
+
+    expect(income.getSocialSecurityEstimate()).toBeDefined();
+    // 2,311.08, not 9,999: the block supersedes the amount outright, and nothing is blended.
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(2311.08, 10);
+  });
+
+  it('ignores the amount growth rate and growth limit too', () => {
+    const income = new Income(
+      createSocialSecurityIncome({ amount: 9999, growth: { growthRate: 5, growthLimit: 20000 } }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+    // Two years on, with no COLA set, the estimate is flat: the amount's 5% growth never applies,
+    // and the amount itself was never grown.
+    expect(income.processMonthlyAmount(2).income).toBeCloseTo(2311.08, 10);
+  });
+
+  it('pays the stored amount when the income carries no socialSecurity block', () => {
+    const income = new Income(createSocialSecurityIncome({ amount: 2500, socialSecurity: undefined }), TEST_TIME_BINDING_CONTEXT);
+
+    expect(income.getSocialSecurityEstimate()).toBeUndefined();
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(2500, 10);
+  });
+
+  it('uses the stored PIA in manual mode, ahead of the amount, and still applies the claim age', () => {
+    const atFra = new Income(
+      createSocialSecurityIncome({ amount: 9999, socialSecurity: { mode: 'manual', pia: 3000, claimAge: 67 } }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+    expect(atFra.processMonthlyAmount(0).income).toBeCloseTo(3000, 10);
+
+    const early = new Income(
+      createSocialSecurityIncome({ amount: 9999, socialSecurity: { mode: 'manual', pia: 3000, claimAge: 62 } }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+    // 3,000 × 0.70 = 2,100
+    expect(early.processMonthlyAmount(0).income).toBeCloseTo(2100, 10);
+  });
+
+  it('ignores the block on an income that is not declared Social Security', () => {
+    const income = new Income(
+      createSocialSecurityIncome({
+        amount: 4000,
+        taxes: { incomeType: 'wage', withholding: 20 },
+        socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67 },
+      }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+    // A Social Security estimate on a wage would be a second wage out of nowhere.
+    expect(income.getSocialSecurityEstimate()).toBeUndefined();
+    expect(income.processMonthlyAmount(0).income).toBeCloseTo(4000, 10);
+  });
+
+  it('refuses an estimated block with no AIME rather than paying a guess', () => {
+    expect(
+      () => new Income(createSocialSecurityIncome({ socialSecurity: { mode: 'estimated', claimAge: 67 } }), TEST_TIME_BINDING_CONTEXT)
+    ).toThrow(/aime/i);
+  });
+});
+
+describe('Social Security: the estimated benefit is taxed as Social Security, not as ordinary income', () => {
+  it('routes the paid benefit through provisional income (§86)', () => {
+    const plan = createSimulatorInputs({
+      // Born 1960: FRA 67. The plan starts 2026-10-01, at age 66.75.
+      timeline: { lifeExpectancy: 90, birthMonth: 1, birthYear: 1960, retirementStrategy: { type: 'fixedAge', retirementAge: 65 } },
+      accounts: { 'savings-1': createSavingsAccount({ balance: 0 }) },
+      incomes: {
+        'ss-1': createSocialSecurityIncome({
+          id: 'ss-1',
+          timeframe: { start: { type: 'customAge', age: 67 }, end: undefined },
+          socialSecurity: { mode: 'estimated', aime: 5000, claimAge: 67, colaRate: 3 },
+        }),
+        // Ordinary income alongside the benefit, so provisional income reaches §86's top tier.
+        'pension-1': {
+          id: 'pension-1',
+          name: 'Pension',
+          amount: 40000,
+          frequency: 'yearly',
+          timeframe: { start: { type: 'customAge', age: 67 }, end: undefined },
+          taxes: { incomeType: 'pension' },
+          disabled: false,
+        },
+      },
+      // No returns at all, so the only income is the two streams above and the §86 arithmetic below
+      // is exactly what the return sees.
+      marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 3 },
+    });
+
+    const run = simulate(plan, { mode: 'fixedReturns', seed: 1, asOf: '2026-10-01' });
+    const withBenefits = run.result.data.filter((point) => (point.incomes?.totalSocialSecurityIncome ?? 0) > 0);
+    expect(withBenefits.length).toBeGreaterThan(0);
+
+    // The largest year's benefit is a complete year: 12 × 2,311.08 = 27,732.96 (COLA 3% against 3%
+    // inflation, so no real growth). The stored amount is $1/month, so this also fails loudly if the
+    // estimate ever stops being paid.
+    const fullYear = withBenefits.reduce((best, point) =>
+      (point.incomes?.totalSocialSecurityIncome ?? 0) > (best.incomes?.totalSocialSecurityIncome ?? 0) ? point : best
+    );
+    expect(fullYear.incomes?.totalSocialSecurityIncome).toBeCloseTo(27732.96, 6);
+    expect(fullYear.incomes?.totalIncome).toBeCloseTo(40000 + 27732.96, 6);
+
+    const taxes = fullYear.taxes;
+    expect(taxes).not.toBeNull();
+    // The benefit reaches the return as Social Security income …
+    expect(taxes?.incomeSources.socialSecurityIncome).toBeCloseTo(27732.96, 6);
+    // … and *not* as earned (ordinary) income: that bucket holds the pension alone.
+    expect(taxes?.incomeSources.earnedIncome).toBeCloseTo(40000, 6);
+
+    // §86 on a single return, 2026 base amounts $25,000 / $34,000:
+    //   provisional income = 40,000 + 50% × 27,732.96          = 53,866.48
+    //   tier-1 amount      = min(9,000 × 50%, 50% × 27,732.96)  = 4,500
+    //   taxable            = min(4,500 + 85% × 19,866.48, 85% × 27,732.96) = 21,386.508
+    expect(taxes?.socialSecurityTaxes.provisionalIncome).toBeCloseTo(53866.48, 6);
+    expect(taxes?.socialSecurityTaxes.taxableSocialSecurityIncome).toBeCloseTo(21386.508, 6);
+    expect(taxes?.socialSecurityTaxes.maxTaxablePercentage).toBe(0.85);
+    // 21,386.508 / 27,732.96 = 77.1% — computed from provisional income, not a flat 85% inclusion.
+    expect(taxes?.socialSecurityTaxes.actualTaxablePercentage).toBeCloseTo(0.771158505979888, 8);
   });
 });

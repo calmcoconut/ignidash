@@ -9,12 +9,43 @@
  * self-employment tax and California SDI live in `./payroll-taxes`, which reads the tax ruleset.
  * This module only applies the withholding that layer returns, so the wage base, the Additional
  * Medicare threshold and the SDI rate have exactly one home.
+ *
+ * ## Which figure is paid: `amount` or the Social Security estimate (P1-P8)
+ *
+ * A Social Security income always carries a stored `amount`, because the form requires one. An
+ * income that *also* carries a `socialSecurity` block is paid from the estimate instead, in both of
+ * that block's modes:
+ *
+ * | income | what is paid |
+ * | --- | --- |
+ * | `incomeType: 'socialSecurity'` with a `socialSecurity` block | `estimateSocialSecurityBenefit()`: AIME → PIA → the claim-age adjustment for the earner's full retirement age → COLA as real growth |
+ * | `incomeType: 'socialSecurity'` without a block | the stored `amount`, grown by `growth.growthRate` |
+ * | any other `incomeType` with a block | the stored `amount`; the block does not apply to a non-Social-Security income |
+ *
+ * The estimate supersedes `amount`, `growth.growthRate`, `growth.growthLimit` and `amountBasis`
+ * outright — it is not blended with the stored figure. AIME, PIA and the benefit derived from them
+ * are today's dollars by definition, and the COLA is the growth the estimate already models, so the
+ * amount's growth rate would be a second, wrong growth. `incomes.test.ts` pins the precedence with
+ * an `amount` deliberately set to a different number.
+ *
+ * The estimate is still paid as Social Security, not as ordinary income: the benefit is reported as
+ * `socialSecurityIncome` and withheld like any Social Security income, and never as
+ * `taxFreeIncome`, so `taxes.ts` reaches it through §86's provisional income. Paying an estimate
+ * must not quietly move it into the earned-income bucket.
+ *
+ * Spousal and survivor benefits are not modelled, here or in the estimator: they need the household
+ * survivorship rules, and approximating them as an uplift on the earner's own benefit would be a
+ * wrong number with no symptom. A Social Security income therefore pays the earner's own retirement
+ * benefit and nothing else, whatever its `owner` (a `joint` or `partner` income gets no spousal
+ * share of anybody else's PIA). The claim age in the block adjusts the amount; the income's own
+ * timeframe decides when it starts being paid.
  */
 
 import type { IncomeInputs, IncomeType } from '@/lib/schemas/inputs/income-form-schema';
 import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
 
 import type { PayrollTaxProcessor } from './payroll-taxes';
+import { estimateSocialSecurityBenefit, type SocialSecurityEstimate } from './social-security';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
@@ -347,6 +378,49 @@ export interface IncomeData {
   socialSecurityIncome: number;
 }
 
+/**
+ * The birth year a claiming adjustment is read from: the plan member's own, recovered from the plan
+ * start.
+ *
+ * `TimeBindingContext.startAge` is `calculatePreciseAge(birthMonth, birthYear, asOf)` — whole months
+ * over twelve — and `startDate` is that same `asOf`, so stepping the plan start back by
+ * `round(startAge × 12)` calendar months lands on the earner's birth month exactly. The full
+ * retirement age (`fra-table.ts`) is a step function of the birth *year*, so that is all the
+ * precision it needs.
+ *
+ * A couple whose members were born in different years is the one case this cannot resolve: the
+ * incomes layer is handed the plan-level start, not `timeline.household`, so a partner's Social
+ * Security income is adjusted against the plan's (the primary's) birth year. Every cohort from 1960
+ * on has a full retirement age of 67, so the exposure is a partner born in 1938–1959; resolving it
+ * per member means threading member birth years through `simulation-engine.ts`, which this item does
+ * not own. It is recorded as a limitation rather than guessed at.
+ */
+function planBirthYear(context: TimeBindingContext): number {
+  const monthsSinceBirth = Math.round(context.startAge * 12);
+  const { startDate } = context;
+
+  // A locally built date, so `getFullYear()` reads the same calendar day this context was built in.
+  return new Date(startDate.getFullYear(), startDate.getMonth() - monthsSinceBirth, 1).getFullYear();
+}
+
+/**
+ * The estimate an income pays, or `undefined` when the estimate does not apply to it.
+ *
+ * @throws through `estimateSocialSecurityBenefit` when the block's mode lacks the figure that mode
+ *   needs (`estimated` without an AIME, `manual` without a PIA). The input schema forbids that
+ *   shape, so reaching it means a plan bypassed validation; stopping is the honest response, since
+ *   paying a guessed benefit would be a wrong number with no symptom.
+ */
+function socialSecurityEstimateFor(data: IncomeInputs, context: TimeBindingContext): SocialSecurityEstimate | undefined {
+  if (data.socialSecurity === undefined || data.taxes.incomeType !== 'socialSecurity') return undefined;
+
+  return estimateSocialSecurityBenefit({
+    socialSecurity: data.socialSecurity,
+    birthYear: planBirthYear(context),
+    inflationRate: context.marketAssumptions.inflationRate,
+  });
+}
+
 /** A single income source with frequency, growth, time frame, and tax treatment */
 export class Income {
   private hasOneTimeIncomeOccurred: boolean;
@@ -365,6 +439,11 @@ export class Income {
   private oneTimeOccurrenceIndex: number | null = null;
   /** Recurrence year of the most recent active month; see `getIsActiveByTimeFrame`. */
   private currentOccurrenceIndex: number | null = null;
+  /**
+   * P1-P8: the estimate this income pays **instead of** `amount`, resolved once at construction
+   * from pure inputs. `undefined` means the income pays its stored amount.
+   */
+  private socialSecurityEstimate: SocialSecurityEstimate | undefined;
 
   /**
    * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
@@ -386,6 +465,9 @@ export class Income {
     this.frequency = data.frequency;
     this.incomeType = data.taxes.incomeType;
     this.withholdingRate = data.taxes.withholding ?? 0;
+    // P1-P8: resolved here, once, so every month pays the same benefit before the COLA step. The
+    // module doc's precedence table is the rule; the estimate wins over `amount` in both modes.
+    this.socialSecurityEstimate = socialSecurityEstimateFor(data, context);
   }
 
   /** The tax treatment this income is declared under; payroll tax applies to `wage` only. */
@@ -399,35 +481,27 @@ export class Income {
   }
 
   /**
+   * The estimate this income pays, or `undefined` when it pays its stored `amount` (P1-P8).
+   *
+   * Exposed so a caller — a test, a report, a later UI line — can say which of the two figures is in
+   * force without re-deriving it.
+   */
+  getSocialSecurityEstimate(): SocialSecurityEstimate | undefined {
+    return this.socialSecurityEstimate;
+  }
+
+  /**
    * Calculates this income's monthly amount with growth and income-tax withholding
    * @param year - Current simulation year (fractional)
    * @returns Income data before payroll withholding, which `IncomesProcessor` applies
    */
   processMonthlyAmount(year: number): Omit<IncomeData, 'ficaTax' | 'incomeAfterPayrollDeductions'> {
-    const rawAmount = this.amount;
-
     const timesToApplyPerYear = this.getTimesToApplyPerYear();
     const timesToApplyPerMonth = this.getTimesToApplyPerMonth();
 
-    let annualAmount = rawAmount * timesToApplyPerYear;
-
-    if (this.lastYear !== Math.floor(year)) {
-      if (this.growthRate) {
-        const realGrowthRate = this.growthRate / 100;
-        annualAmount *= 1 + realGrowthRate;
-
-        const growthLimit = this.growthLimit;
-        if (growthLimit !== undefined && realGrowthRate > 0) {
-          annualAmount = Math.min(annualAmount, growthLimit);
-        } else if (growthLimit !== undefined && realGrowthRate < 0) {
-          annualAmount = Math.max(annualAmount, growthLimit);
-        }
-
-        if (timesToApplyPerYear !== 0) this.amount = Math.max(annualAmount / timesToApplyPerYear, 0);
-      }
-
-      this.lastYear = Math.floor(year);
-    }
+    // Which figure is paid (P1-P8): the estimate when the income has one, otherwise the stored
+    // amount grown to this year. The two are never combined — see the module doc.
+    const annualAmount = this.socialSecurityEstimate === undefined ? this.grownAnnualAmount(year) : this.annualSocialSecurityBenefit(year);
 
     if (timesToApplyPerYear === 0) {
       return {
@@ -482,6 +556,55 @@ export class Income {
       taxFreeIncome,
       socialSecurityIncome,
     };
+  }
+
+  /**
+   * The stored amount grown to this year, capped or floored by its growth limit — the path every
+   * income without an estimate takes. Its yearly growth step mutates `this.amount`, so it is called
+   * once per processed month and never for an estimated benefit.
+   */
+  private grownAnnualAmount(year: number): number {
+    const timesToApplyPerYear = this.getTimesToApplyPerYear();
+    let annualAmount = this.amount * timesToApplyPerYear;
+
+    if (this.lastYear !== Math.floor(year)) {
+      if (this.growthRate) {
+        const realGrowthRate = this.growthRate / 100;
+        annualAmount *= 1 + realGrowthRate;
+
+        const growthLimit = this.growthLimit;
+        if (growthLimit !== undefined && realGrowthRate > 0) {
+          annualAmount = Math.min(annualAmount, growthLimit);
+        } else if (growthLimit !== undefined && realGrowthRate < 0) {
+          annualAmount = Math.max(annualAmount, growthLimit);
+        }
+
+        if (timesToApplyPerYear !== 0) this.amount = Math.max(annualAmount / timesToApplyPerYear, 0);
+      }
+
+      this.lastYear = Math.floor(year);
+    }
+
+    return annualAmount;
+  }
+
+  /**
+   * The year's benefit from the estimate, in the plan's real (today's) dollars, after `floor(year)`
+   * years of COLA growth.
+   *
+   * `year` is the engine's years-since-plan-start axis, so the growth is measured from the plan's
+   * own start: `realColaGrowthRate` already carries `(1 + COLA) / (1 + inflation) - 1`, which is 0
+   * when the COLA matches the plan's inflation assumption. Growth is stepped once per year, like
+   * every other income, so a year's twelve payments all carry the same benefit.
+   */
+  private annualSocialSecurityBenefit(year: number): number {
+    const estimate = this.socialSecurityEstimate;
+    if (estimate === undefined) return 0;
+
+    const years = Math.max(0, Math.floor(year));
+    const realGrowthRate = estimate.realColaGrowthRate ?? 0;
+
+    return estimate.annualBenefit * Math.pow(1 + realGrowthRate, years);
   }
 
   getIsActiveByTimeFrame(simulationState: SimulationState): boolean {
