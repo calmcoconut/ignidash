@@ -337,6 +337,7 @@ describe('tax-optimization eval set: what it says the engine cannot compute', ()
     expect(check.property).toContain('Roth conversion');
     expect(check.property).toContain('is never such a refusal');
     expect(check.property).toContain('`taxSettings.itemizedDeductions`');
+    expect(check.property).toContain('`nondeductibleBasis`');
   });
 });
 

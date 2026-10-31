@@ -562,7 +562,7 @@ export const TAX_OPTIMIZATION_EVAL_CHECKS: readonly EvalCheck[] = [
   {
     id: 'refused-patches',
     property:
-      'Asking for a lever the engine does not model (for example a Roth conversion) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
+      'Asking for a lever the engine does not model (for example a Roth conversion) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, and pro-rata IRA basis on a withdrawal through `nondeductibleBasis` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
   },
   {
     id: 'no-writes',
