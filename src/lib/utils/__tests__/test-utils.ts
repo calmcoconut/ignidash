@@ -106,6 +106,7 @@ export const createConvexPhysicalAsset = (overrides?: Partial<ConvexPhysicalAsse
   appreciationRate: overrides?.appreciationRate ?? 3,
   saleDate: overrides?.saleDate,
   paymentMethod: overrides?.paymentMethod ?? { type: 'cash' },
+  propertyTax: overrides?.propertyTax,
   syncedAssetId: overrides?.syncedAssetId,
   syncedLiabilityId: overrides?.syncedLiabilityId,
 });

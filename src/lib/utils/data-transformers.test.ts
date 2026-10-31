@@ -325,6 +325,111 @@ describe('Physical asset transforms', () => {
     expect(back.purchasePrice).toBe(doc.purchasePrice);
     expect(back.saleDate).toEqual({ type: 'atRetirement' });
   });
+
+  // The P1-P5 fields (loan term, mortgage offset, property tax). Each is optional and its absence
+  // is a statement, so both directions must carry the statement and neither may invent a default.
+  it('carries the loan term, the offset account and the property tax back from Convex', () => {
+    const doc = createConvexPhysicalAsset({
+      assetType: 'primaryResidence',
+      paymentMethod: {
+        type: 'loan',
+        downPayment: 80000,
+        loanBalance: 320000,
+        apr: 6,
+        monthlyPayment: 1913.84,
+        termMonths: 360,
+        offsetAccountId: 'savings-1',
+      },
+      propertyTax: { ratePercent: 1.1, annualAmount: 5500 },
+    });
+
+    const zod = physicalAssetFromConvex(doc);
+
+    expect(zod.paymentMethod).toStrictEqual({
+      type: 'loan',
+      downPayment: 80000,
+      loanBalance: 320000,
+      apr: 6,
+      monthlyPayment: 1913.84,
+      termMonths: 360,
+      offsetAccountId: 'savings-1',
+    });
+    expect(zod.propertyTax).toStrictEqual({ ratePercent: 1.1, annualAmount: 5500 });
+  });
+
+  it('keeps the P1-P5 fields absent when the document states none, inventing no default', () => {
+    // A v10 document cannot carry them. Absent must stay absent: no term (the payment drives the
+    // loan), no offset (interest on the whole principal), no property tax (none charged).
+    const zod = physicalAssetFromConvex(
+      createConvexPhysicalAsset({
+        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 },
+      })
+    );
+
+    expect(zod.paymentMethod).toStrictEqual({ type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56 });
+    expect('termMonths' in zod.paymentMethod).toBe(false);
+    expect('offsetAccountId' in zod.paymentMethod).toBe(false);
+    expect('propertyTax' in zod).toBe(false);
+  });
+
+  it('stores the P1-P5 fields to Convex only when they are stated', () => {
+    const stated = physicalAssetToConvex({
+      id: 'asset-1',
+      name: 'Primary Residence',
+      assetType: 'primaryResidence',
+      purchaseDate: { type: 'now' },
+      purchasePrice: 400000,
+      appreciationRate: 3,
+      saleDate: { type: 'atLifeExpectancy' },
+      paymentMethod: {
+        type: 'loan',
+        downPayment: 80000,
+        loanBalance: 320000,
+        apr: 6,
+        monthlyPayment: 1913.84,
+        termMonths: 360,
+        offsetAccountId: 'savings-1',
+      },
+      propertyTax: { annualAmount: 5500 },
+    });
+
+    expect(stated.paymentMethod).toStrictEqual({
+      type: 'loan',
+      downPayment: 80000,
+      loanBalance: 320000,
+      apr: 6,
+      monthlyPayment: 1913.84,
+      termMonths: 360,
+      offsetAccountId: 'savings-1',
+    });
+    expect(stated.propertyTax).toStrictEqual({ annualAmount: 5500 });
+
+    const unstated = physicalAssetToConvex({
+      id: 'asset-2',
+      name: 'Paid Off Home',
+      assetType: 'primaryResidence',
+      purchaseDate: { type: 'now' },
+      purchasePrice: 400000,
+      appreciationRate: 3,
+      saleDate: { type: 'atLifeExpectancy' },
+      paymentMethod: { type: 'cash' },
+    });
+
+    expect('propertyTax' in unstated).toBe(false);
+    expect(unstated.paymentMethod).toStrictEqual({ type: 'cash' });
+  });
+
+  it('round-trips the P1-P5 fields through both transformers', () => {
+    const doc = createConvexPhysicalAsset({
+      paymentMethod: { type: 'loan', loanBalance: 320000, apr: 6, monthlyPayment: 1913.84, termMonths: 360, offsetAccountId: 'savings-1' },
+      propertyTax: { ratePercent: 1.1 },
+    });
+
+    const back = physicalAssetToConvex(physicalAssetFromConvex(doc));
+    // The whole payment method and the property-tax block come back exactly as they went in.
+    expect(back.paymentMethod).toStrictEqual(doc.paymentMethod);
+    expect(back.propertyTax).toStrictEqual(doc.propertyTax);
+  });
 });
 
 // ============================================================================

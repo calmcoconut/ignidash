@@ -37,6 +37,7 @@ import { ReturnsProcessor, type ReturnsData } from './returns';
 import { Incomes, IncomesProcessor, type IncomesData } from './incomes';
 import { PayrollTaxProcessor, type WagePayrollTaxes } from './payroll-taxes';
 import { Expenses, ExpensesProcessor, type ExpensesData } from './expenses';
+import { derivePropertyTaxExpenses } from './property-tax';
 import { Debts, DebtsProcessor, type DebtsData, type DebtData } from './debts';
 import { PhysicalAssets, PhysicalAssetsProcessor, type PhysicalAssetsData, type PhysicalAssetData } from './physical-assets';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
@@ -303,7 +304,25 @@ export class FinancialSimulationEngine {
       simulationContext.firstDeath === undefined ? {} : { [simulationContext.firstDeath.owner]: simulationContext.firstDeath.age };
 
     const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext, memberDeaths);
-    const expenses = new Expenses(Object.values(this.inputs.expenses), timeBindingContext);
+    // A residence's `propertyTax` is charged as an ordinary expense (P1-P5, real estate II): the
+    // engine's cash flow funds expenses and nothing else, so the bill is derived into an expense
+    // row here rather than added to the portfolio maths somewhere else. Absent `propertyTax`
+    // anywhere means an empty list and exactly the expense set this plan had before.
+    const propertyTaxExpenses = derivePropertyTaxExpenses(
+      Object.values(this.inputs.physicalAssets),
+      { inflationRatePercent: this.inputs.marketAssumptions.inflationRate, stateResidency: this.inputs.taxSettings.stateResidency },
+      timeBindingContext
+    );
+    for (const expense of propertyTaxExpenses) {
+      // The derived id is namespaced (`property-tax:<asset id>`), so a collision means the plan
+      // already has an expense under an id this engine owns: refuse rather than overwrite it.
+      if (this.inputs.expenses[expense.id] !== undefined) {
+        throw new Error(
+          `A plan expense already uses the derived property-tax id "${expense.id}"; rename or remove that expense before simulating.`
+        );
+      }
+    }
+    const expenses = new Expenses([...Object.values(this.inputs.expenses), ...propertyTaxExpenses], timeBindingContext);
     const debts = new Debts(Object.values(this.inputs.debts), timeBindingContext);
     const physicalAssets = new PhysicalAssets(Object.values(this.inputs.physicalAssets), timeBindingContext);
     const contributionRules = new ContributionRules(Object.values(this.inputs.contributionRules), this.inputs.baseContributionRule);
@@ -387,7 +406,11 @@ export class FinancialSimulationEngine {
       const { inflationRate: monthlyInflationRate } = returnsProcessor.process();
       const incomesData = incomesProcessor.process();
       const expensesData = expensesProcessor.process();
-      const physicalAssetsData = physicalAssetsProcessor.process(monthlyInflationRate);
+      // A mortgage offset account's balance reduces that loan's interest, and the portfolio is the
+      // only place balances live, so the processor is handed the lookup rather than the numbers.
+      const physicalAssetsData = physicalAssetsProcessor.process(monthlyInflationRate, (accountId) =>
+        simulationState.portfolio.getAccountBalance(accountId)
+      );
       const debtsData = debtsProcessor.process(monthlyInflationRate);
 
       const { discretionaryExpense: monthlyDiscretionaryExpense } = portfolioProcessor.processContributionsAndWithdrawals(

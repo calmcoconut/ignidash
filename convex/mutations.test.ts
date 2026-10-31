@@ -506,6 +506,63 @@ describe('upsertPhysicalAsset', () => {
     });
   });
 
+  it('stores the P1-P5 loan term, offset account and property tax, and reads them back', async () => {
+    // The Convex validator is the database's own gate and the export envelope's payload schema is
+    // derived from it, so a field that survives this round trip is one a file can carry.
+    const t = convexTest(schema, modules);
+    const planId = await t.run(async (ctx) => {
+      return ctx.db.insert('plans', makePlan({ physicalAssets: undefined }));
+    });
+
+    const physicalAsset = {
+      id: 'pa-mortgaged',
+      name: 'Mortgaged House',
+      purchaseDate: { type: 'now' as const },
+      purchasePrice: 400000,
+      appreciationRate: 3,
+      paymentMethod: {
+        type: 'loan' as const,
+        downPayment: 80000,
+        loanBalance: 320000,
+        apr: 6,
+        monthlyPayment: 1913.84,
+        termMonths: 360,
+        offsetAccountId: 'account-1',
+      },
+      propertyTax: { ratePercent: 1.1, annualAmount: 5500 },
+    };
+
+    const asUser = t.withIdentity({ subject: TEST_USER });
+    await asUser.mutation(api.physical_asset.upsertPhysicalAsset, { planId, physicalAsset });
+
+    await t.run(async (ctx) => {
+      const plan = await ctx.db.get(planId);
+      const stored = plan!.physicalAssets![0];
+
+      expect(stored.paymentMethod).toStrictEqual(physicalAsset.paymentMethod);
+      expect(stored.propertyTax).toStrictEqual({ ratePercent: 1.1, annualAmount: 5500 });
+    });
+  });
+
+  it('accepts an asset that states none of the P1-P5 fields', async () => {
+    // Absent must remain absent in the database too: the fields are optional, not defaulted.
+    const t = convexTest(schema, modules);
+    const planId = await t.run(async (ctx) => {
+      return ctx.db.insert('plans', makePlan({ physicalAssets: undefined }));
+    });
+
+    const asUser = t.withIdentity({ subject: TEST_USER });
+    await asUser.mutation(api.physical_asset.upsertPhysicalAsset, { planId, physicalAsset: newPhysicalAsset });
+
+    await t.run(async (ctx) => {
+      const plan = await ctx.db.get(planId);
+      const stored = plan!.physicalAssets![0];
+
+      expect(stored.paymentMethod).toStrictEqual({ type: 'cash' });
+      expect(stored.propertyTax).toBeUndefined();
+    });
+  });
+
   it('throws at max 10 physical assets on insert', async () => {
     const t = convexTest(schema, modules);
     const physicalAssets = Array.from({ length: 10 }, (_, i) => ({

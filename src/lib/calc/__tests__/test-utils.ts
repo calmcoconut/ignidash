@@ -192,6 +192,8 @@ export const createPhysicalAssetInput = (overrides?: Partial<PhysicalAssetInputs
   appreciationRate: overrides?.appreciationRate ?? 3,
   saleDate: overrides?.saleDate ?? { type: 'atLifeExpectancy' },
   paymentMethod: overrides?.paymentMethod ?? { type: 'cash' },
+  // Property tax (P1-P5), carried through only when stated; absent means none is charged.
+  ...(overrides?.propertyTax !== undefined ? { propertyTax: overrides.propertyTax } : {}),
 });
 
 export const createFinancedAssetInput = (overrides?: Partial<PhysicalAssetInputs>): PhysicalAssetInputs => {
@@ -214,6 +216,10 @@ export const createFinancedAssetInput = (overrides?: Partial<PhysicalAssetInputs
       loanBalance,
       apr: paymentMethodOverrides?.apr ?? 6,
       monthlyPayment: paymentMethodOverrides?.monthlyPayment ?? 1918.56, // Standard 30yr payment at 6% APR on $320k
+      // Optional statements (P1-P5), carried through only when the caller states them: absent means
+      // the payment drives the loan and there is no offset account, as before.
+      ...(paymentMethodOverrides?.termMonths !== undefined ? { termMonths: paymentMethodOverrides.termMonths } : {}),
+      ...(paymentMethodOverrides?.offsetAccountId !== undefined ? { offsetAccountId: paymentMethodOverrides.offsetAccountId } : {}),
     },
   };
 };

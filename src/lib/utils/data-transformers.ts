@@ -146,6 +146,9 @@ export function debtFromConvex(debt: NonNullable<Doc<'plans'>['debts']>[number])
 }
 
 // Defaults: assetType → 'other', missing saleDate → 'atLifeExpectancy' (never sold).
+// No defaults for `paymentMethod.termMonths`, `paymentMethod.offsetAccountId` or `propertyTax`:
+// each one's absence is a statement (no term-driven payment, no offset, no property tax), so it is
+// carried through as absent rather than filled in — see the v11 history in `plan-envelope.ts`.
 export function physicalAssetFromConvex(physicalAsset: NonNullable<Doc<'plans'>['physicalAssets']>[number]): PhysicalAssetInputs {
   return {
     id: physicalAsset.id,
@@ -159,7 +162,25 @@ export function physicalAssetFromConvex(physicalAsset: NonNullable<Doc<'plans'>[
     amountBasis: physicalAsset.amountBasis,
     owner: physicalAsset.owner,
     propertyRegime: physicalAsset.propertyRegime,
-    paymentMethod: physicalAsset.paymentMethod,
+    // Absent `termMonths`: the monthly payment drives the loan, as before P1-P5.
+    // Absent `offsetAccountId`: interest is charged on the whole principal.
+    // Both stay absent rather than being written as `undefined`: nothing downstream defaults them.
+    paymentMethod:
+      physicalAsset.paymentMethod.type === 'loan'
+        ? {
+            type: 'loan',
+            ...(physicalAsset.paymentMethod.downPayment !== undefined ? { downPayment: physicalAsset.paymentMethod.downPayment } : {}),
+            loanBalance: physicalAsset.paymentMethod.loanBalance,
+            apr: physicalAsset.paymentMethod.apr,
+            monthlyPayment: physicalAsset.paymentMethod.monthlyPayment,
+            ...(physicalAsset.paymentMethod.termMonths !== undefined ? { termMonths: physicalAsset.paymentMethod.termMonths } : {}),
+            ...(physicalAsset.paymentMethod.offsetAccountId !== undefined
+              ? { offsetAccountId: physicalAsset.paymentMethod.offsetAccountId }
+              : {}),
+          }
+        : { type: 'cash' },
+    // Absent `propertyTax`: the plan pays no property tax through the engine, as before P1-P5.
+    ...(physicalAsset.propertyTax !== undefined ? { propertyTax: physicalAsset.propertyTax } : {}),
     syncedAssetId: physicalAsset.syncedAssetId,
     syncedLiabilityId: physicalAsset.syncedLiabilityId,
   };
@@ -370,7 +391,32 @@ export function physicalAssetToConvex(physicalAsset: PhysicalAssetInputs): NonNu
     amountBasis: physicalAsset.amountBasis,
     owner: physicalAsset.owner,
     propertyRegime: physicalAsset.propertyRegime,
-    paymentMethod: physicalAsset.paymentMethod,
+    // Absent `termMonths`: the monthly payment drives the loan, as before P1-P5.
+    // Absent `offsetAccountId`: interest is charged on the whole principal.
+    // Both stay absent rather than being written as `undefined`: nothing downstream defaults them.
+    paymentMethod:
+      physicalAsset.paymentMethod.type === 'loan'
+        ? {
+            type: 'loan',
+            ...(physicalAsset.paymentMethod.downPayment !== undefined ? { downPayment: physicalAsset.paymentMethod.downPayment } : {}),
+            loanBalance: physicalAsset.paymentMethod.loanBalance,
+            apr: physicalAsset.paymentMethod.apr,
+            monthlyPayment: physicalAsset.paymentMethod.monthlyPayment,
+            ...(physicalAsset.paymentMethod.termMonths !== undefined ? { termMonths: physicalAsset.paymentMethod.termMonths } : {}),
+            ...(physicalAsset.paymentMethod.offsetAccountId !== undefined
+              ? { offsetAccountId: physicalAsset.paymentMethod.offsetAccountId }
+              : {}),
+          }
+        : { type: 'cash' },
+    // Absent `propertyTax`: the plan pays no property tax through the engine, as before P1-P5.
+    ...(physicalAsset.propertyTax !== undefined
+      ? {
+          propertyTax: {
+            ...(physicalAsset.propertyTax.ratePercent !== undefined ? { ratePercent: physicalAsset.propertyTax.ratePercent } : {}),
+            ...(physicalAsset.propertyTax.annualAmount !== undefined ? { annualAmount: physicalAsset.propertyTax.annualAmount } : {}),
+          },
+        }
+      : {}),
     syncedAssetId: physicalAsset.syncedAssetId,
     syncedLiabilityId: physicalAsset.syncedLiabilityId,
   };

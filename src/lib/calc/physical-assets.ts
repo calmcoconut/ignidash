@@ -8,6 +8,7 @@
 
 import type { PhysicalAssetInputs, PaymentMethodInputs, PhysicalAssetType } from '@/lib/schemas/inputs/physical-asset-form-schema';
 
+import { computeLoanPayment } from './amortization-schedule';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
@@ -24,7 +25,14 @@ export class PhysicalAssetsProcessor {
     private physicalAssets: PhysicalAssets
   ) {}
 
-  process(monthlyInflationRate: number): PhysicalAssetsData {
+  /**
+   * @param monthlyInflationRate - The month's inflation, as `returns-processor` reports it.
+   * @param accountBalance - How to read a named account's balance, used by a mortgage offset
+   *   account (`paymentMethod.offsetAccountId`): the offset's balance is subtracted from the
+   *   loan's interest-bearing principal. Defaults to `0`, which is "no offset" — the behaviour
+   *   before the field existed, and what a caller that does not own the portfolio gets.
+   */
+  process(monthlyInflationRate: number, accountBalance: (accountId: string) => number = () => 0): PhysicalAssetsData {
     let totalPurchaseOutlay = 0;
     let totalPurchaseMarketValue = 0;
     const purchaseDataByAsset: Record<string, { purchaseOutlay: number; purchaseMarketValue: number }> = {};
@@ -58,7 +66,8 @@ export class PhysicalAssetsProcessor {
 
       const { monthlyAppreciation: appreciation } = asset.applyMonthlyAppreciation();
 
-      const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(monthlyInflationRate);
+      const offsetBalance = asset.getOffsetAccountId() === undefined ? 0 : accountBalance(asset.getOffsetAccountId()!);
+      const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(monthlyInflationRate, offsetBalance);
       asset.applyLoanPayment(monthlyPaymentDue, interest);
       asset.applyMonthlyInflation(monthlyInflationRate);
 
@@ -317,6 +326,9 @@ export class PhysicalAsset {
   private loanPrincipal: number = 0;
   private nominalAPR: number = 0; // Store nominal APR (user input)
   private monthlyLoanPayment: number = 0; // Mutable, deflates over time
+  private termMonths: number | undefined; // When set, the payment is derived from the term
+  private termPayment: number | undefined; // The derived payment, solved once at the first payment
+  private offsetAccountId: string | undefined; // Account whose balance offsets the interest
   private downPayment: number | undefined; // Scaled with the rest of the purchase price
   private ownershipStatus: OwnershipStatus;
   private hasSecuredDebtBeenIncurred: boolean;
@@ -345,6 +357,8 @@ export class PhysicalAsset {
       this.loanPrincipal = this.loanBalance;
       this.nominalAPR = data.paymentMethod.apr / 100;
       this.monthlyLoanPayment = data.paymentMethod.monthlyPayment * amountScale;
+      this.termMonths = data.paymentMethod.termMonths;
+      this.offsetAccountId = data.paymentMethod.offsetAccountId;
       this.downPayment = data.paymentMethod.downPayment === undefined ? undefined : data.paymentMethod.downPayment * amountScale;
     }
 
@@ -390,6 +404,16 @@ export class PhysicalAsset {
     return this.paymentMethod.type;
   }
 
+  /** The loan term in months, when the plan states one; `undefined` for a payment-driven loan. */
+  getTermMonths(): number | undefined {
+    return this.termMonths;
+  }
+
+  /** The account whose balance offsets this loan's interest, when the plan names one. */
+  getOffsetAccountId(): string | undefined {
+    return this.offsetAccountId;
+  }
+
   isSold(): boolean {
     return this.ownershipStatus === 'sold';
   }
@@ -413,20 +437,68 @@ export class PhysicalAsset {
     return { monthlyAppreciation };
   }
 
-  private calculateMonthlyInterest(monthlyInflationRate: number): number {
+  /**
+   * Interest for the month, on the principal the offset account leaves exposed.
+   *
+   * An offset account is a deposit the lender nets against the mortgage before charging interest:
+   * the loan principal is unchanged, but interest accrues on `principal - offset`. Both sides are
+   * capped at the loan (`Math.max(0, …)`), so an offset larger than the mortgage charges no
+   * interest rather than a negative amount — and the loan is not credited for the surplus.
+   */
+  private calculateMonthlyInterest(monthlyInflationRate: number, offsetBalance = 0): number {
     if (this.paymentMethod.type !== 'loan') return 0;
-    return this.loanPrincipal * ((1 + this.nominalAPR / 12) / (1 + monthlyInflationRate) - 1);
+
+    const realRate = (1 + this.nominalAPR / 12) / (1 + monthlyInflationRate) - 1;
+    const interestBearingPrincipal = Math.max(0, this.loanPrincipal - Math.max(0, offsetBalance));
+
+    return interestBearingPrincipal * realRate;
   }
 
-  getMonthlyPaymentInfo(monthlyInflationRate: number): { monthlyPaymentDue: number; interest: number } {
+  /**
+   * The month's payment and interest for an owned asset.
+   *
+   * @param monthlyInflationRate - The month's inflation, for the engine's real-rate convention.
+   * @param offsetBalance - The named offset account's balance this month (0 for none); it reduces
+   *   the interest charged, never the payment.
+   */
+  getMonthlyPaymentInfo(monthlyInflationRate: number, offsetBalance = 0): { monthlyPaymentDue: number; interest: number } {
     if (this.ownershipStatus !== 'owned') throw new Error('Asset is not owned');
     if (this.isPaidOff()) return { monthlyPaymentDue: 0, interest: 0 };
 
+    // Derived once, at the first payment: every later month deflates it exactly as the schedule
+    // does, so re-deriving here would undo that deflation.
+    if (this.termMonths !== undefined && this.termPayment === undefined) {
+      this.monthlyLoanPayment = this.resolveTermPayment(monthlyInflationRate);
+    }
+
     // Interest can be negative when inflation > APR (real rate is negative)
-    const interest = this.calculateMonthlyInterest(monthlyInflationRate);
+    const interest = this.calculateMonthlyInterest(monthlyInflationRate, offsetBalance);
     const monthlyPaymentDue = Math.min(this.monthlyLoanPayment, this.loanBalance + interest);
 
     return { monthlyPaymentDue, interest };
+  }
+
+  /**
+   * The monthly payment that clears this loan in exactly its term, under the engine's own
+   * deflated recurrence (`amortization-schedule.ts`: interest first, then principal, with the
+   * payment deflated by inflation every month). Solved once, at the first payment, from the plan's
+   * own monthly inflation — which is the same rate the loop below deflates the payment by, so the
+   * schedule and the engine cannot disagree about what month the loan ends.
+   */
+  private resolveTermPayment(monthlyInflationRate: number): number {
+    if (this.termPayment !== undefined) return this.termPayment;
+
+    // The engine's inflation is monthly; `computeLoanPayment` takes the annual assumption, so the
+    // conversion is inverted here (the same geometric monthly rate `amortization-schedule.ts` uses).
+    const annualInflationPercent = (Math.pow(1 + monthlyInflationRate, 12) - 1) * 100;
+    this.termPayment = computeLoanPayment({
+      principal: this.loanPrincipal,
+      annualRatePercent: this.nominalAPR * 100,
+      termMonths: this.termMonths!,
+      annualInflationPercent,
+    });
+
+    return this.termPayment;
   }
 
   /** Applies a loan payment, allocating to interest then principal (simple interest) */

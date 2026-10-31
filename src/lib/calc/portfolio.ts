@@ -988,6 +988,17 @@ export class Portfolio {
     return this.accounts;
   }
 
+  /**
+   * One account's balance by id, or `0` when no account has that id.
+   *
+   * `0` rather than a throw, because the only caller is the mortgage offset lookup
+   * (`paymentMethod.offsetAccountId`): an id that no longer names an account — a deleted account, a
+   * plan imported from elsewhere — must behave like "no offset", not break the simulation.
+   */
+  getAccountBalance(accountId: string): number {
+    return this.accounts.find((account) => account.getAccountID() === accountId)?.getBalance() ?? 0;
+  }
+
   getTotalValue(): number {
     return this.accounts.reduce((acc, account) => acc + account.getBalance(), 0);
   }

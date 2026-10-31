@@ -1186,6 +1186,15 @@
                     "type": "number",
                     "exclusiveMinimum": 0,
                     "maximum": 99999999999
+                  },
+                  "termMonths": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 600
+                  },
+                  "offsetAccountId": {
+                    "type": "string",
+                    "minLength": 1
                   }
                 },
                 "required": [
@@ -1196,6 +1205,21 @@
                 ]
               }
             ]
+          },
+          "propertyTax": {
+            "type": "object",
+            "properties": {
+              "ratePercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "annualAmount": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 99999999999
+              }
+            }
           },
           "syncedAssetId": {
             "type": "string"

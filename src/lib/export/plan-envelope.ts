@@ -44,13 +44,13 @@ export type { ImportIssue };
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 10 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8,
- * P3-P1b and P1-P4).
+ * Export/import envelope, version 11 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8,
+ * P3-P1b, P1-P4 and P1-P5).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 10, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 10, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 11, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 11, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -142,6 +142,34 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        flag on each expense, so a v9 file is made by *deleting* those two keys, and the v9 fixture
  *        in `plan-envelope.test.ts` counts them before and after so the strip cannot pass vacuously.
  *
+ *   11 — P1-P5 real estate II: optional `physicalAssets[*].paymentMethod.termMonths`, optional
+ *        `physicalAssets[*].paymentMethod.offsetAccountId`, and optional
+ *        `physicalAssets[*].propertyTax` (`ratePercent` and/or `annualAmount`). A version 10 file
+ *        cannot carry any of the three, because the bump lands in the change that adds them, and
+ *        the importer invents no default for any of them:
+ *
+ *        - Absent `termMonths` means **the monthly payment drives the loan**, which is the
+ *          convention every earlier build ran: interest on the principal, the stored payment applied
+ *          and deflated by inflation month by month. A v10 mortgage therefore amortises to exactly
+ *          the numbers it had, and the importer keeps the absence rather than deriving a term from
+ *          the payment. Stating a term is a different, explicit instruction — the engine derives the
+ *          payment from the term and the APR (`amortization-schedule.ts`) — not a normalisation.
+ *        - Absent `offsetAccountId` means **no offset account**: interest is charged on the whole
+ *          loan principal, exactly as every earlier build did. Naming an account is a stored
+ *          preference, not a second loan convention, so its absence cannot move a number.
+ *        - Absent `propertyTax` means **no property tax through the engine**: the residence is
+ *          charged none, which is what every earlier build did (a plan that pays property tax did it
+ *          with a plain expense row, and still does). It is emphatically **not** a stated rate of
+ *          zero: the block charges a bill only when it states a `ratePercent` or an `annualAmount`,
+ *          so `propertyTax: {}` — what the mortgage dialog leaves behind after both inputs are
+ *          cleared — also states no bill, and no build ever writes a block with no number in it.
+ *          Nothing is written back, so re-exporting a v10 plan unchanged writes a v11 file with all
+ *          three still absent, which reads the same way.
+ *
+ *        All three sit inside a physical asset's existing blocks, so a v10 file is made by
+ *        *deleting* them, and the v10 fixture in `plan-envelope.test.ts` counts them before and
+ *        after so the strip cannot pass vacuously.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -153,7 +181,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 10;
+export const EXPORT_SCHEMA_VERSION = 11;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

@@ -11,10 +11,12 @@ import { CalendarIcon, HomeIcon, BanknoteArrowDownIcon, BanknoteXIcon, InfoIcon 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm, useWatch, Controller } from 'react-hook-form';
 
-import { useTimelineData, useMarketAssumptionsData } from '@/hooks/use-convex-data';
+import { useAccountsData, useTimelineData, useMarketAssumptionsData } from '@/hooks/use-convex-data';
 import { useAlreadySyncedIds } from '@/hooks/use-already-synced-ids';
 import { useLinkableFinances } from '@/hooks/use-linkable-finances';
 import { usePayoffEstimate } from '@/hooks/use-payoff-estimate';
+import { computeLoanPayment } from '@/lib/calc/amortization-schedule';
+import { accountTypeForDisplay } from '@/lib/schemas/inputs/account-form-schema';
 import { physicalAssetToConvex } from '@/lib/utils/data-transformers';
 import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
 import type { DisclosureState } from '@/lib/types/disclosure-state';
@@ -83,6 +85,7 @@ export default function PhysicalAssetDialog({
     control,
     handleSubmit,
     getFieldState,
+    getValues,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm({
@@ -96,6 +99,10 @@ export default function PhysicalAssetDialog({
   const { error: monthlyPaymentError } = getFieldState('paymentMethod.monthlyPayment');
   const { error: aprError } = getFieldState('paymentMethod.apr');
   const { error: downPaymentError } = getFieldState('paymentMethod.downPayment');
+  const { error: termMonthsError } = getFieldState('paymentMethod.termMonths');
+  const { error: offsetAccountIdError } = getFieldState('paymentMethod.offsetAccountId');
+  const { error: propertyTaxRateError } = getFieldState('propertyTax.ratePercent');
+  const { error: propertyTaxAmountError } = getFieldState('propertyTax.annualAmount');
 
   const m = useMutation(api.physical_asset.upsertPhysicalAsset);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -173,21 +180,63 @@ export default function PhysicalAssetDialog({
   // still loading there is no honest estimate: show none rather than a nominal one that jumps.
   const annualInflationRate = useMarketAssumptionsData()?.inflationRate;
 
+  const { data: accounts } = useAccountsData();
+  const accountOptions = useMemo(
+    () => Object.values(accounts).map((account) => ({ id: account.id, label: `${account.name} | ${accountTypeForDisplay(account.type)}` })),
+    [accounts]
+  );
+
+  // A stated loan term (P1-P5) means the engine derives the payment from the term and the APR, so
+  // the term *is* the payoff estimate and the payment is written down from the same function.
+  const loanPaymentMethod = paymentMethod.type === 'loan' ? paymentMethod : null;
+  const rawTermMonths = Number(loanPaymentMethod?.termMonths);
+  const rawLoanBalance = Number(loanPaymentMethod?.loanBalance);
+  const rawApr = Number(loanPaymentMethod?.apr);
+  const statedTermMonths =
+    Number.isInteger(rawTermMonths) && rawTermMonths > 0 && !isNaN(rawLoanBalance) && rawLoanBalance > 0 && !isNaN(rawApr)
+      ? rawTermMonths
+      : null;
+
+  const derivedTermPayment =
+    statedTermMonths !== null && annualInflationRate !== undefined
+      ? computeLoanPayment({
+          principal: rawLoanBalance,
+          annualRatePercent: rawApr,
+          termMonths: statedTermMonths,
+          annualInflationPercent: annualInflationRate,
+        })
+      : null;
+
+  // Store the derived payment so the saved document never carries a payment that contradicts the
+  // term. Two decimals: money the user reads, and exactly what the engine would charge to the cent.
+  useEffect(() => {
+    if (derivedTermPayment === null || !Number.isFinite(derivedTermPayment)) return;
+
+    const stored = Number(getValues('paymentMethod.monthlyPayment'));
+    const rounded = Number(derivedTermPayment.toFixed(2));
+    if (Math.abs(stored - rounded) < 0.005) return;
+
+    setValue('paymentMethod.monthlyPayment', rounded, { shouldValidate: true });
+  }, [derivedTermPayment, getValues, setValue]);
+
   const loanPayoffMonths = usePayoffEstimate(
-    paymentMethodType === 'loan' &&
-      !isNaN(Number(paymentMethod.loanBalance)) &&
-      !isNaN(Number(paymentMethod.monthlyPayment)) &&
-      !isNaN(Number(paymentMethod.apr)) &&
+    statedTermMonths === null &&
+      loanPaymentMethod !== null &&
+      !isNaN(rawLoanBalance) &&
+      !isNaN(Number(loanPaymentMethod.monthlyPayment)) &&
+      !isNaN(rawApr) &&
       annualInflationRate !== undefined
       ? {
-          balance: Number(paymentMethod.loanBalance),
-          monthlyPayment: Number(paymentMethod.monthlyPayment),
-          apr: Number(paymentMethod.apr),
+          balance: rawLoanBalance,
+          monthlyPayment: Number(loanPaymentMethod.monthlyPayment),
+          apr: rawApr,
           interestType: 'simple',
           annualInflationRate,
         }
       : null
   );
+
+  const payoffMonths = statedTermMonths ?? loanPayoffMonths;
 
   useEffect(() => {
     if (purchaseDateType !== 'customDate') {
@@ -214,6 +263,8 @@ export default function PhysicalAssetDialog({
       unregister('paymentMethod.loanBalance');
       unregister('paymentMethod.apr');
       unregister('paymentMethod.monthlyPayment');
+      unregister('paymentMethod.termMonths');
+      unregister('paymentMethod.offsetAccountId');
     }
 
     if (!showDownPaymentField) {
@@ -691,8 +742,56 @@ export default function PhysicalAssetDialog({
                                 inputMode="decimal"
                                 placeholder={formatCurrencyPlaceholder(2400)}
                                 prefix={getCurrencySymbol()}
+                                readOnly={statedTermMonths !== null}
                               />
+                              {statedTermMonths !== null && (
+                                <Description>Derived from the loan term and APR: the loan is paid off in exactly the term.</Description>
+                              )}
                               {monthlyPaymentError && <ErrorMessage>{monthlyPaymentError.message}</ErrorMessage>}
+                            </Field>
+                            <Field>
+                              <Label htmlFor="paymentMethod.termMonths" className="flex w-full items-center justify-between">
+                                <span className="whitespace-nowrap">Loan Term</span>
+                                <span className="text-muted-foreground hidden truncate text-sm/6 sm:inline">Optional</span>
+                              </Label>
+                              <NumberInput
+                                name="paymentMethod.termMonths"
+                                control={control}
+                                id="paymentMethod.termMonths"
+                                inputMode="numeric"
+                                placeholder="360"
+                                suffix="months"
+                              />
+                              <Description>
+                                In months. With a term, the payment is derived so the loan clears in exactly that many months.
+                              </Description>
+                              {termMonthsError && <ErrorMessage>{termMonthsError.message}</ErrorMessage>}
+                            </Field>
+                            <Field className="col-span-2">
+                              <Label htmlFor="paymentMethod.offsetAccountId" className="flex w-full items-center justify-between">
+                                <span className="whitespace-nowrap">Offset Account</span>
+                                <span className="text-muted-foreground hidden truncate text-sm/6 sm:inline">Optional</span>
+                              </Label>
+                              <Select
+                                {...register('paymentMethod.offsetAccountId', {
+                                  // An empty choice is "no offset", not an account named "".
+                                  setValueAs: (value: string) => (value === '' ? undefined : value),
+                                })}
+                                id="paymentMethod.offsetAccountId"
+                                name="paymentMethod.offsetAccountId"
+                              >
+                                <option value="">No offset account</option>
+                                {accountOptions.map((account) => (
+                                  <option key={account.id} value={account.id}>
+                                    {account.label}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Description>
+                                Its balance reduces the interest charged on this loan. The payment is unchanged, so the loan is paid off
+                                sooner.
+                              </Description>
+                              {offsetAccountIdError && <ErrorMessage>{offsetAccountIdError.message}</ErrorMessage>}
                             </Field>
                             <Field className={getAPRColSpan()}>
                               <Label htmlFor="paymentMethod.apr">APR</Label>
@@ -722,7 +821,7 @@ export default function PhysicalAssetDialog({
                             )}
                           </>
                         )}
-                        <PayoffEstimate months={loanPayoffMonths} className="col-span-2" />
+                        <PayoffEstimate months={payoffMonths} className="col-span-2" />
                       </div>
                     </DisclosurePanel>
                   </>
@@ -770,6 +869,40 @@ export default function PhysicalAssetDialog({
                           <Description>
                             When sold, primary residences may qualify for the Section 121 exclusion, reducing capital gains taxes.
                           </Description>
+                        </Field>
+                        <Field>
+                          <Label htmlFor="propertyTax.ratePercent" className="flex w-full items-center justify-between">
+                            <span className="whitespace-nowrap">Property Tax Rate</span>
+                            <span className="text-muted-foreground hidden truncate text-sm/6 sm:inline">Optional</span>
+                          </Label>
+                          <NumberInput
+                            name="propertyTax.ratePercent"
+                            control={control}
+                            id="propertyTax.ratePercent"
+                            inputMode="decimal"
+                            placeholder="1.1%"
+                            suffix="%"
+                          />
+                          <Description>
+                            Per year of the assessed value. California&rsquo;s Prop 13 caps the assessment&rsquo;s growth at 2% a year.
+                          </Description>
+                          {propertyTaxRateError && <ErrorMessage>{propertyTaxRateError.message}</ErrorMessage>}
+                        </Field>
+                        <Field>
+                          <Label htmlFor="propertyTax.annualAmount" className="flex w-full items-center justify-between">
+                            <span className="whitespace-nowrap">Annual Property Tax</span>
+                            <span className="text-muted-foreground hidden truncate text-sm/6 sm:inline">Optional</span>
+                          </Label>
+                          <NumberInput
+                            name="propertyTax.annualAmount"
+                            control={control}
+                            id="propertyTax.annualAmount"
+                            inputMode="decimal"
+                            placeholder={formatCurrencyPlaceholder(6600)}
+                            prefix={getCurrencySymbol()}
+                          />
+                          <Description>Stated in today&rsquo;s dollars. Overrides the rate when both are filled in.</Description>
+                          {propertyTaxAmountError && <ErrorMessage>{propertyTaxAmountError.message}</ErrorMessage>}
                         </Field>
                       </div>
                     </DisclosurePanel>

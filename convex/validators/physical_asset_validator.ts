@@ -27,6 +27,18 @@ const loanPaymentValidator = v.object({
   loanBalance: v.number(),
   apr: v.number(),
   monthlyPayment: v.number(),
+  // Loan term in whole months (P1-P5). Absent means the monthly payment drives the loan, as before.
+  termMonths: v.optional(v.number()),
+  // Account whose balance offsets the loan's interest-bearing principal (P1-P5).
+  // Absent means no offset: interest is charged on the whole principal, as before.
+  offsetAccountId: v.optional(v.string()),
+});
+
+const propertyTaxValidator = v.object({
+  // Annual rate in percent applied to the assessed value; `prop-13.ts`'s 1.1% when absent.
+  ratePercent: v.optional(v.number()),
+  // The annual bill itself; wins over `ratePercent` when both are present.
+  annualAmount: v.optional(v.number()),
 });
 
 const paymentMethodValidator = v.union(cashPaymentValidator, loanPaymentValidator);
@@ -41,6 +53,8 @@ export const physicalAssetValidator = v.object({
   appreciationRate: v.number(),
   saleDate: v.optional(physicalAssetTimePointValidator),
   paymentMethod: paymentMethodValidator,
+  // Property tax on the asset (P1-P5). Absent means none is charged, as before.
+  propertyTax: v.optional(propertyTaxValidator),
   // real (today's dollars, default) | nominal (dollars of the purchase date)
   amountBasis: v.optional(v.union(v.literal('real'), v.literal('nominal'))),
   // Whose item this is (P1-P2). Absent means `primary`.

@@ -6,7 +6,15 @@ import { basicTemplate } from '../../../convex/templates/basic';
 import { earlyRetirementTemplate } from '../../../convex/templates/early_retirement';
 import { type HouseholdMember, resolveHouseholdMember } from '@/lib/schemas/inputs/household-schema';
 import { getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
-import { expenseFromConvex, simulationSettingsFromConvex, taxSettingsFromConvex } from '@/lib/utils/data-transformers';
+import {
+  expenseFromConvex,
+  physicalAssetFromConvex,
+  simulationSettingsFromConvex,
+  taxSettingsFromConvex,
+} from '@/lib/utils/data-transformers';
+import { PhysicalAsset } from '@/lib/calc/physical-assets';
+import { derivePropertyTaxExpenses } from '@/lib/calc/property-tax';
+import { TEST_TIME_BINDING_CONTEXT } from '@/lib/calc/__tests__/time-binding-context';
 
 import {
   EXPORT_SCHEMA_VERSION,
@@ -224,6 +232,17 @@ const FILING_STATUS_A_V8_BUILD_WRITES = 'marriedFilingJointly';
  * both directions.
  */
 const VERSION_10_FIELDS = ['withdrawalStrategy', 'essential'];
+
+/**
+ * What the v11 bump (P1-P5) added: a residence's loan term, mortgage offset account and property
+ * tax. All three sit inside the physical asset's existing blocks, so a v10 fixture is the current
+ * payload with them deleted — counted in both directions so the strip cannot pass vacuously.
+ *
+ * Their absence is not a default value but a *convention*: no term means the stored payment drives
+ * the loan, no offset means interest is charged on the whole principal, and no property tax means
+ * none is charged. The v10 test below asserts each of those on the imported plan.
+ */
+const VERSION_11_FIELDS = ['termMonths', 'offsetAccountId', 'propertyTax'];
 
 /**
  * Visits every household member in a payload, wherever the envelope keeps it.
@@ -464,8 +483,8 @@ describe('malformed files report the exact field paths', () => {
     const at = (version: unknown) => parseEnvelope(JSON.stringify({ ...envelope, schemaVersion: version }));
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
-    // an older file fails here, not in a support thread. Adding version 10 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    // an older file fails here, not in a support thread. Adding version 11 means adding it here.
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -953,6 +972,116 @@ describe('malformed files report the exact field paths', () => {
     // the sequence it was simulated with, and an expense a cap may cut.
     expect(getWithdrawalStrategy(simulationSettingsFromConvex(importedPlan.simulationSettings).withdrawalStrategy).id).toBe('ordered');
     expect(expenseFromConvex(importedPlan.expenses[0]).essential).toBe(false);
+  });
+
+  /**
+   * A plan carrying all three v11 additions: a term-driven mortgage with an offset account, and a
+   * property-tax block. Returned as a document so the round trip and the v10 strip can share it.
+   */
+  const makeVersion11Plan = () =>
+    makePlanDoc({
+      physicalAssets: [
+        {
+          id: 'asset-1',
+          name: 'Primary Residence',
+          assetType: 'primaryResidence',
+          purchaseDate: { type: 'now' },
+          purchasePrice: 600000,
+          marketValue: 650000,
+          appreciationRate: 3,
+          saleDate: { type: 'atLifeExpectancy' },
+          paymentMethod: {
+            type: 'loan',
+            downPayment: 120000,
+            loanBalance: 480000,
+            apr: 5,
+            monthlyPayment: 2500,
+            termMonths: 360,
+            offsetAccountId: 'savings-1',
+          },
+          propertyTax: { ratePercent: 1.1, annualAmount: 6600 },
+          syncedAssetId: 'finance-asset-1',
+          syncedLiabilityId: 'liability-1',
+        },
+      ],
+    });
+
+  it('round-trips the loan term, the offset account and the property tax, the three things version 11 adds', () => {
+    const plan = makeVersion11Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(11);
+    // All three really are in the payload: a term and an offset inside `paymentMethod`, a tax block
+    // beside it.
+    expect(countFields(envelope, VERSION_11_FIELDS)).toBe(3);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.physicalAssets![0].paymentMethod).toHaveProperty('termMonths', 360);
+    expect(restored.plan.physicalAssets![0].paymentMethod).toHaveProperty('offsetAccountId', 'savings-1');
+    expect(restored.plan.physicalAssets![0].propertyTax).toStrictEqual({ ratePercent: 1.1, annualAmount: 6600 });
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+  });
+
+  it('imports a version 10 plan with no term, no offset and no property tax, and keeps each absent', () => {
+    // v11 adds the three fields, so no v10 build ever wrote them. The strip is a **value deletion**
+    // and both counts are asserted, so the fixture cannot pass without having had work to do.
+    const envelope = createPlanEnvelope({ plan: makeVersion11Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v10 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v10.schemaVersion = 10;
+
+    expect(countFields(v10, VERSION_11_FIELDS)).toBe(3);
+    stripFields(v10, VERSION_11_FIELDS);
+    expect(countFields(v10, VERSION_11_FIELDS)).toBe(0);
+    // The v10 fields are still there: this is a v10 file, not an older one.
+    expect((v10.plan as Record<string, unknown>).taxSettings).toHaveProperty('stateResidency', 'none');
+
+    const parsed = parseEnvelope(JSON.stringify(v10));
+
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(10);
+    // Nothing invented on the way in: a re-export of an untouched v10 plan is the same file.
+    expect(parsed.envelope).toStrictEqual(v10);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedAsset = imported.plans[0].physicalAssets![0];
+    expect(importedAsset.paymentMethod).not.toHaveProperty('termMonths');
+    expect(importedAsset.paymentMethod).not.toHaveProperty('offsetAccountId');
+    expect(importedAsset).not.toHaveProperty('propertyTax');
+
+    // And the *meaning* of each absence, on the imported asset as the engine reads it:
+    //   1. no term → the stored monthly payment drives the loan (2,500, exactly as v10 charged);
+    //   2. no offset → interest is charged on the whole principal;
+    //   3. no property tax → the engine derives no property-tax expense at all.
+    const asset = physicalAssetFromConvex(importedAsset);
+    if (asset.paymentMethod.type !== 'loan') throw new Error('expected a loan');
+    expect(asset.paymentMethod.termMonths).toBeUndefined();
+    expect(asset.paymentMethod.offsetAccountId).toBeUndefined();
+    expect(asset.propertyTax).toBeUndefined();
+
+    const engineAsset = new PhysicalAsset(asset, TEST_TIME_BINDING_CONTEXT);
+    expect(engineAsset.getTermMonths()).toBeUndefined();
+    expect(engineAsset.getOffsetAccountId()).toBeUndefined();
+    // The stored v10 payment drives the loan: 2,500 is what the file states, and interest is
+    // 480,000 × 5%/12 = 2,000 at zero inflation. A 360-month term at 5% would have derived
+    // 2,576.68 instead, so this is not the derived payment under another name.
+    const firstMonth = engineAsset.getMonthlyPaymentInfo(0);
+    expect(firstMonth.monthlyPaymentDue).toBe(2500);
+    expect(firstMonth.interest).toBeCloseTo(2000, 6);
+
+    expect(derivePropertyTaxExpenses([asset], { inflationRatePercent: 3, stateResidency: 'CA' }, TEST_TIME_BINDING_CONTEXT)).toStrictEqual(
+      []
+    );
   });
 
   it('warns about a v7 file that states no state residency, and still imports it', () => {

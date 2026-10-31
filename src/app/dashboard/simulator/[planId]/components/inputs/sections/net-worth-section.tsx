@@ -59,14 +59,18 @@ function getPhysicalAssetDesc(asset: PhysicalAssetInputs, annualInflationRate: n
     case 'loan': {
       const { type: saleDateType } = asset.saleDate;
 
-      const { loanBalance: balance, monthlyPayment, apr } = asset.paymentMethod;
-      // The engine deflates loan payments and interest by the plan's inflation assumption, so the
-      // estimate uses the same assumption to agree with the simulation. While the assumption is
-      // still loading there is no honest estimate: show none rather than a nominal one.
+      const { loanBalance: balance, monthlyPayment, apr, termMonths } = asset.paymentMethod;
+      // A stated loan term (P1-P5) *is* the payoff: the engine derives the payment so the loan
+      // clears in exactly that many months. Otherwise the engine deflates loan payments and
+      // interest by the plan's inflation assumption, so the estimate uses the same assumption to
+      // agree with the simulation — and while it is still loading there is no honest estimate at
+      // all: show none rather than a nominal one that jumps.
       const payoffMonths =
-        annualInflationRate === undefined
-          ? null
-          : estimatePayoffMonths({ balance, monthlyPayment, apr, interestType: 'simple', annualInflationRate });
+        termMonths !== undefined
+          ? termMonths
+          : annualInflationRate === undefined
+            ? null
+            : estimatePayoffMonths({ balance, monthlyPayment, apr, interestType: 'simple', annualInflationRate });
 
       return (
         <>

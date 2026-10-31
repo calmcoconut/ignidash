@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import type { PhysicalAssetInputs } from '@/lib/schemas/inputs/physical-asset-form-schema';
 
+import { buildAmortizationSchedule, computeLoanPayment, monthlyRealRate } from './amortization-schedule';
 import { Debt } from './debts';
 import { PhysicalAsset, PhysicalAssets, PhysicalAssetsProcessor } from './physical-assets';
 import type { SimulationState } from './simulation-engine';
@@ -95,6 +96,10 @@ const createFinancedAssetInput = (overrides: Partial<PhysicalAssetInputs> = {}):
       loanBalance,
       apr,
       monthlyPayment,
+      // P1-P5 fields are carried only when stated: absent means the stored payment drives the
+      // loan and there is no offset account, exactly as before.
+      ...(paymentMethodOverrides?.termMonths !== undefined ? { termMonths: paymentMethodOverrides.termMonths } : {}),
+      ...(paymentMethodOverrides?.offsetAccountId !== undefined ? { offsetAccountId: paymentMethodOverrides.offsetAccountId } : {}),
     },
   };
 };
@@ -2689,5 +2694,255 @@ describe('Negative Interest Reporting (High Inflation Fix)', () => {
 
       expect(assetMonths).toBe(debtMonths);
     });
+  });
+});
+
+// ============================================================================
+// Loan term (P1-P5): the amortisation schedule drives the payment
+// ============================================================================
+
+describe('Loan term (paymentMethod.termMonths)', () => {
+  const monthlyInflation = (annualPercent: number) => Math.pow(1 + annualPercent / 100, 1 / 12) - 1;
+
+  /** Runs the engine's loan loop for `months` payments and reports what it saw. */
+  function runLoan(asset: PhysicalAsset, monthlyRate: number, months: number) {
+    let interestTotal = 0;
+    let payments = 0;
+    for (let month = 0; month < months && !asset.isPaidOff(); month++) {
+      const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(monthlyRate);
+      interestTotal += interest;
+      payments += monthlyPaymentDue;
+      asset.applyLoanPayment(monthlyPaymentDue, interest);
+      asset.applyMonthlyInflation(monthlyRate);
+    }
+
+    return { interestTotal, payments, balance: asset.getLoanBalance() };
+  }
+
+  const financedWithTerm = (termMonths: number | undefined, monthlyPayment = 1918.56) =>
+    new PhysicalAsset(
+      createFinancedAssetInput({
+        purchasePrice: 400000,
+        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment, termMonths },
+      }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+  it('clears a 30-year loan in exactly 360 months at 3% inflation', () => {
+    // The engine deflates the payment every month, so the term payment is NOT the textbook nominal
+    // 1,918.56: `computeLoanPayment` solves the deflated recurrence instead, giving 1,913.8416.
+    const monthlyRate = monthlyInflation(3);
+    const asset = financedWithTerm(360);
+
+    const after359 = runLoan(asset, monthlyRate, 359);
+    // 359 months leave a real balance: the loan is not cleared a month early.
+    expect(after359.balance).toBeCloseTo(788.43, 2);
+    expect(after359.balance).toBeGreaterThan(1);
+
+    const asset2 = financedWithTerm(360);
+    const after360 = runLoan(asset2, monthlyRate, 360);
+    expect(after360.balance).toBe(0);
+
+    // The derived payment is the schedule's first-month payment, to the cent.
+    const fresh = financedWithTerm(360);
+    expect(fresh.getMonthlyPaymentInfo(monthlyRate).monthlyPaymentDue).toBeCloseTo(
+      computeLoanPayment({ principal: 320000, annualRatePercent: 6, termMonths: 360, annualInflationPercent: 3 }),
+      6
+    );
+    expect(computeLoanPayment({ principal: 320000, annualRatePercent: 6, termMonths: 360, annualInflationPercent: 3 })).toBeCloseTo(
+      1913.8416,
+      3
+    );
+
+    // Interest over the term is the schedule's interest (within the schedule's own $1 tolerance),
+    // and the last payment is the remaining balance plus that month's interest — no balloon.
+    const schedule = buildAmortizationSchedule({
+      principal: 320000,
+      annualRatePercent: 6,
+      termMonths: 360,
+      annualInflationPercent: 3,
+    });
+    expect(Math.abs(after360.interestTotal - schedule.totalInterest)).toBeLessThan(1);
+    expect(after360.payments).toBeCloseTo(schedule.totalPaid, 6);
+  });
+
+  it('keeps today’s behaviour when no term is stated: the stored payment drives the loan', () => {
+    // No `termMonths`: the engine applies the stored 1,918.56 and deflates it, which clears this
+    // loan two months early (358) — the pre-P1-P5 result, pinned here so the absence cannot drift.
+    expect(runLoan(financedWithTerm(undefined), monthlyInflation(3), 1200).balance).toBe(0);
+    const nominalPayment = financedWithTerm(undefined);
+    let months = 0;
+    for (; months < 1200 && !nominalPayment.isPaidOff(); months++) {
+      const { monthlyPaymentDue, interest } = nominalPayment.getMonthlyPaymentInfo(monthlyInflation(3));
+      nominalPayment.applyLoanPayment(monthlyPaymentDue, interest);
+      nominalPayment.applyMonthlyInflation(monthlyInflation(3));
+    }
+
+    expect(months).toBe(358);
+    expect(financedWithTerm(360).getTermMonths()).toBe(360);
+    expect(financedWithTerm(undefined).getTermMonths()).toBeUndefined();
+  });
+
+  it('clears a zero-rate term in exactly its months when the real rate is negative', () => {
+    // 12,000 over 24 months at 0% APR with 3% inflation: the engine's real rate is negative, so the
+    // schedule's payment is 498.7699 (a little under 12,000 / 24) and both classes still clear the
+    // loan in 24 months, not 23. The schedule's own row count is the reference.
+    const monthlyRate = monthlyInflation(3);
+    const asset = new PhysicalAsset(
+      createFinancedAssetInput({
+        purchasePrice: 20000,
+        paymentMethod: { type: 'loan', downPayment: 8000, loanBalance: 12000, apr: 0, monthlyPayment: 1, termMonths: 24 },
+      }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+    expect(asset.getMonthlyPaymentInfo(monthlyRate).monthlyPaymentDue).toBeCloseTo(498.7699, 4);
+
+    const after23 = runLoan(asset, monthlyRate, 23);
+    expect(after23.balance).toBeGreaterThan(0);
+
+    const asset2 = new PhysicalAsset(
+      createFinancedAssetInput({
+        purchasePrice: 20000,
+        paymentMethod: { type: 'loan', downPayment: 8000, loanBalance: 12000, apr: 0, monthlyPayment: 1, termMonths: 24 },
+      }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+    // A cent of float residue is not a payment: the loan is cleared (the schedule writes the same
+    // residue off with its own `ONE_CENT` floor).
+    expect(runLoan(asset2, monthlyRate, 24).balance).toBeLessThan(0.01);
+  });
+
+  it('solves a zero-rate term as principal over months', () => {
+    // 12,000 over 24 months at 0% with no inflation: 500.00 a month, no interest.
+    const asset = new PhysicalAsset(
+      createFinancedAssetInput({
+        purchasePrice: 20000,
+        paymentMethod: { type: 'loan', downPayment: 8000, loanBalance: 12000, apr: 0, monthlyPayment: 1, termMonths: 24 },
+      }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+    const result = runLoan(asset, 0, 24);
+    expect(result.payments).toBeCloseTo(12000, 6);
+    expect(result.interestTotal).toBe(0);
+    expect(result.balance).toBe(0);
+  });
+});
+
+// ============================================================================
+// Mortgage offset account (P1-P5)
+// ============================================================================
+
+describe('Mortgage offset account (paymentMethod.offsetAccountId)', () => {
+  const monthlyInflation = (annualPercent: number) => Math.pow(1 + annualPercent / 100, 1 / 12) - 1;
+
+  const financedWithOffset = (offsetAccountId: string | undefined) =>
+    new PhysicalAsset(
+      createFinancedAssetInput({
+        purchasePrice: 400000,
+        paymentMethod: { type: 'loan', downPayment: 80000, loanBalance: 320000, apr: 6, monthlyPayment: 1918.56, offsetAccountId },
+      }),
+      TEST_TIME_BINDING_CONTEXT
+    );
+
+  it('reduces interest by the offset balance times the real rate', () => {
+    // 320,000 at 6.00% APR with 3% inflation charges the Fisher-deflated rate
+    //   i = 1.005 / 1.03^(1/12) − 1 = 0.0025275
+    // so the month's interest is:
+    //   no offset:        320,000 × 0.0025275 = 808.7989
+    //   with 100,000:     220,000 × 0.0025275 = 556.0492
+    //   difference:       100,000 × 0.0025275 = 252.7497  (the offset's whole balance)
+    const monthlyRate = monthlyInflation(3);
+    const without = financedWithOffset(undefined).getMonthlyPaymentInfo(monthlyRate);
+    const withOffset = financedWithOffset('savings-1').getMonthlyPaymentInfo(monthlyRate, 100000);
+
+    expect(without.interest).toBeCloseTo(808.7989, 3);
+    expect(withOffset.interest).toBeCloseTo(556.0492, 3);
+    expect(without.interest - withOffset.interest).toBeCloseTo(100000 * monthlyRealRate(6, 3), 6);
+    expect(without.interest - withOffset.interest).toBeCloseTo(252.7497, 3);
+
+    // The payment is untouched: an offset shortens the loan, it does not change what is due.
+    expect(withOffset.monthlyPaymentDue).toBe(without.monthlyPaymentDue);
+    expect(financedWithOffset('savings-1').getOffsetAccountId()).toBe('savings-1');
+  });
+
+  it('never charges negative interest when the offset exceeds the loan', () => {
+    const monthlyRate = monthlyInflation(3);
+    const capped = financedWithOffset('savings-1').getMonthlyPaymentInfo(monthlyRate, 500000);
+
+    expect(capped.interest).toBe(0);
+    // 320,000 of the 500,000 offsets the loan; the surplus is not credited to the borrower.
+    expect(capped.monthlyPaymentDue).toBeCloseTo(1918.56, 6);
+  });
+
+  it('pays the loan off early by the interest it saves', () => {
+    // Same loan and same payment, one year, with and without a 100,000 offset. Each month's
+    // interest is lower by 100,000 × i, so the principal falls by that much more — and because the
+    // offset loan's balance is lower, the next month saves slightly more. With i = 0.0025275 and
+    // Δ_n = the balance gap after n months:
+    //   Δ_n = Δ_(n−1) × (1 + i) + O × i,  Δ_0 = 0
+    //   Δ_12 = O × ((1 + i)^12 − 1) = 100,000 × 0.030755157 = 3,075.5157
+    // Total payments are identical in both runs, so the interest saved IS that balance gap.
+    const monthlyRate = monthlyInflation(3);
+    const run = (offsetBalance: number) => {
+      const asset = financedWithOffset('savings-1');
+      let interestTotal = 0;
+      for (let month = 0; month < 12; month++) {
+        const { monthlyPaymentDue, interest } = asset.getMonthlyPaymentInfo(monthlyRate, offsetBalance);
+        interestTotal += interest;
+        asset.applyLoanPayment(monthlyPaymentDue, interest);
+        asset.applyMonthlyInflation(monthlyRate);
+      }
+
+      return { interestTotal, balance: asset.getLoanBalance() };
+    };
+
+    const without = run(0);
+    const withOffset = run(100000);
+
+    const expectedGap = 100000 * (Math.pow(1 + monthlyRealRate(6, 3), 12) - 1);
+    expect(expectedGap).toBeCloseTo(3075.5157, 3);
+    expect(without.interestTotal - withOffset.interestTotal).toBeCloseTo(expectedGap, 6);
+    expect(without.balance - withOffset.balance).toBeCloseTo(expectedGap, 6);
+  });
+
+  it('charges the whole principal when no offset account is named', () => {
+    expect(financedWithOffset(undefined).getOffsetAccountId()).toBeUndefined();
+    expect(financedWithOffset(undefined).getMonthlyPaymentInfo(monthlyInflation(3), 0).interest).toBeCloseTo(808.7989, 3);
+  });
+
+  it('is routed from the named account by the processor', () => {
+    // The processor asks the caller for the named account's balance; the plan never passes the
+    // number, so an id that names nothing behaves like no offset (the portfolio answers 0).
+    const assets = new PhysicalAssets(
+      [
+        createFinancedAssetInput({
+          id: 'house',
+          purchasePrice: 400000,
+          paymentMethod: {
+            type: 'loan',
+            downPayment: 80000,
+            loanBalance: 320000,
+            apr: 6,
+            monthlyPayment: 1918.56,
+            offsetAccountId: 'savings-1',
+          },
+        }),
+      ],
+      TEST_TIME_BINDING_CONTEXT
+    );
+    const processor = new PhysicalAssetsProcessor(createSimulationState(), assets);
+
+    const seen: string[] = [];
+    const data = processor.process(monthlyInflation(3), (accountId) => {
+      seen.push(accountId);
+      return 0;
+    });
+
+    // The named account was consulted, and the portfolio answered 0 (no such account here), so the
+    // interest is the whole-principal interest — an id that names nothing is not an error.
+    expect(seen).toStrictEqual(['savings-1']);
+    expect(data.perAssetData['house'].interest).toBeCloseTo(808.7989, 3);
   });
 });
