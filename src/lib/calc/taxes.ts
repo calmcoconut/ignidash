@@ -1667,12 +1667,24 @@ export class TaxProcessor {
     // The income base: everything the federal return taxes as income, with two ruleset flags
     // deciding the differences. Capital gains are ordinary here, so they are in the base with no
     // preferential schedule to stack them on.
+    //
+    // The net capital loss is California's too: California conforms to the IRC §1211(b) limit, so the
+    // loss the federal path moved out of `realizedGains` into `capitalLossDeduction` (limited per
+    // filing status) is subtracted here as well. That claim is about the *limit* only: the CA
+    // Schedule D (540) carryover worksheet can diverge from the federal one where CA basis does
+    // (R&TC §18152, §18151.9 — §1202 gain, opportunity-zone deferral, pre-1987 basis,
+    // §1231(b)(1)(C)), and none of those is reachable from the asset types this engine models, so the
+    // federal carryover stands in for the CA one. This is not the only federal-versus-California
+    // difference the method applies — the hardcoded CA HSA block just below and the FTB 3805P 2.5%
+    // early-distribution penalty are others — the `conformity` table merely carries no capital-loss
+    // flag to switch on.
     let income =
       incomeData.earnedIncome +
       incomeData.taxableRetirementDistributions +
       incomeData.taxableInterestIncome +
       incomeData.taxableDividendIncome +
-      incomeData.realizedGains;
+      incomeData.realizedGains -
+      incomeData.capitalLossDeduction;
     if (conformity.taxesSocialSecurity) income += incomeData.taxableSocialSecurityIncome;
     if (this.stateResidency === 'CA') {
       if (incomeData.hsaEarnings) {
@@ -2105,8 +2117,19 @@ export class TaxProcessor {
   }
 
   /**
-   * Applies capital loss carryover and computes the $3,000 annual capital loss deduction
-   * (IRC §1211(b)). Losses exceeding $3,000 are carried forward to future years.
+   * Applies capital loss carryover and computes the annual capital-loss deduction (IRC §1211(b)).
+   *
+   * §1211(b) allows $3,000 of net capital loss against ordinary income, and $1,500 on a
+   * married-filing-separately return, so the limit is a filing-status table rather than a constant.
+   * `this.filingStatus` is already the separate-return status inside both passes of
+   * `processSeparateReturns`, so the read below prices each spouse's return at $1,500. Losses above
+   * the limit are carried forward per return (`capitalLossCarryoverByReturn`), which is what keeps a
+   * separate-return household's two remainders independent.
+   *
+   * The table is `fixed`: the statute has never indexed the limit, so a simulation year past the
+   * ruleset year deflates it into the plan's today's dollars — $3,000 is about $1,200 by 2057 at 3%
+   * inflation. That is the ruleset's intended semantics for a statute-locked nominal amount (the
+   * same treatment the §121 exclusion and the §86 base amounts get), not a bug.
    */
   private getRealizedGainsAndCapLossDeductionData(
     annualPortfolioDataBeforeTaxes: PortfolioData,
@@ -2126,8 +2149,9 @@ export class TaxProcessor {
       return { realizedGains: realizedGainsAfterCarryover, capitalLossDeduction: 0, section121Exclusion };
     }
 
-    // Annual capital loss deduction capped at $3,000
-    const capitalLossDeduction = -Math.max(-3000, realizedGainsAfterCarryover);
+    // The annual limit is $3,000 generally and $1,500 on a separate return (IRC §1211(b)).
+    const limit = this.inRealDollars(this.ruleset.tables.capitalLossDeductionLimit)[this.filingStatus];
+    const capitalLossDeduction = -Math.max(-limit, realizedGainsAfterCarryover);
     this.capitalLossCarryover = realizedGainsAfterCarryover + capitalLossDeduction;
     return { realizedGains: 0, capitalLossDeduction, section121Exclusion };
   }

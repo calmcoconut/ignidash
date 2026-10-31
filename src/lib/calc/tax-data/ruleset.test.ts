@@ -77,6 +77,10 @@ describe('2026 federal ruleset metadata', () => {
     expect(tables.netInvestmentIncomeTax.indexing).toBe('fixed');
     expect(tables.socialSecurityTaxation.indexing).toBe('fixed');
     expect(tables.section121Exclusion.indexing).toBe('fixed');
+    // IRC §1211(b) has never indexed the $3,000 / $1,500 capital-loss limit, so this table must stay
+    // `fixed`: marking it `indexed` would stop deflating the limit into a later simulation year's
+    // today-dollars, which is the same mistake `salt-cap.ts` documents for the SALT floor.
+    expect(tables.capitalLossDeductionLimit.indexing).toBe('fixed');
   });
 
   it.each([
@@ -89,6 +93,7 @@ describe('2026 federal ruleset metadata', () => {
     ['socialSecurityTaxation.tiers', tables.socialSecurityTaxation.values.tiers],
     ['socialSecurityTaxation.taxableFromFirstDollar', tables.socialSecurityTaxation.values.taxableFromFirstDollar],
     ['section121Exclusion', tables.section121Exclusion.values],
+    ['capitalLossDeductionLimit', tables.capitalLossDeductionLimit.values],
     ['alternativeMinimumTax.exemption', tables.alternativeMinimumTax.values.exemption],
     ['alternativeMinimumTax.exemptionPhaseOutThreshold', tables.alternativeMinimumTax.values.exemptionPhaseOutThreshold],
     ['alternativeMinimumTax.rateLowCeiling', tables.alternativeMinimumTax.values.rateLowCeiling],

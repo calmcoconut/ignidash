@@ -366,5 +366,19 @@ export const FEDERAL_2026: FederalTaxRuleset = {
         marriedFilingSeparately: 250000,
       },
     },
+    capitalLossDeductionLimit: {
+      indexing: 'fixed',
+      // The value itself is the filing-status-keyed dollar amount.
+      dollarFields: ['$'],
+      source:
+        'IRC §1211(b); $3,000 generally and $1,500 on a separate return, fixed by statute. The allowance is the net ' +
+        'capital loss for the year; any excess is carried forward to later years rather than deducted now.',
+      values: {
+        single: 3000,
+        marriedFilingJointly: 3000,
+        headOfHousehold: 3000,
+        marriedFilingSeparately: 1500,
+      },
+    },
   },
 };

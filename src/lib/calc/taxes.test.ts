@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { TaxProcessor } from './taxes';
+import { TaxProcessor, type ReturnOwnership } from './taxes';
 import { getRules } from './tax-data';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import type { FederalTaxRuleset } from './tax-data/types';
-import { Portfolio } from './portfolio';
+import { Portfolio, type PortfolioData } from './portfolio';
 import { computeWagePayrollTaxes } from './payroll-taxes';
 import { FEDERAL_2026 } from './tax-data/years/2026';
 
@@ -23,6 +23,7 @@ const NIIT_RATE = FEDERAL_2026_TABLES.netInvestmentIncomeTax.values.rate;
 const NIIT_THRESHOLDS = FEDERAL_2026_TABLES.netInvestmentIncomeTax.values.thresholds;
 const SECTION_121_EXCLUSION = FEDERAL_2026_TABLES.section121Exclusion.values;
 import {
+  createAccountData,
   createEmptyPortfolioData,
   createEmptyIncomesData,
   createEmptyReturnsData,
@@ -695,6 +696,17 @@ describe('TaxProcessor', () => {
       // Year 4: No new gains/losses, deduct remaining 1k
       const result4 = processor.process(portfolioData, incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
       expect(result4.federalIncomeTaxes.capitalLossDeduction).toBe(1000);
+
+      // Year 5: the carryover is spent, and the year after it must be an ordinary one. The remainder
+      // after year 4 is `realizedGainsAfterCarryover + capitalLossDeduction` = −1,000 + 1,000 = $0;
+      // computing it as `+ limit` would instead leave +$2,000 here, and this year would report
+      // $2,000 of phantom taxable gain with no loss to deduct. Both lines are asserted because the
+      // phantom shows up in `realizedGains`, not in the deduction.
+      const result5 = processor.process(portfolioData, incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+      expect(result5.incomeSources.realizedGains).toBe(0);
+      expect(result5.incomeSources.capitalLossDeduction).toBe(0);
+      // The federal block omits a zero deduction rather than reporting it.
+      expect(result5.federalIncomeTaxes.capitalLossDeduction).toBeUndefined();
     });
 
     it('should offset gains with losses before applying carryover', () => {
@@ -761,6 +773,30 @@ describe('TaxProcessor', () => {
       const result4 = processor.process(portfolioData, incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
 
       expect(result4.federalIncomeTaxes.capitalLossDeduction).toBe(1000);
+    });
+
+    it('reads the limit through the `fixed` ruleset table, so a later year deducts today’s dollars', () => {
+      // The limit is statute-locked, so the 2026 table is `fixed` and the engine deflates it for a
+      // simulation year past the ruleset year. Hand-worked, 3% inflation, 2057 (31 years out):
+      //   1.03^31 = 2.500080…, so $3,000 nominal is 3,000 / 2.500080… = $1,199.96 of today's dollars.
+      const loss = -10000;
+      const process = (taxYear: number, inflationRatePercent: number): number => {
+        const portfolioData = createEmptyPortfolioData();
+        portfolioData.realizedGains = loss;
+
+        return new TaxProcessor(createMockSimulationState(60), 'single', taxYear, undefined, {
+          stateResidency: 'none',
+          inflationRatePercent,
+        }).process(portfolioData, createEmptyIncomesData(), createEmptyReturnsData(), createEmptyPhysicalAssetsData()).federalIncomeTaxes
+          .capitalLossDeduction!;
+      };
+
+      expect(process(2026, 3)).toBe(3000);
+      expect(process(2057, 3)).toBeCloseTo(3000 / Math.pow(1.03, 31), 6);
+      // The absolute figure, so the pin is a number a reader can check rather than a restatement.
+      expect(process(2057, 3)).toBeCloseTo(1199.96, 2);
+      // A constant would return $3,000 here; the deflated limit is emphatically not the nominal one.
+      expect(process(2057, 3)).toBeLessThan(1500);
     });
   });
 
@@ -1733,6 +1769,27 @@ describe('TaxProcessor', () => {
       expect(allWages.capitalGainsTaxes.capitalGainsTaxAmount).toBe(0);
     });
 
+    it('deducts the capital loss the federal path moved out of realized gains (IRC §1211 conformity)', () => {
+      // A $10,000 realized loss. The federal path zeroes `realizedGains` and reports a $3,000
+      // `capitalLossDeduction` (§1211(b)); before this defect was fixed the CA base read only
+      // `realizedGains`, so it taxed the full $100,000 and allowed nothing for the loss.
+      //
+      // The state result has no capital-loss line of its own, so the assertion is on the base it
+      // produces: income 100,000 − 3,000 = 97,000, taxable 97,000 − 5,706 standard = 91,294.
+      // Tax: 3,201.97 (Schedule X at 72,724) + 9.3% × (91,294 − 72,724 = 18,570) = 4,928.98, less
+      // the $153 credit = $4,775.98 — exactly 9.3% × 3,000 = $279 less than the no-loss run.
+      const withLoss = caRun(100000, undefined, { realizedGains: -10000 });
+      const withoutLoss = caRun(100000);
+
+      expect(withLoss.incomeSources.realizedGains).toBe(0);
+      expect(withLoss.federalIncomeTaxes.capitalLossDeduction).toBe(3000);
+
+      expect(withLoss.state.income).toBeCloseTo(97000);
+      expect(withLoss.state.taxableIncome).toBeCloseTo(91294);
+      expect(withLoss.state.total).toBeCloseTo(4775.98, 2);
+      expect(withoutLoss.state.total - withLoss.state.total).toBeCloseTo(279, 2);
+    });
+
     it('excludes Social Security from the California base', () => {
       // $40,000 of benefits plus $60,000 of other income: the federal return taxes part of the
       // benefit (provisional income 60,000 + 20,000 lands in the 85% tier), California taxes only
@@ -2004,19 +2061,23 @@ describe('TaxProcessor', () => {
     }
 
     /** A processor for a separate-return year. No state return, so the arithmetic stays federal. */
-    const separateReturns = (options?: { itemized?: Parameters<typeof deductionSettings>[0]; age?: number }) => {
+    const separateReturns = (options?: {
+      itemized?: Parameters<typeof deductionSettings>[0];
+      age?: number;
+      ownership?: ReturnOwnership;
+    }) => {
       const { itemizedDeductions, spouseQualifiesForSeniorDeduction } = deductionSettings(options?.itemized);
 
       return new TaxProcessor(createMockSimulationState(options?.age ?? 60), 'marriedFilingSeparately', 2026, undefined, {
         stateResidency: 'none',
         itemizedDeductions,
         spouseQualifiesForSeniorDeduction,
-        ownership: { accounts: {}, physicalAssets: {} },
+        ownership: options?.ownership ?? { accounts: {}, physicalAssets: {} },
       });
     };
 
-    const tax = (incomes: IncomesData, processor: TaxProcessor) =>
-      processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+    const tax = (incomes: IncomesData, processor: TaxProcessor, portfolio: PortfolioData = createEmptyPortfolioData()) =>
+      processor.process(portfolio, incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
 
     /** The same year priced under one return, for the direction comparisons below. */
     const jointReturn = (totalIncome: number, settings?: Parameters<typeof deductionSettings>[0]) =>
@@ -2152,6 +2213,135 @@ describe('TaxProcessor', () => {
       expect(separate.deduction.seniorDeduction).toBe(0);
       // The deduction is still reported as a zero line, so a reader can tell it was considered.
       expect(separate.deductions).toHaveProperty('seniorDeduction', 0);
+    });
+
+    it('deducts $1,500 per return rather than $3,000, and carries each spouse’s own remainder (§1211(b))', () => {
+      // One $10,000 loss on each spouse's own account, so each return reports its own loss and the
+      // limit is the separate-return one:
+      //   per return: −10,000 against the $1,500 limit → 1,500 deducted, 8,500 carried forward
+      //   household:  1,500 + 1,500 = $3,000, not 2 × $3,000 = $6,000
+      const portfolio = createEmptyPortfolioData();
+      portfolio.perAccountData = {
+        primaryBrokerage: createAccountData({
+          id: 'primaryBrokerage',
+          name: 'Primary brokerage',
+          type: 'savings',
+          realizedGains: -10000,
+        }),
+        partnerBrokerage: createAccountData({
+          id: 'partnerBrokerage',
+          name: 'Partner brokerage',
+          type: 'savings',
+          realizedGains: -10000,
+        }),
+      };
+      const processor = separateReturns({
+        ownership: { accounts: { primaryBrokerage: 'primary', partnerBrokerage: 'partner' }, physicalAssets: {} },
+      });
+      const incomes = separateYear({ totalIncome: 50000 }, { totalIncome: 50000 });
+
+      const firstYear = tax(incomes, processor, portfolio);
+
+      expect(firstYear.federalIncomeTaxes.capitalLossDeduction).toBe(3000);
+
+      // A second year with no new losses spends each return's carryover at its own pace: each
+      // carries 8,500, so each deducts another $1,500 and the household deducts $3,000.
+      const noNewGains = createEmptyPortfolioData();
+      noNewGains.perAccountData = {
+        primaryBrokerage: { ...portfolio.perAccountData['primaryBrokerage'], realizedGains: 0 },
+        partnerBrokerage: { ...portfolio.perAccountData['partnerBrokerage'], realizedGains: 0 },
+      };
+      const secondYear = tax(incomes, processor, noNewGains);
+
+      expect(secondYear.federalIncomeTaxes.capitalLossDeduction).toBe(3000);
+
+      // A third year in which the partner realises a $9,000 gain: it absorbs that spouse's own
+      // remaining 7,000 carryover and leaves $2,000 of gain, while the primary still deducts $1,500
+      // from its own untouched carryover. A single shared pool would have deducted $3,000 here, so
+      // this assertion is what says the two remainders are separate.
+      const partnerGains = createEmptyPortfolioData();
+      partnerGains.perAccountData = {
+        primaryBrokerage: { ...portfolio.perAccountData['primaryBrokerage'], realizedGains: 0 },
+        partnerBrokerage: { ...portfolio.perAccountData['partnerBrokerage'], realizedGains: 9000 },
+      };
+      const thirdYear = tax(incomes, processor, partnerGains);
+
+      expect(thirdYear.incomeSources.realizedGains).toBeCloseTo(2000);
+      expect(thirdYear.federalIncomeTaxes.capitalLossDeduction).toBe(1500);
+
+      // A fourth year in which the primary realises a $4,500 gain: it absorbs $4,500 of that
+      // spouse's remaining 5,500 carryover and leaves a $1,000 loss — under the $1,500 limit, so it
+      // is deducted in full. The remainder after it is −1,000 + 1,000 = $0, not −1,000 + 1,500 = $500.
+      const primaryGains = createEmptyPortfolioData();
+      primaryGains.perAccountData = {
+        primaryBrokerage: { ...portfolio.perAccountData['primaryBrokerage'], realizedGains: 4500 },
+        partnerBrokerage: { ...portfolio.perAccountData['partnerBrokerage'], realizedGains: 0 },
+      };
+      const fourthYear = tax(incomes, processor, primaryGains);
+
+      expect(fourthYear.incomeSources.realizedGains).toBe(0);
+      expect(fourthYear.federalIncomeTaxes.capitalLossDeduction).toBe(1000);
+
+      // A fifth year with nothing new: every remainder is spent, so neither return reports a gain and
+      // neither deducts. Under `realizedGainsAfterCarryover + limit` the primary would carry +500 and
+      // this year would report a phantom $500 of taxable gain.
+      const fifthYear = tax(incomes, processor, noNewGains);
+
+      expect(fifthYear.incomeSources.realizedGains).toBe(0);
+      expect(fifthYear.incomeSources.capitalLossDeduction).toBe(0);
+      expect(fifthYear.federalIncomeTaxes.capitalLossDeduction).toBeUndefined();
+    });
+
+    it('restores both returns’ carryover when a separate-return year is re-settled (§1211(b), P3-P1b)', () => {
+      // `saveCarryoverSnapshot()` is called once for the household, and every convergence retry
+      // restores it, so the snapshot has to cover **both** returns' remainders. Saving only the
+      // return that happens to be current when the snapshot is taken would drop the other spouse's
+      // carryover to zero, and the retry below would deduct $1,500 once instead of $3,000.
+      const portfolio = createEmptyPortfolioData();
+      portfolio.perAccountData = {
+        primaryBrokerage: createAccountData({
+          id: 'primaryBrokerage',
+          name: 'Primary brokerage',
+          type: 'savings',
+          realizedGains: -10000,
+        }),
+        partnerBrokerage: createAccountData({
+          id: 'partnerBrokerage',
+          name: 'Partner brokerage',
+          type: 'savings',
+          realizedGains: -10000,
+        }),
+      };
+      const processor = separateReturns({
+        ownership: { accounts: { primaryBrokerage: 'primary', partnerBrokerage: 'partner' }, physicalAssets: {} },
+      });
+      const incomes = separateYear({ totalIncome: 50000 }, { totalIncome: 50000 });
+
+      // Year 1: each return deducts $1,500 and carries 8,500.
+      const firstYear = tax(incomes, processor, portfolio);
+      expect(firstYear.federalIncomeTaxes.capitalLossDeduction).toBe(3000);
+
+      const noNewGains = createEmptyPortfolioData();
+      noNewGains.perAccountData = {
+        primaryBrokerage: { ...portfolio.perAccountData['primaryBrokerage'], realizedGains: 0 },
+        partnerBrokerage: { ...portfolio.perAccountData['partnerBrokerage'], realizedGains: 0 },
+      };
+
+      // The household snapshot is taken before the year settles, then year 2 spends $1,500 of each
+      // return's 8,500.
+      processor.saveCarryoverSnapshot();
+      const settlement = tax(incomes, processor, noNewGains);
+      expect(settlement.federalIncomeTaxes.capitalLossDeduction).toBe(3000);
+
+      // The convergence retry restores that snapshot and prices the same year again. Both remainders
+      // are back at 8,500, so both returns deduct $1,500 again — the retry has to reproduce the
+      // settlement, not price one return and forget the other. Because a separate return cannot
+      // deduct more than its own $1,500 limit, a $3,000 household figure can only be 1,500 + 1,500.
+      processor.restoreCarryoverSnapshot();
+      const retry = tax(incomes, processor, noNewGains);
+
+      expect(retry.federalIncomeTaxes.capitalLossDeduction).toBe(3000);
+      expect(retry.totalTaxLiability).toBeCloseTo(settlement.totalTaxLiability);
     });
   });
 

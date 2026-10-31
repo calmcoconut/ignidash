@@ -299,6 +299,13 @@ export interface FederalTaxTables extends TaxTables {
   readonly socialSecurityTaxation: TableMeta<SocialSecurityTaxationTable>;
   /** Primary-residence gain exclusion (IRC §121). */
   readonly section121Exclusion: TableMeta<ByFilingStatus<number>>;
+  /**
+   * The annual capital-loss deduction against ordinary income (IRC §1211(b)): $3,000 generally and
+   * $1,500 on a married-filing-separately return. Fixed by statute — never indexed — and it differs
+   * by filing status, so a status added later is a compile error here rather than a silently
+   * borrowed $3,000.
+   */
+  readonly capitalLossDeductionLimit: TableMeta<ByFilingStatus<number>>;
   /** The alternative minimum tax (IRC §55-§59): exemption, phase-out, rates, disallowed deductions. */
   readonly alternativeMinimumTax: TableMeta<AlternativeMinimumTaxTable>;
   /** Medicare income-related monthly adjustment amounts, Parts B and D (42 U.S.C. §1395r(i)). */
