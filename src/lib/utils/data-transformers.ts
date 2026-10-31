@@ -129,6 +129,8 @@ export function expenseFromConvex(expense: Doc<'plans'>['expenses'][number]): Ex
     disabled: expense.disabled ?? false,
     // Absent in the document means `false`: before the flag existed, no expense was essential.
     essential: expense.essential ?? false,
+    // Absent in the document means `false`: before the flag existed, no expense was qualified medical.
+    qualifiedMedical: expense.qualifiedMedical ?? false,
   };
 }
 
@@ -389,6 +391,7 @@ export function expenseToConvex(expense: ExpenseInputs): Doc<'plans'>['expenses'
     disabled: expense.disabled ?? false,
     // Stored only when it is a real statement, so an untouched expense keeps the document it had.
     ...(expense.essential === true ? { essential: true } : {}),
+    ...(expense.qualifiedMedical === true ? { qualifiedMedical: true } : {}),
   };
 }
 

@@ -603,7 +603,7 @@ describe('cliffs', () => {
     const notModelled = analytics.jurisdictions.california.notModelled.join(' ');
     expect(notModelled).toMatch(/Covered California/);
     expect(notModelled).toMatch(/California AMT/);
-    expect(notModelled).toMatch(/HSA non-conformity/);
+    expect(notModelled).not.toMatch(/HSA non-conformity/);
     // The state return is no longer on the global "cannot answer" list.
     expect(analytics.notComputed.join(' ')).not.toMatch(/California income tax/);
   });

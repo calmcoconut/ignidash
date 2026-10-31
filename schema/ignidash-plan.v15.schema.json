@@ -813,6 +813,9 @@
           "essential": {
             "type": "boolean"
           },
+          "qualifiedMedical": {
+            "type": "boolean"
+          },
           "frequency": {
             "type": "string",
             "enum": [

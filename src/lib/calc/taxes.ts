@@ -264,6 +264,8 @@ export interface StateTaxesData {
   behavioralHealthServicesTax: number;
   /** Personal exemption credits after the AGI limitation (a credit against tax, not a deduction). */
   exemptionCredits: number;
+  /** FTB 3805P 2.5% early-distribution penalty on non-HSA retirement distributions before 59.5. */
+  earlyDistributionPenalty?: number;
   /** `max(0, bracketTax + behavioralHealthServicesTax − exemptionCredits)`. */
   total: number;
 }
@@ -318,6 +320,7 @@ export interface TaxesData {
 export interface EarlyWithdrawalPenaltyData {
   taxDeferredPenaltyAmount: number;
   taxFreePenaltyAmount: number;
+  californiaPenaltyAmount?: number;
   totalPenaltyAmount: number;
 }
 
@@ -361,6 +364,13 @@ export interface IncomeSourcesData {
     hsa: number;
     unseasonedConversions?: number;
   };
+  hsaData?: {
+    totalWithdrawals: number;
+    qualifiedWithdrawals: number;
+    nonQualifiedWithdrawals: number;
+  };
+  hsaContributions?: number;
+  hsaEarnings?: number;
 }
 
 // ============================================================================
@@ -594,8 +604,8 @@ function sumRecordOfAmounts(records: readonly Record<string, number>[]): Record<
 
 /** Sums the income-composition block, keeping the one ratio in it a maximum rather than a sum. */
 function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesData {
-  const amount = (key: Exclude<keyof IncomeSourcesData, 'earlyWithdrawals' | 'maxTaxableSocialSecurityPercentage'>) =>
-    sum(records.map((record) => record[key]));
+  const amount = (key: Exclude<keyof IncomeSourcesData, 'earlyWithdrawals' | 'maxTaxableSocialSecurityPercentage' | 'hsaData'>) =>
+    sum(records.map((record) => (record[key] as number) ?? 0));
 
   return {
     realizedGains: amount('realizedGains'),
@@ -628,6 +638,19 @@ function sumIncomeSources(records: readonly IncomeSourcesData[]): IncomeSourcesD
         ? { unseasonedConversions: sum(records.map((record) => record.earlyWithdrawals.unseasonedConversions ?? 0)) }
         : {}),
     },
+    ...(records.some((r) => r.hsaData !== undefined) ||
+    sum(records.map((r) => r.hsaContributions ?? 0)) > 0 ||
+    sum(records.map((r) => r.hsaEarnings ?? 0)) > 0
+      ? {
+          hsaData: {
+            totalWithdrawals: sum(records.map((r) => r.hsaData?.totalWithdrawals ?? 0)),
+            qualifiedWithdrawals: sum(records.map((r) => r.hsaData?.qualifiedWithdrawals ?? 0)),
+            nonQualifiedWithdrawals: sum(records.map((r) => r.hsaData?.nonQualifiedWithdrawals ?? 0)),
+          },
+          hsaContributions: sum(records.map((r) => r.hsaContributions ?? 0)),
+          hsaEarnings: sum(records.map((r) => r.hsaEarnings ?? 0)),
+        }
+      : {}),
   };
 }
 
@@ -754,6 +777,9 @@ function sumSeparateReturns(records: readonly TaxesData[]): TaxesData {
     earlyWithdrawalPenalties: {
       taxDeferredPenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.taxDeferredPenaltyAmount)),
       taxFreePenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.taxFreePenaltyAmount)),
+      ...(sum(records.map((record) => record.earlyWithdrawalPenalties.californiaPenaltyAmount ?? 0)) > 0
+        ? { californiaPenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.californiaPenaltyAmount ?? 0)) }
+        : {}),
       totalPenaltyAmount: sum(records.map((record) => record.earlyWithdrawalPenalties.totalPenaltyAmount)),
     },
     socialSecurityTaxes: {
@@ -999,7 +1025,8 @@ export class TaxProcessor {
     annualIncomesData: IncomesData,
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
-    annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes()
+    annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes(),
+    qualifiedMedicalExpenses = 0
   ): TaxesData {
     if (this.filingStatus === 'marriedFilingSeparately') {
       return this.processSeparateReturns(
@@ -1007,7 +1034,8 @@ export class TaxProcessor {
         annualIncomesData,
         annualReturnsData,
         annualPhysicalAssetsData,
-        annualWagePayrollTaxes
+        annualWagePayrollTaxes,
+        qualifiedMedicalExpenses
       );
     }
 
@@ -1016,7 +1044,9 @@ export class TaxProcessor {
       annualIncomesData,
       annualReturnsData,
       annualPhysicalAssetsData,
-      annualWagePayrollTaxes
+      annualWagePayrollTaxes,
+      '',
+      qualifiedMedicalExpenses
     );
   }
 
@@ -1096,7 +1126,7 @@ export class TaxProcessor {
 
       this.saveCarryoverSnapshot();
       try {
-        const taxes = this.process(candidateData, annualIncomesData, annualReturnsData, annualPhysicalAssetsData, wagePayrollTaxes);
+        const taxes = this.process(candidateData, annualIncomesData, annualReturnsData, annualPhysicalAssetsData, wagePayrollTaxes, 0);
         return jurisdiction === 'california' ? taxes.state.taxableIncome : taxes.federalIncomeTaxes.taxableIncomeTaxedAsOrdinary;
       } finally {
         this.restoreCarryoverSnapshot();
@@ -1146,7 +1176,8 @@ export class TaxProcessor {
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
     annualWagePayrollTaxes: WagePayrollTaxes = zeroWagePayrollTaxes(),
-    returnKey = ''
+    returnKey = '',
+    qualifiedMedicalExpenses = 0
   ): TaxesData {
     this.returnKey = returnKey;
 
@@ -1157,7 +1188,8 @@ export class TaxProcessor {
       annualIncomesData,
       annualReturnsData,
       annualPhysicalAssetsData,
-      fica.selfEmployment.halfDeduction
+      fica.selfEmployment.halfDeduction,
+      qualifiedMedicalExpenses
     );
 
     const socialSecurityTaxes: SocialSecurityTaxesData = {
@@ -1311,7 +1343,8 @@ export class TaxProcessor {
     annualIncomesData: IncomesData,
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
-    annualWagePayrollTaxes: WagePayrollTaxes
+    annualWagePayrollTaxes: WagePayrollTaxes,
+    qualifiedMedicalExpenses = 0
   ): TaxesData {
     // No recorded ownership means every item reads as `primary` — `ownerOf`'s own default — so the
     // partner's return is an empty one. A plan written before ownership existed therefore divides
@@ -1331,7 +1364,8 @@ export class TaxProcessor {
           returnsForSeparateReturn(annualReturnsData, annualPortfolioDataBeforeTaxes, ownership, returnOwner),
           physicalAssetsForSeparateReturn(annualPhysicalAssetsData, ownership, returnOwner),
           wagePayrollForSeparateReturn(annualWagePayrollTaxes, withheldPayrollShare(annualIncomesData, returnOwner)),
-          returnOwner
+          returnOwner,
+          qualifiedMedicalExpenses * 0.5
         )
       );
 
@@ -1581,6 +1615,14 @@ export class TaxProcessor {
       incomeData.taxableDividendIncome +
       incomeData.realizedGains;
     if (conformity.taxesSocialSecurity) income += incomeData.taxableSocialSecurityIncome;
+    if (this.stateResidency === 'CA') {
+      if (incomeData.hsaEarnings) {
+        income += incomeData.hsaEarnings;
+      }
+      if (incomeData.hsaData?.nonQualifiedWithdrawals) {
+        income -= incomeData.hsaData.nonQualifiedWithdrawals;
+      }
+    }
 
     // The itemized lines, keyed so the ruleset's `disallowed` list can filter them: California does
     // not allow a deduction for state income tax, SDI or sales tax, and does allow property tax,
@@ -1775,7 +1817,8 @@ export class TaxProcessor {
     annualIncomesData: IncomesData,
     annualReturnsData: ReturnsData,
     annualPhysicalAssetsData: PhysicalAssetsData,
-    selfEmploymentTaxDeduction: number
+    selfEmploymentTaxDeduction: number,
+    qualifiedMedicalExpenses = 0
   ): IncomeSourcesData {
     const age = this.simulationState.time.age;
 
@@ -1792,6 +1835,10 @@ export class TaxProcessor {
     let iraDistributions = 0;
     let iraYearEndBalance = 0;
     let earlyIraWithdrawals = 0;
+
+    let totalHsaWithdrawals = 0;
+    let hsaContributions = 0;
+    let hsaEarnings = 0;
 
     for (const account of Object.values(annualPortfolioDataBeforeTaxes.perAccountData)) {
       switch (account.type) {
@@ -1834,15 +1881,36 @@ export class TaxProcessor {
           break;
         }
         case 'hsa': {
-          const annualWithdrawals = sumFlows(account.withdrawals);
-
-          taxDeferredWithdrawals += annualWithdrawals;
-          if (age < hsaQualifiedWithdrawalAge) earlyHsaWithdrawals += annualWithdrawals;
+          totalHsaWithdrawals += account.withdrawals ? sumFlows(account.withdrawals) : 0;
+          hsaContributions += account.contributions ? Math.max(0, sumFlows(account.contributions) - (account.employerMatch ?? 0)) : 0;
+          const explicitYield = (account as unknown as { yieldAmounts?: AssetFlows }).yieldAmounts
+            ? sumFlows((account as unknown as { yieldAmounts: AssetFlows }).yieldAmounts)
+            : 0;
+          const computedYield =
+            annualReturnsData?.annualYieldRates && account.assetAllocation
+              ? account.balance *
+                ((account.assetAllocation.stocks ?? 0) * (annualReturnsData.annualYieldRates.stocks ?? 0) +
+                  (account.assetAllocation.bonds ?? 0) * (annualReturnsData.annualYieldRates.bonds ?? 0) +
+                  (account.assetAllocation.cash ?? 0) * (annualReturnsData.annualYieldRates.cash ?? 0))
+              : 0;
+          const yieldTotal = explicitYield > 0 ? explicitYield : computedYield;
+          hsaEarnings += yieldTotal + (account.realizedGains ?? 0);
           break;
         }
         default:
           break;
       }
+    }
+
+    const qualifiedHsaWithdrawals = Math.min(totalHsaWithdrawals, qualifiedMedicalExpenses);
+    const nonQualifiedHsaWithdrawals = Math.max(0, totalHsaWithdrawals - qualifiedHsaWithdrawals);
+
+    // IRC §223(f)(1): qualified medical distributions are tax-free federally.
+    // Non-qualified distributions are taxable as ordinary income.
+    taxDeferredWithdrawals += nonQualifiedHsaWithdrawals;
+    // IRC §223(f)(4): 20% penalty applies to non-qualified distributions before age 65.
+    if (age < hsaQualifiedWithdrawalAge) {
+      earlyHsaWithdrawals += nonQualifiedHsaWithdrawals;
     }
 
     // IRC §408(d)(2): one basis is shared by every traditional IRA the owner holds, and every
@@ -1932,6 +2000,17 @@ export class TaxProcessor {
         hsa: earlyHsaWithdrawals,
         ...(earlyUnseasonedConversions > 0 ? { unseasonedConversions: earlyUnseasonedConversions } : {}),
       },
+      ...(totalHsaWithdrawals > 0 || hsaContributions > 0 || hsaEarnings > 0
+        ? {
+            hsaData: {
+              totalWithdrawals: totalHsaWithdrawals,
+              qualifiedWithdrawals: qualifiedHsaWithdrawals,
+              nonQualifiedWithdrawals: nonQualifiedHsaWithdrawals,
+            },
+            hsaContributions,
+            hsaEarnings,
+          }
+        : {}),
     };
   }
 
@@ -2039,12 +2118,20 @@ export class TaxProcessor {
     return { netInvestmentIncome, incomeSubjectToNiit, niitAmount, threshold };
   }
 
-  /** Calculates early withdrawal penalties — IRC §72(t): 10% for 401k/IRA/unseasoned Roth conversions; IRC §223(f)(4): 20% for HSA */
+  /** Calculates early withdrawal penalties — IRC §72(t): 10% for 401k/IRA/unseasoned Roth conversions; IRC §223(f)(4): 20% for HSA; FTB 3805P: 2.5% for CA */
   private processEarlyWithdrawalPenalties(earlyWithdrawalsData: IncomeSourcesData['earlyWithdrawals']): EarlyWithdrawalPenaltyData {
     const taxDeferredPenaltyAmount = earlyWithdrawalsData['401kAndIra'] * 0.1 + earlyWithdrawalsData.hsa * 0.2;
     const taxFreePenaltyAmount = (earlyWithdrawalsData.rothEarnings + (earlyWithdrawalsData.unseasonedConversions ?? 0)) * 0.1;
+    const nonHsaEarly =
+      earlyWithdrawalsData['401kAndIra'] + earlyWithdrawalsData.rothEarnings + (earlyWithdrawalsData.unseasonedConversions ?? 0);
+    const californiaPenaltyAmount = this.stateResidency === 'CA' && nonHsaEarly > 0 ? nonHsaEarly * 0.025 : 0;
 
-    return { taxDeferredPenaltyAmount, taxFreePenaltyAmount, totalPenaltyAmount: taxDeferredPenaltyAmount + taxFreePenaltyAmount };
+    return {
+      taxDeferredPenaltyAmount,
+      taxFreePenaltyAmount,
+      ...(californiaPenaltyAmount > 0 ? { californiaPenaltyAmount } : {}),
+      totalPenaltyAmount: taxDeferredPenaltyAmount + taxFreePenaltyAmount + californiaPenaltyAmount,
+    };
   }
 
   /**

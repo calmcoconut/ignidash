@@ -217,6 +217,16 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v13 file is made by *deleting* the key. The v13 fixture in `plan-envelope.test.ts` counts
  *        it before and after so the strip cannot pass vacuously.
  *
+ *   15 — R5 HSA qualified medical expenses: optional `expenses[*].qualifiedMedical`.
+ *        A version 14 file cannot carry the field, because the bump lands in the change that adds it.
+ *
+ *        Absent `qualifiedMedical` means **false**: the expense is a standard non-qualified expense,
+ *        which is what every expense was before the flag existed. An HSA withdrawal is not paired with
+ *        it and remains subject to ordinary income tax and early-withdrawal penalties.
+ *
+ *        A v14 file is made by deleting the key. The upgrade test in `plan-envelope.test.ts` asserts
+ *        the key is stripped.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -228,7 +238,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 14;
+export const EXPORT_SCHEMA_VERSION = 15;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;

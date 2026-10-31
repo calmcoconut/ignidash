@@ -39,9 +39,7 @@
  *
  * ## What this ruleset does not model
  *
- * HSA non-conformity (contributions not deductible, earnings taxable, the 2.5% early-distribution
- * penalty) is P3-P5's: it needs the retirement-account pass, and the notes there are in
- * `PLAN-parity.md` §3-P5. Dependents, the blind and senior credits, the renter's credit, the
+ * Dependents, the blind and senior credits, the renter's credit, the
  * exemption of certain public pensions, municipal-bond interest, and the alternative minimum tax
  * (California has its own, FTB 6251) are all out of scope.
  */

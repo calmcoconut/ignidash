@@ -19,6 +19,9 @@ export const expenseFormSchema = z
     // Essential spending (P1-P4). Absent means `false`: a withdrawal strategy's annual cap may
     // only cut spending that is not marked essential, so an untouched plan is unaffected.
     essential: z.boolean().optional(),
+    // Qualified medical expense (R5). Absent means `false`: withdrawals from an HSA up to the qualified
+    // medical expense amount are tax-free federally.
+    qualifiedMedical: z.boolean().optional(),
   })
   .extend(frequencyTimeframeSchema.shape)
   .refine(

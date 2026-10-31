@@ -755,7 +755,6 @@ const NOT_COMPUTED = [
 const CALIFORNIA_NOT_MODELLED = [
   'Covered California premium subsidies — the state assistance on top of the federal premium tax credit, which is not modelled either (P3-P7b); no subsidy figure exists on the federal or the state return.',
   'California AMT — the state alternative minimum tax (RTC §17062) is not computed, so the state figure is the regular tax plus the Behavioral Health Services Tax, less the exemption credits.',
-  'The HSA non-conformity — California does not recognise HSAs, so no California basis is tracked and no separate California tax on HSA earnings is charged; the state return prices the income lines the engine already recognises.',
 ] as const;
 
 /**

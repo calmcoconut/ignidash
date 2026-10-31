@@ -20,6 +20,8 @@ export class ExpensesProcessor {
    * there would move the golden corpus for a value the engine, not the readouts, consumes.
    */
   private currentEssentialExpenses = 0;
+  private currentQualifiedMedicalExpenses = 0;
+  private monthlyQualifiedMedicalExpenses: number[] = [];
 
   constructor(
     private simulationState: SimulationState,
@@ -36,6 +38,7 @@ export class ExpensesProcessor {
     const processed = activeExpenses.map((expense) => ({
       data: expense.processMonthlyAmount(this.simulationState.time.year),
       essential: expense.getIsEssential(),
+      qualifiedMedical: expense.getIsQualifiedMedical(),
     }));
     const processedExpenses = processed.map((entry) => entry.data);
 
@@ -47,6 +50,8 @@ export class ExpensesProcessor {
       { totalExpenses: 0 }
     );
     this.currentEssentialExpenses = processed.reduce((acc, entry) => acc + (entry.essential ? entry.data.expense : 0), 0);
+    this.currentQualifiedMedicalExpenses = processed.reduce((acc, entry) => acc + (entry.qualifiedMedical ? entry.data.expense : 0), 0);
+    this.monthlyQualifiedMedicalExpenses.push(this.currentQualifiedMedicalExpenses);
     const perExpenseData = Object.fromEntries(processedExpenses.map((expense) => [expense.id, expense]));
 
     const result = { ...totals, perExpenseData };
@@ -94,6 +99,8 @@ export class ExpensesProcessor {
   resetMonthlyData(): void {
     this.monthlyData = [];
     this.currentEssentialExpenses = 0;
+    this.currentQualifiedMedicalExpenses = 0;
+    this.monthlyQualifiedMedicalExpenses = [];
   }
 
   /**
@@ -105,6 +112,13 @@ export class ExpensesProcessor {
    */
   getMonthlyEssentialExpenses(): number {
     return this.currentEssentialExpenses;
+  }
+
+  /**
+   * Qualified medical expenses for the whole year, for pairing with tax-free HSA withdrawals (R5).
+   */
+  getAnnualQualifiedMedicalExpenses(): number {
+    return this.monthlyQualifiedMedicalExpenses.reduce((sum, val) => sum + val, 0);
   }
 
   getAnnualData(): ExpensesData {
@@ -167,6 +181,8 @@ export class Expense {
   private frequency: 'yearly' | 'oneTime' | 'quarterly' | 'monthly' | 'biweekly' | 'weekly';
   /** Whether a withdrawal cap may cut this expense (P1-P4). Absent means no. */
   private essential: boolean;
+  /** Whether this expense is qualified medical spending for tax-free HSA withdrawals (R5). */
+  private qualifiedMedical: boolean;
   private lastYear: number = 0;
   /** Occurrence year the one-time expense last fired, so a recurrence can fire once per year. */
   private oneTimeOccurrenceIndex: number | null = null;
@@ -191,11 +207,17 @@ export class Expense {
     this.growthLimit = data.growth?.growthLimit === undefined ? undefined : data.growth.growthLimit * amountScale;
     this.frequency = data.frequency;
     this.essential = data.essential ?? false;
+    this.qualifiedMedical = data.qualifiedMedical ?? false;
   }
 
   /** Whether this expense is essential spending, which no withdrawal strategy may cut. */
   getIsEssential(): boolean {
     return this.essential;
+  }
+
+  /** Whether this expense is qualified medical spending for tax-free HSA withdrawals (R5). */
+  getIsQualifiedMedical(): boolean {
+    return this.qualifiedMedical;
   }
 
   processMonthlyAmount(year: number): ExpenseData {

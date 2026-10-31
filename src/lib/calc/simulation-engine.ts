@@ -659,7 +659,8 @@ export class FinancialSimulationEngine {
           annualIncomesData,
           annualReturnsData,
           annualPhysicalAssetsData,
-          payrollTaxProcessor.getAnnualData()
+          payrollTaxProcessor.getAnnualData(),
+          expensesProcessor.getAnnualQualifiedMedicalExpenses()
         );
 
         // Process expenses last to account for discretionary expenses from tax refunds
@@ -781,7 +782,8 @@ export class FinancialSimulationEngine {
     incomesData: IncomesData,
     returnsData: ReturnsData,
     physicalAssetsData: PhysicalAssetsData,
-    wagePayrollTaxes: WagePayrollTaxes
+    wagePayrollTaxes: WagePayrollTaxes,
+    qualifiedMedicalExpenses = 0
   ): {
     taxesData: TaxesData;
     portfolioData: PortfolioData;
@@ -789,7 +791,14 @@ export class FinancialSimulationEngine {
   } {
     taxProcessor.saveCarryoverSnapshot();
 
-    const initialTaxesData = taxProcessor.process(portfolioDataBeforeTaxes, incomesData, returnsData, physicalAssetsData, wagePayrollTaxes);
+    const initialTaxesData = taxProcessor.process(
+      portfolioDataBeforeTaxes,
+      incomesData,
+      returnsData,
+      physicalAssetsData,
+      wagePayrollTaxes,
+      qualifiedMedicalExpenses
+    );
     const { totalTaxesDue, totalTaxesRefund } = initialTaxesData;
 
     const { portfolioData: initialPortfolioData, discretionaryExpense } = portfolioProcessor.processTaxes(portfolioDataBeforeTaxes, {
@@ -805,7 +814,14 @@ export class FinancialSimulationEngine {
       for (let i = 0; i < 10; i++) {
         taxProcessor.restoreCarryoverSnapshot();
 
-        taxesData = taxProcessor.process(portfolioData, incomesData, returnsData, physicalAssetsData, wagePayrollTaxes);
+        taxesData = taxProcessor.process(
+          portfolioData,
+          incomesData,
+          returnsData,
+          physicalAssetsData,
+          wagePayrollTaxes,
+          qualifiedMedicalExpenses
+        );
 
         const remainingTaxesDue = taxesData.totalTaxesDue - totalTaxesPaid;
         if (Math.abs(remainingTaxesDue) < TAX_CONVERGENCE_THRESHOLD) break;

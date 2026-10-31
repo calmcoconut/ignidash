@@ -134,7 +134,7 @@ with what the tools accept, trust the tools and say the limit has changed.
   not "California charged nothing". California SDI is a payroll line of its own
   (`jurisdictions.california.stateDisability`), charged whether or not a return is filed.
   `jurisdictions.california.notModelled` names what the state return still cannot answer — Covered
-  California subsidies, California AMT and the HSA non-conformity — so name those limits instead of
+  California subsidies and California AMT — so name those limits instead of
   filling them in.
 - **Filing status:** single, married filing jointly, married filing separately, and head of
   household. A separate return is priced as **two** returns, one per spouse: a `joint` (community)
@@ -168,8 +168,11 @@ with what the tools accept, trust the tools and say the limit has changed.
      (Form 8606 / IRC §408(d)(2)) across all traditional IRAs, so only the pre-tax portion is taxable.
 - **Retirement-account rules.** No SEPP/72(t), no qualified charitable distributions. IRA withdrawals
   **do** recover after-tax basis pro-rata (IRC §408(d)(2), Form 8606) when the account states
-  `nondeductibleBasis`; with none stated the whole distribution is taxable. HSA withdrawals count as
-  ordinary income at every age, and qualified medical withdrawals are not modelled.
+  `nondeductibleBasis`; with none stated the whole distribution is taxable. Qualified medical HSA withdrawals
+  are modelled (tax-free federally up to qualified medical expenses; non-qualified withdrawals are ordinary
+  income, plus a 20% penalty if under 65 per IRC §223(f)(4)). California HSA non-conformity is modelled
+  (contributions are not deductible, annual earnings are taxable in CA, and distributions are return of basis;
+  CA FTB 3805P 2.5% early penalty applies to non-HSA retirement accounts before 59.5).
 - **Itemized deductions and the SALT cap are modelled; the marginal effect of one is not.** The
   engine takes the larger of the standard deduction and the itemized total — the four entered lines,
   with the §164 SALT cap and its phase-down and the §213 7.5%-of-AGI medical floor — and

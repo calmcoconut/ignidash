@@ -530,7 +530,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1142,8 +1142,8 @@ describe('malformed files report the exact field paths', () => {
 
     // The field really is carried by the newest build: reverting the constant below 13 makes this
     // line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(14);
-    expect(EXPORT_SCHEMA_VERSION).toBe(14);
+    expect(envelope.schemaVersion).toBe(15);
+    expect(EXPORT_SCHEMA_VERSION).toBe(15);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1220,7 +1220,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion13Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(14);
+    expect(envelope.schemaVersion).toBe(15);
+    expect(EXPORT_SCHEMA_VERSION).toBe(15);
     expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1302,8 +1303,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion14Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(14);
-    expect(EXPORT_SCHEMA_VERSION).toBe(14);
+    expect(envelope.schemaVersion).toBe(15);
+    expect(EXPORT_SCHEMA_VERSION).toBe(15);
     expect(countFields(envelope, VERSION_14_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1357,6 +1358,68 @@ describe('malformed files report the exact field paths', () => {
     expect(importedPlan).not.toHaveProperty('conversions');
 
     expect(conversionsFromConvex(importedPlan.conversions)).toBeUndefined();
+  });
+
+  /**
+   * What the v15 bump (R5) added: `qualifiedMedical` on expenses.
+   *
+   * An expense field marking qualified medical expenses eligible for tax-free HSA withdrawals,
+   * absent on all prior versions. Its absence is **false** (standard non-qualified expense).
+   */
+  const VERSION_15_FIELDS = ['qualifiedMedical'];
+
+  const makeVersion15Plan = () => {
+    const base = makeVersion14Plan();
+    return {
+      ...base,
+      expenses: base.expenses.map((exp, idx) => (idx === 0 ? { ...exp, qualifiedMedical: true } : exp)),
+    };
+  };
+
+  it('round-trips qualifiedMedical on expenses, the one thing version 15 adds', () => {
+    const plan = makeVersion15Plan();
+    const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
+
+    expect(envelope.schemaVersion).toBe(15);
+    expect(EXPORT_SCHEMA_VERSION).toBe(15);
+    expect(countFields(envelope, VERSION_15_FIELDS)).toBe(1);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+
+    expect(restored.plan.expenses[0]).toHaveProperty('qualifiedMedical', true);
+    expect(restored.plan).toStrictEqual(toPlanExport(plan));
+  });
+
+  it('imports a version 14 plan as having qualifiedMedical absent, and keeps the field absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion15Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v14 = structuredClone(envelope) as unknown as Record<string, unknown>;
+    v14.schemaVersion = 14;
+
+    expect(countFields(v14, VERSION_15_FIELDS)).toBe(1);
+    stripFields(v14, VERSION_15_FIELDS);
+    expect(countFields(v14, VERSION_15_FIELDS)).toBe(0);
+    // The v14 conversions field is still there.
+    expect((v14.plan as Record<string, unknown>).conversions).toBeDefined();
+    expect(countFields(v14, VERSION_14_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v14));
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+
+    expect(parsed.envelope.schemaVersion).toBe(14);
+    expect(parsed.envelope).toStrictEqual(v14);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0];
+    expect(importedPlan.expenses[0]).not.toHaveProperty('qualifiedMedical');
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {
