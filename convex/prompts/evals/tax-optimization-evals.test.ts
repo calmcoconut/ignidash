@@ -339,6 +339,30 @@ describe('tax-optimization eval set: what it says the engine cannot compute', ()
     expect(check.property).toContain('`taxSettings.itemizedDeductions`');
     expect(check.property).toContain('`nondeductibleBasis`');
   });
+
+  it('gives an unmodelled lever as the example, not a modelled one', () => {
+    const check = TAX_OPTIMIZATION_EVAL_CHECKS.find((entry) => entry.id === 'refused-patches');
+    if (!check) throw new Error('the refused-patches check is missing');
+    const header = evalSetSource.slice(0, evalSetSource.indexOf('export type EvalGoal'));
+
+    // Social Security claiming IS modelled and patchable (`socialSecurity.claimAge`); this corpus
+    // simply has no `socialSecurity` fixture. Naming it as the example of an unmodelled lever — in
+    // the property a reviewer scores the transcript with, or in this directory's module header —
+    // tells that reviewer to pass the answer README.md calls wrong.
+    expect(check.property).not.toContain('Social Security claiming');
+    expect(header).not.toContain('ACA opt-in cases, Social Security claiming');
+    expect(header).toContain('`claimAge`');
+    expect(header).toContain('fixture gap');
+
+    // The example it does give is one the prompt itself lists as unmodelled: a state return other
+    // than California's, and estate tax ("no estate, trust, business or rental tax, and no
+    // multi-state residency").
+    expect(check.property).toContain('a state income tax other than California');
+    // The prompt wraps this sentence, so the check reads it with whitespace folded.
+    expect(TAX_OPTIMIZATION_SKILL_PROMPT.replace(/\s+/g, ' ')).toContain(
+      'no estate, trust, business or rental tax, and no multi-state residency'
+    );
+  });
 });
 
 describe('tax-optimization eval rubric', () => {

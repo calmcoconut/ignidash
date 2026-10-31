@@ -71,6 +71,11 @@ export const simulationDataPointValidator = v.object({
   taxFreeWithdrawals: v.number(),
   cashWithdrawals: v.number(),
   requiredMinimumDistributions: v.number(),
+  // Roth conversions out of tax-deferred accounts that year (a transfer, not a withdrawal). Written
+  // by `simulationResultToConvex` from `portfolio.conversions`, mirroring the withdrawals chart's
+  // `annualRothConversions`; required, so a producer that forgets it fails here instead of the
+  // assistant silently losing the figure.
+  annualRothConversions: v.number(),
   earlyWithdrawals: v.number(),
   rothEarningsWithdrawals: v.number(),
   withdrawalRate: v.nullable(v.number()),

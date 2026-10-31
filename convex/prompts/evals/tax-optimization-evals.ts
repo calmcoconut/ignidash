@@ -14,10 +14,16 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  * Deliberately **not** covered:
  * - **California state-tax planning.** The state return is computed (P3-P8) and reported, but no case
  *   turns on it: there is no state-specific lever, and Covered California subsidies and CA AMT are not modelled.
- * - **ACA opt-in cases, Social Security claiming.** The skill may be
- *   *asked* about these. No case here opts in through `taxSettings.aca`, so no fixture exercises the
- *   premium tax credit, and the correct answer to "add the ACA credit" is to read it from a tool
- *   result after opting the plan in — not to refuse the lever as unmodelled.
+ * - **ACA opt-in cases.** The skill may be *asked* about the credit. No case here opts in through
+ *   `taxSettings.aca`, so no fixture exercises the premium tax credit, and the correct answer to
+ *   "add the ACA credit" is to read it from a tool result after opting the plan in — not to refuse
+ *   the lever as unmodelled.
+ * - **Social Security claiming.** A claim age **is** modelled and patchable — an income's
+ *   `socialSecurity` block carries `claimAge`, adjusted against the full retirement age of the birth
+ *   year stored on that income's owner — so no case here carries a `socialSecurity` block. That is a
+ *   fixture gap in this corpus, not a missing lever: calling a claim-age change unmodelled is the
+ *   wrong answer. What Social Security does not model is spousal, survivor and dependent benefits
+ *   and the retirement earnings test.
  * - **Not on that list: the levers the engine does model.** Itemized deductions (the four entered
  *   lines under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), the §164 SALT
  *   cap with its MAGI phase-down, AMT, IRMAA, Roth conversions (with fixed amounts or bracket-filling,
@@ -564,7 +570,7 @@ export const TAX_OPTIMIZATION_EVAL_CHECKS: readonly EvalCheck[] = [
   {
     id: 'refused-patches',
     property:
-      'Asking for a lever the engine does not model (for example Social Security claiming) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, the ACA premium tax credit for a plan that opts in through `taxSettings.aca`, Roth conversions through `conversions`, SEPP schedules through `sepp`, pro-rata IRA basis on a withdrawal through `nondeductibleBasis`, and qualified charitable distributions from IRAs through `expenses[*].satisfyFromIra` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
+      'Asking for a lever the engine does not model (for example a state income tax other than California, or estate-tax planning) is refused as not modelled; an invalid planPatch is reported with its field paths and no numbers are invented for it. A lever the engine does compute — itemized deductions and the SALT cap through `taxSettings.itemizedDeductions`, AMT, IRMAA, the ACA premium tax credit for a plan that opts in through `taxSettings.aca`, Roth conversions through `conversions`, SEPP schedules through `sepp`, pro-rata IRA basis on a withdrawal through `nondeductibleBasis`, and qualified charitable distributions from IRAs through `expenses[*].satisfyFromIra` — is never such a refusal: calling one of those unmodelled fails this check rather than passing it.',
   },
   {
     id: 'no-writes',

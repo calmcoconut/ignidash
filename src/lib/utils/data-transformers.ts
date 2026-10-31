@@ -614,6 +614,11 @@ export function simulationResultToConvex(simulation: SimulationResult): ConvexSi
       taxFreeWithdrawals: withdrawalsData[i].taxFreeWithdrawals,
       cashWithdrawals: withdrawalsData[i].cashSavingsWithdrawals,
       requiredMinimumDistributions: withdrawalsData[i].annualRequiredMinimumDistributions,
+      // The year's Roth conversions, from the same `portfolio.conversions` the withdrawals chart
+      // reads (absent means no conversion, so it flattens to 0). Named for the chart field it
+      // mirrors so the two surfaces cannot drift: the assistant could patch a conversion but could
+      // not see its effect in any figure it was given.
+      annualRothConversions: withdrawalsData[i].annualRothConversions,
       earlyWithdrawals: withdrawalsData[i].annualEarlyWithdrawals,
       rothEarningsWithdrawals: withdrawalsData[i].annualRothEarningsWithdrawals,
       withdrawalRate: withdrawalsData[i].withdrawalRate,

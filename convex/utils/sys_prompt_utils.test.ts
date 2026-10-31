@@ -300,6 +300,7 @@ describe('buildTable', () => {
       taxFreeWithdrawals: 0,
       cashWithdrawals: 0,
       requiredMinimumDistributions: 0,
+      annualRothConversions: 0,
       earlyWithdrawals: 0,
       rothEarningsWithdrawals: 0,
       withdrawalRate: null,

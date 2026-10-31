@@ -641,6 +641,7 @@ const formatSimulationData = (simulationResult: SimulationResult | null | undefi
         col('roth', 'taxFreeWithdrawals'),
         col('cash', 'cashWithdrawals'),
         col('RMD', 'requiredMinimumDistributions'),
+        col('rothConv', 'annualRothConversions'),
         col('earlyWithdraw', 'earlyWithdrawals'),
         col('rothEarnings', 'rothEarningsWithdrawals'),
         col('withdrawRate', 'withdrawalRate', pct),

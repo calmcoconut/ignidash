@@ -24,6 +24,7 @@ import {
   journalFromConvex,
   arrayToRecord,
   recordToArray,
+  simulationResultToConvex,
 } from './data-transformers';
 import {
   createConvexAccount,
@@ -35,6 +36,9 @@ import {
 } from './__tests__/test-utils';
 import type { Doc } from '@/convex/_generated/dataModel';
 import { WITHDRAWAL_STRATEGY_IDS, getWithdrawalStrategy } from '@/lib/calc/withdrawal-strategies';
+import { createSimulatorInputs } from '@/lib/calc/__tests__/test-utils';
+import { simulate } from '@/lib/calc/simulate';
+import type { SimulatorInputs } from '@/lib/schemas/inputs/simulator-schema';
 
 describe('Account transforms', () => {
   it('should roundtrip savings account', () => {
@@ -722,5 +726,70 @@ describe('journal roundtrips (R11)', () => {
   it('should preserve absent journal entries', () => {
     const from = journalFromConvex(undefined);
     expect(from).toBeUndefined();
+  });
+});
+
+describe('simulation summary for the assistant (R4a)', () => {
+  it("carries the year's Roth conversions, so the assistant can quote what a conversion did", () => {
+    // A plan with one 25,000 conversion out of a traditional IRA in 2026. The assistant may patch a
+    // conversion (`applyPatch` reaches `conversions`), so the flattened summary it reads must show
+    // the conversion's effect; before this field it showed only RMDs and withdrawals.
+    const base = createSimulatorInputs();
+    const inputs: SimulatorInputs = {
+      ...base,
+      incomes: {},
+      expenses: {},
+      debts: {},
+      physicalAssets: {},
+      marketAssumptions: {
+        ...base.marketAssumptions,
+        stockReturn: 0,
+        bondReturn: 0,
+        cashReturn: 0,
+        stockYield: 0,
+        bondYield: 0,
+        inflationRate: 0,
+      },
+      accounts: {
+        'ira-1': {
+          id: 'ira-1',
+          name: 'Traditional IRA',
+          type: 'ira',
+          balance: 100_000,
+          percentBonds: 0,
+        },
+        'roth-1': {
+          id: 'roth-1',
+          name: 'Roth IRA',
+          type: 'rothIra',
+          balance: 0,
+          percentBonds: 0,
+          contributionBasis: 0,
+        },
+      },
+      conversions: [
+        {
+          id: 'conv-1',
+          fromAccountId: 'ira-1',
+          toAccountId: 'roth-1',
+          amount: 25_000,
+          year: 2026,
+        },
+      ],
+    };
+
+    const outcome = simulate(inputs, { mode: 'fixedReturns', asOf: '2026-01-01', seed: 1 });
+    if (outcome.mode !== 'fixedReturns') throw new Error('expected a fixed-returns projection');
+    const simulation = outcome.result;
+    const summary = simulationResultToConvex(simulation);
+
+    // Summary row 0 is the first settled year (`simulation.data[1]`), and the engine converted 25k.
+    const engineConversions = simulation.data[1].portfolio.conversions;
+    expect(engineConversions).toBe(25_000);
+    expect(summary.simulationResult[0].annualRothConversions).toBe(25_000);
+
+    // A year with no conversion flattens to 0, not to a missing key: absence means "no conversion".
+    expect(simulation.data[2].portfolio.conversions).toBeUndefined();
+    expect(summary.simulationResult[1].annualRothConversions).toBe(0);
   });
 });
