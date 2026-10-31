@@ -80,7 +80,10 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
   return (
     <>
       <SectionContainer showBottomBorder={false} location="drawer">
-        <SectionHeader title="Tax Settings" desc="Manage settings that affect your tax calculations." />
+        <SectionHeader
+          title="Tax Settings"
+          desc="Manage settings that affect your tax calculations. Statutory rules through 2026 (California: 2025) are vendored; rules for 2027+ are projected from 2026."
+        />
         <Card>
           <form onSubmit={handleSubmit(onSubmit)}>
             <Fieldset aria-label="Tax settings details">
