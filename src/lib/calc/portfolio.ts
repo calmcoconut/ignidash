@@ -307,8 +307,6 @@ export class PortfolioProcessor {
     const shortfallRepaid = Math.min(netCashFlow, this.outstandingShortfall);
     this.outstandingShortfall -= shortfallRepaid;
 
-    const age = this.simulationState.time.age;
-
     this.contributionRules.resetMonthly();
     const contributionRules = this.contributionRules.getRules().sort((a, b) => a.getRank() - b.getRank());
 
@@ -328,10 +326,12 @@ export class PortfolioProcessor {
         continue;
       }
 
+      // The catch-up eligibility is the account owner's age, not the primary's (P1-P3): a partner's
+      // 401(k) takes the partner's age-50 catch-up limit.
       const { contributionAmount, employerMatchAmount } = rule.calculateContribution(
         remainingToContribute,
         contributeToAccount,
-        age,
+        this.ageForAccount(contributeToAccount),
         incomesData
       );
       if (contributionAmount <= 0) {
@@ -552,6 +552,19 @@ export class PortfolioProcessor {
   }
 
   /**
+   * The birth date a SEPP schedule's account owner is measured against (§72(t)(4): five years or
+   * age 59½, whichever is later), from `birthYearByOwner` / `birthMonthByOwner`. A context built
+   * without a household falls back to the plan's birth date, the pre-household behaviour.
+   */
+  private seppOwnerBirthDate(accountId: string, planBirth: { year: number; month: number }): ISODateString {
+    const owner = this.simulationContext.accountOwners?.[accountId] ?? 'primary';
+    const year = this.simulationContext.birthYearByOwner?.[owner] ?? planBirth.year;
+    const month = this.simulationContext.birthMonthByOwner?.[owner] ?? planBirth.month;
+
+    return formatISODate({ year, month, day: 1 });
+  }
+
+  /**
    * Processes Required Minimum Distributions for accounts subject to RMDs
    *
    * Calculates RMD amount using the IRS Uniform Lifetime Table, withdraws from
@@ -737,8 +750,7 @@ export class PortfolioProcessor {
   processSeppDistributions(
     schedules: SeppScheduleInputs[],
     currentYear: number,
-    ownerAge: number,
-    ownerBirthDate: ISODateString
+    planBirth: { year: number; month: number }
   ): PortfolioData | undefined {
     let totalSepp = 0;
     let totalRecapture = 0;
@@ -755,7 +767,8 @@ export class PortfolioProcessor {
         if (!this.seppRecaptureTriggered.has(schedule.id)) {
           this.seppRecaptureTriggered.add(schedule.id);
           const startDate = formatISODate({ year: schedule.startYear, month: 1, day: 1 });
-          const mustContinueUntil = seppMustContinueUntil({ startDate, birthDate: ownerBirthDate });
+          const birthDate = this.seppOwnerBirthDate(schedule.accountId, planBirth);
+          const mustContinueUntil = seppMustContinueUntil({ startDate, birthDate });
           const stopDate = formatISODate({ year: schedule.stopYear, month: 1, day: 1 });
           if (stopDate < mustContinueUntil) {
             // Stopped prematurely before 5 years or age 59½: recapture 10% penalty on all prior distributions
@@ -776,7 +789,7 @@ export class PortfolioProcessor {
       if (schedule.annualAmount !== undefined) {
         annualAmount = schedule.annualAmount;
       } else if (schedule.method === 'rmd') {
-        const period = singleLifeExpectancy(Math.floor(ownerAge));
+        const period = singleLifeExpectancy(Math.floor(this.ageForAccount(account)));
         annualAmount = seppAnnualAmount({
           method: 'rmd',
           balance: account.getBalance(),
@@ -792,7 +805,7 @@ export class PortfolioProcessor {
           const tableResult = seppAnnualAmountFromTables({
             method: schedule.method,
             balance: account.getBalance(),
-            age: Math.floor(ownerAge),
+            age: Math.floor(this.ageForAccount(account)),
             firstDistributionMonth: firstMonth,
             rate: schedule.rate,
           });

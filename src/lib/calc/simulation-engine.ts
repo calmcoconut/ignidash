@@ -266,6 +266,11 @@ export interface SimulationContext {
    * member, as `ageOffsetByOwner` does.
    */
   readonly birthYearByOwner?: Record<Owner, number>;
+  /**
+   * Each member's own birth month, paired with `birthYearByOwner` for a rule measured from a birth
+   * date — the §72(t)(4) 59½ date of a SEPP schedule. Same optionality and `joint` rule.
+   */
+  readonly birthMonthByOwner?: Record<Owner, number>;
   /** `ownerOf` for every account, keyed by account id. Absent means every account is `primary`. */
   readonly accountOwners?: Record<string, Owner>;
   /** `ownerOf` for every physical asset, keyed by asset id. Absent means every asset is `primary`. */
@@ -553,12 +558,11 @@ export class FinancialSimulationEngine {
       // Process SEPP distributions at month 1 of each year
       if (simulationState.time.month % 12 === 1 && this.inputs.sepp && this.inputs.sepp.length > 0) {
         const currentYear = startCalendarDate.year + Math.floor((simulationState.time.month - 1) / 12);
-        const ownerBirthDate = formatISODate({
+        // Each schedule's age and 59½ date come from its account's owner inside the processor.
+        portfolioProcessor.processSeppDistributions(this.inputs.sepp, currentYear, {
           year: timeline.birthYear,
           month: timeline.birthMonth,
-          day: 1,
         });
-        portfolioProcessor.processSeppDistributions(this.inputs.sepp, currentYear, simulationState.time.age, ownerBirthDate);
       }
 
       // Process conversions at month 1 of each year after RMDs
@@ -889,6 +893,7 @@ export class FinancialSimulationEngine {
       return {
         role: member.role,
         birthYear: member.birthYear,
+        birthMonth: member.birthMonth,
         ageOffset: offset,
         deathAge: offset + member.lifeExpectancy,
         rmdStartAge: offset + secureActRmdAge(member.birthYear),
@@ -945,6 +950,14 @@ export class FinancialSimulationEngine {
       // `min` because the smaller offset is the older member, whose own gate opens first.
       joint: primaryAgeOffset <= partnerAgeOffset ? primaryBirthYear : partnerBirthYear,
     };
+    const birthMonthByRole = new Map(memberFacts.map((member) => [member.role, member.birthMonth]));
+    const primaryBirthMonth = birthMonthByRole.get('primary') ?? planAges.birthMonth;
+    const partnerBirthMonth = birthMonthByRole.get('partner') ?? primaryBirthMonth;
+    const birthMonthByOwner: Record<Owner, number> = {
+      primary: primaryBirthMonth,
+      partner: partnerBirthMonth,
+      joint: primaryAgeOffset <= partnerAgeOffset ? primaryBirthMonth : partnerBirthMonth,
+    };
 
     const accountOwners: Record<string, Owner> = Object.fromEntries(
       Object.values(this.inputs.accounts).map((account) => [account.id, ownerOf(account)])
@@ -977,6 +990,7 @@ export class FinancialSimulationEngine {
       rmdAgeByOwner,
       ageOffsetByOwner,
       birthYearByOwner,
+      birthMonthByOwner,
       accountOwners,
       physicalAssetOwners,
       firstDeath,
