@@ -5,7 +5,7 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  *
  * Twelve hand-specified plans across the shapes the engine can actually compute today, plus the
  * properties every run must satisfy. The plans are `SimulatorInputs` — exactly what the tools in
- * `convex/chat_tools.ts` consume — and `tax-optimization-evals.test.ts` proves each one validates
+ * `convex/chat_tools.ts` consume — and `tax_optimization_evals.test.ts` proves each one validates
  * and produces a baseline, so a schema change cannot leave a dead fixture behind.
  *
  * Evals run **on demand** against a real chat (see the README beside this file). Nothing here
@@ -572,7 +572,7 @@ export const TAX_OPTIMIZATION_EVALS: readonly TaxOptimizationEval[] = [
       'Evaluate a Roth conversion ladder on my plan: convert from my traditional IRA to my Roth IRA for the next three years, filling a bracket each year. Rank the variants by lifetime taxes.',
     // The no-conversion plan is the baseline both levers are read against. Each lever fills one federal bracket
     // in each of 2026, 2027 and 2028 (ages 56 to 58), before the 59½ withdrawal sequence starts. The hand-worked
-    // arithmetic, and why the 12% fill is the best of the three, is in `tax-optimization-evals.test.ts`.
+    // arithmetic, and why the 12% fill is the best of the three, is in `tax_optimization_evals.test.ts`.
     levers: [
       { label: 'fill the 12% bracket, 2026-2028', planPatch: { conversions: conversionLadder(0.12, 2026, 3) } },
       { label: 'fill the 22% bracket, 2026-2028', planPatch: { conversions: conversionLadder(0.22, 2026, 3) } },

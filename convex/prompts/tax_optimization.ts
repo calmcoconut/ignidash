@@ -2,8 +2,8 @@
  * The tax-optimization skill prompt (§7-A2), importable from a Convex function.
  *
  * Convex bundles TypeScript, not Markdown, so the reviewed artifact lives in
- * `tax-optimization.md` and this module carries the same text as a template literal.
- * `tax-optimization.test.ts` byte-compares the two, so editing one without the other fails the
+ * `tax_optimization.md` and this module carries the same text as a template literal.
+ * `tax_optimization.test.ts` byte-compares the two, so editing one without the other fails the
  * suite — the .md is the file to read and review; this one is the copy the deployment ships.
  *
  * The first line is a stable sentinel: a conversation created with this prompt is recognised as a
@@ -16,7 +16,7 @@ export const TAX_OPTIMIZATION_SKILL_MARKER = '<!-- ignidash-skill:tax-optimizati
 
 export const TAX_OPTIMIZATION_SKILL_VERSION = 3;
 
-/** Verbatim contents of `tax-optimization.md`. */
+/** Verbatim contents of `tax_optimization.md`. */
 export const TAX_OPTIMIZATION_SKILL_PROMPT = `<!-- ignidash-skill:tax-optimization -->
 
 # Tax-optimization skill (v3)

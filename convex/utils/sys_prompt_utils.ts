@@ -1,6 +1,6 @@
 import type { Doc } from '../_generated/dataModel';
 
-import { TAX_OPTIMIZATION_SKILL_MARKER, TAX_OPTIMIZATION_SKILL_PROMPT } from '../prompts/tax-optimization';
+import { TAX_OPTIMIZATION_SKILL_MARKER, TAX_OPTIMIZATION_SKILL_PROMPT } from '../prompts/tax_optimization';
 import { incomeTimeFrameForDisplay } from '../validators/incomes_validator';
 import { expenseTimeFrameForDisplay } from '../validators/expenses_validator';
 import type { KeyMetrics } from '../validators/key_metrics_validator';

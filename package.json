@@ -13,7 +13,7 @@
     "start": "next start",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p convex --noEmit",
     "format": "prettier --write .",
     "prepare": "husky",
     "test": "vitest",

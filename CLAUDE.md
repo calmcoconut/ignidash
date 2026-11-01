@@ -110,8 +110,8 @@ All server functions (queries, mutations, actions) live here. Key files:
 - `insights.ts` — AI-generated insights
 - `ai_chat.ts` — The streaming chat/insights action. Provider-agnostic: `OPENAI_BASE_URL` points the `openai` SDK at any OpenAI-compatible server (Ollama, vLLM, llama.cpp); `OPENAI_ENDPOINT` selects `AzureOpenAI`.
 - `chat_tools.ts` — Deterministic financial calculation tools for AI chat (`getPlanSummary`, `simulateVariant`, `compareToBaseline`, `getTaxAnalytics`, `runSensitivityAnalysis`, `compareHousing`). Imports directly from `../src/lib/calc/`.
-- `prompts/tax-optimization.ts` & `prompts/tax-optimization.md` — Synchronized system prompts reflecting the engine's capabilities.
-- `prompts/evals/tax-optimization-evals.test.ts` — 39 eval tests scoring prompt accuracy.
+- `prompts/tax_optimization.ts` & `prompts/tax_optimization.md` — Synchronized system prompts reflecting the engine's capabilities.
+- `prompts/evals/tax_optimization_evals.test.ts` — 39 eval tests scoring prompt accuracy.
 - `http.ts` — Convex HTTP router (no external payment webhooks)
 - `utils/auth_utils.ts` — `getUserIdOrThrow(ctx)` for top-level queries; `utils/plan_utils.ts` — `getPlanForCurrentUserOrThrow(ctx, planId)`
 - `utils/sys_prompt_utils.ts` — Dynamic AI system prompt generation from plan data

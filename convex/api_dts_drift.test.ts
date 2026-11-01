@@ -110,6 +110,16 @@ describe('convex/_generated/api.d.ts against the module tree', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('names every module the way the backend accepts, or `convex deploy` refuses the whole push', () => {
+    // The backend rejects a push whose module path has a component outside [A-Za-z0-9_.]
+    // ("Path component … can only contain alphanumeric characters, underscores, or periods"). Nothing
+    // else here deploys, so a hyphenated `prompts/tax-optimization.ts` passed every check and failed
+    // only on the first real deploy.
+    const invalid = modulesOnDisk().filter((module) => !module.split('/').every((part) => /^[A-Za-z0-9_.]+$/.test(part)));
+
+    expect(invalid).toEqual([]);
+  });
+
   it('keys the multi-word modules by path, which is the form that breaks when codegen runs', () => {
     // The AGENTS.md §8.1 trap, stated as a fact about the file: `net_worth_journal`, never
     // `netWorthJournal`. A camelCase key compiles today because nothing type-checks the key against a

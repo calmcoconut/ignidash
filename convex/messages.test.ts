@@ -6,7 +6,7 @@ import { api } from './_generated/api';
 import schema from './schema';
 import { basicTemplate } from './templates/basic';
 import betterAuthSchema from './betterAuth/schema';
-import { TAX_OPTIMIZATION_SKILL_MARKER } from './prompts/tax-optimization';
+import { TAX_OPTIMIZATION_SKILL_MARKER } from './prompts/tax_optimization';
 import { TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE } from './utils/sys_prompt_utils';
 import type { KeyMetrics } from './validators/key_metrics_validator';
 
