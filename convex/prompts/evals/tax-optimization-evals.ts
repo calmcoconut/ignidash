@@ -3,7 +3,7 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
 /**
  * Eval set for the tax-optimization skill (§7-A2).
  *
- * Eleven hand-specified plans across the shapes the engine can actually compute today, plus the
+ * Twelve hand-specified plans across the shapes the engine can actually compute today, plus the
  * properties every run must satisfy. The plans are `SimulatorInputs` — exactly what the tools in
  * `convex/chat_tools.ts` consume — and `tax-optimization-evals.test.ts` proves each one validates
  * and produces a baseline, so a schema change cannot leave a dead fixture behind.
@@ -103,6 +103,24 @@ const basePlan = (overrides: Partial<SimulatorInputs> = {}): SimulatorInputs => 
 });
 
 const retireAt = (retirementAge: number) => ({ retirementStrategy: { type: 'fixedAge' as const, retirementAge } });
+
+/**
+ * A Roth conversion ladder: one conversion per calendar year from `firstYear` for `years` years, each
+ * from the traditional IRA to the Roth IRA and each filling the named federal bracket (P3-P5). The ids
+ * are per year, so no two rows share one (`conversionsProblems` refuses a repeated id).
+ */
+const conversionLadder = (targetBracketRate: number, firstYear: number, years: number) =>
+  Array.from({ length: years }, (_, index) => {
+    const year = firstYear + index;
+
+    return {
+      id: `ladder-${targetBracketRate}-${year}`,
+      fromAccountId: 'traditional',
+      toAccountId: 'roth',
+      year,
+      fillToBracket: { targetBracketRate, jurisdiction: 'federal' as const },
+    };
+  });
 
 export const TAX_OPTIMIZATION_EVALS: readonly TaxOptimizationEval[] = [
   {
@@ -543,6 +561,53 @@ export const TAX_OPTIMIZATION_EVALS: readonly TaxOptimizationEval[] = [
           owner: 'joint',
         },
       },
+    }),
+  },
+  {
+    id: 'conversion-ladder-hand-worked',
+    covers:
+      'single filer, retired at 56 with no other income and a large traditional IRA: a three-year Roth conversion ladder that fills the 12% or the 22% bracket, priced against the RMD-era bracket, with the IRMAA cliff the 22% fill crosses',
+    goal: 'lifetime-taxes',
+    request:
+      'Evaluate a Roth conversion ladder on my plan: convert from my traditional IRA to my Roth IRA for the next three years, filling a bracket each year. Rank the variants by lifetime taxes.',
+    // The no-conversion plan is the baseline both levers are read against. Each lever fills one federal bracket
+    // in each of 2026, 2027 and 2028 (ages 56 to 58), before the 59½ withdrawal sequence starts. The hand-worked
+    // arithmetic, and why the 12% fill is the best of the three, is in `tax-optimization-evals.test.ts`.
+    levers: [
+      { label: 'fill the 12% bracket, 2026-2028', planPatch: { conversions: conversionLadder(0.12, 2026, 3) } },
+      { label: 'fill the 22% bracket, 2026-2028', planPatch: { conversions: conversionLadder(0.22, 2026, 3) } },
+    ],
+    plan: basePlan({
+      // No state return: the hand-worked numbers are federal only.
+      taxSettings: { filingStatus: 'single', stateResidency: 'none' },
+      timeline: {
+        birthMonth: 1,
+        birthYear: 1970,
+        lifeExpectancy: 100,
+        retirementStrategy: { type: 'fixedAge', retirementAge: 56 },
+      },
+      // Nothing earns income and every return is zero, so the ladder's only ordinary income is the conversion.
+      // Before 59½ the engine pays expenses and tax from the brokerage first, and the brokerage is all basis,
+      // so those withdrawals are not income. From 59½ the IRA is drawn first, which is why the ladder stops
+      // in 2028 (age 58 for the whole year).
+      incomes: {},
+      expenses: {
+        living: {
+          id: 'living',
+          name: 'Living expenses',
+          amount: 40000,
+          frequency: 'yearly',
+          timeframe: { start: { type: 'now' }, end: { type: 'atLifeExpectancy' } },
+          growth: { growthRate: 0 },
+          disabled: false,
+        },
+      },
+      accounts: {
+        traditional: { id: 'traditional', name: 'Traditional IRA', type: 'ira', balance: 3500000, percentBonds: 0 },
+        roth: { id: 'roth', name: 'Roth IRA', type: 'rothIra', balance: 100000, percentBonds: 0 },
+        taxable: { id: 'taxable', name: 'Brokerage', balance: 600000, type: 'taxableBrokerage', percentBonds: 0, costBasis: 600000 },
+      },
+      marketAssumptions: { stockReturn: 0, stockYield: 0, bondReturn: 0, bondYield: 0, cashReturn: 0, inflationRate: 0 },
     }),
   },
 ];

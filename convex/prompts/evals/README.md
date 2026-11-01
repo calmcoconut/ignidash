@@ -2,7 +2,7 @@
 
 Two files make up the eval set, and they do different jobs:
 
-- `tax-optimization-evals.ts` — eleven hand-specified plans and the eight properties a run must satisfy.
+- `tax-optimization-evals.ts` — twelve hand-specified plans and the eight properties a run must satisfy.
   No provider, no network: it is data, typed as `SimulatorInputs`.
 - `tax-optimization-evals.test.ts` — the automated half. It proves every fixture still validates
   against `simulatorSchema`, that every fixture produces a baseline through the real
@@ -89,15 +89,36 @@ _marginal_ effect of an itemized deduction — `notComputed` names that, the AMT
 simplified §53 limit, and the non-income-related Part B and Part D premiums — but the deduction
 itself, the cap the return applies and both surcharges are reported figures.
 
-The eleven cases instead cover the shapes the engine _can_ compute: single (baseline, high earner,
-early retiree, low income, Roth-heavy, tax-deferred-heavy), married filing jointly (dual income,
-single earner, early retiree, high income) and married filing separately (one couple of two ages,
-with separate wages and community property that the Form 8958 split divides). The `covers` line on
-each case says which behaviour it is looking for.
+The twelve cases instead cover the shapes the engine _can_ compute: single (baseline, high earner,
+early retiree, low income, Roth-heavy, tax-deferred-heavy, and a Roth conversion ladder), married
+filing jointly (dual income, single earner, early retiree, high income) and married filing separately
+(one couple of two ages, with separate wages and community property that the Form 8958 split
+divides). The `covers` line on each case says which behaviour it is looking for.
 
 CI runs only the fixture tests. Replaying recorded transcripts in CI — so a changed model can be
 diffed without spending tokens — is not built yet; until then, an eval run is a human reading a
 transcript.
+
+## The twelve cases
+
+| id                              | what it pins                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `single-baseline`               | Single filer, one wage, retiring at 65: the reference case every delta is read against.                                                                                                                                                                                                                       |
+| `single-high-earner`            | Single filer at a high wage: bracket pressure and a large tax-deferred balance.                                                                                                                                                                                                                               |
+| `single-early-retiree`          | Single filer retiring at 45: a taxable bridge and early-withdrawal penalties.                                                                                                                                                                                                                                 |
+| `single-low-income`             | Single filer on a modest wage: the 0% long-term capital gains zone.                                                                                                                                                                                                                                           |
+| `single-roth-heavy`             | Single filer whose balances are mostly tax-free: withdrawals that add no taxable income.                                                                                                                                                                                                                      |
+| `single-tax-deferred-heavy`     | Single filer with a large traditional 401(k): required minimum distributions late in life.                                                                                                                                                                                                                    |
+| `mfj-dual-income`               | Married filing jointly with two wages: joint brackets.                                                                                                                                                                                                                                                        |
+| `mfj-single-earner`             | Married filing jointly with one wage: a non-earning spouse and a wider bracket.                                                                                                                                                                                                                               |
+| `mfj-early-retiree`             | Married filing jointly retiring at 50: a long pre-59½ window and a taxable bridge.                                                                                                                                                                                                                            |
+| `mfj-high-income`               | Married filing jointly at a high income: NIIT territory, with the California return.                                                                                                                                                                                                                          |
+| `mfs-couple`                    | Married filing separately: two returns, a community brokerage split under Form 8958, and the California return for each spouse.                                                                                                                                                                               |
+| `conversion-ladder-hand-worked` | Single filer retired at 56 with a large IRA and no other income: a three-year Roth conversion ladder at the 12% and the 22% fill. Pins the 12% fill as the best by lifetime taxes, its first-year headroom of $66,500 (standard deduction plus the 12% bracket top), and the IRMAA tier the 22% fill crosses. |
+
+`conversion-ladder-hand-worked` is the one case whose numbers are checked by hand, not only by the
+engine: `tax-optimization-evals.test.ts` carries the bracket arithmetic, and the test fails if the
+ranking, the headroom or the IRMAA surcharge moves.
 
 ## Changing the prompt
 

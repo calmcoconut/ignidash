@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { createChatToolkit } from '../../chat_tools';
-import { simulatorSchema } from '../../../src/lib/schemas/inputs/simulator-schema';
+import { simulatorSchema, type SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-schema';
 import { TAX_OPTIMIZATION_SKILL_PROMPT } from '../tax-optimization';
 import { EVAL_AS_OF, TAX_OPTIMIZATION_EVAL_CHECKS, TAX_OPTIMIZATION_EVALS, type EvalGoal } from './tax-optimization-evals';
 
@@ -42,8 +42,8 @@ interface ParsedBaseline {
 }
 
 describe('tax-optimization eval set', () => {
-  it('has eleven uniquely identified cases', () => {
-    expect(TAX_OPTIMIZATION_EVALS).toHaveLength(11);
+  it('has twelve uniquely identified cases', () => {
+    expect(TAX_OPTIMIZATION_EVALS).toHaveLength(12);
 
     const ids = TAX_OPTIMIZATION_EVALS.map((evalCase) => evalCase.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -144,6 +144,189 @@ describe('tax-optimization eval set', () => {
     expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('jurisdictions.california.reported');
     expect(TAX_OPTIMIZATION_SKILL_PROMPT).toContain('`none` the plan is not a resident');
     expect(TAX_OPTIMIZATION_SKILL_PROMPT).not.toContain('do not report a California income tax figure');
+  });
+});
+
+// ============================================================================
+// The conversion ladder, worked by hand: conversion-ladder-hand-worked
+// ============================================================================
+
+/*
+ * Hand-worked reasoning. Single filer, born 1970, federal only, zero returns and zero inflation, so
+ * every figure is in 2026 dollars and the 2026 federal table in `src/lib/calc/tax-data/years/2026.ts`
+ * applies unchanged. The IRMAA figures are the 2026 table's `medicareIrmaa`.
+ *
+ * Other ordinary income in the ladder years: none. Before 59½ the engine pays expenses and tax from
+ * the brokerage first, and the brokerage is all basis, so those withdrawals are not income. The
+ * conversion is therefore the only ordinary income, and its bracket headroom is
+ *   standard deduction ($16,100) + top of the target bracket − other ordinary income ($0).
+ *
+ * 1. Fill to 12%: headroom 16,100 + 50,400 = 66,500. Taxable income 50,400. Federal tax
+ *    10% × 12,400 + 12% × 38,000 = 1,240 + 4,560 = 5,800 a year. MAGI 66,500, under the 109,000
+ *    IRMAA floor, so no surcharge.
+ * 2. Fill to 22%: headroom 16,100 + 105,700 = 121,800. Taxable income 105,700. Federal tax
+ *    5,800 + 22% × 55,300 = 5,800 + 12,166 = 17,966 a year. MAGI 121,800 is past the 109,000 floor
+ *    (tier 1) with 15,200 to the 137,000 floor. Tier 1 is (81.20 + 14.50) × 12 = 1,148.40 a year.
+ *
+ * What the extra 55,300 of the 22% fill costs and returns. Now it costs 12,166 a year at 22%, plus the
+ * surcharge in each premium year it sets: 3 × 1,148.40 = 3,445.20. Later it saves tax only on the dollars
+ * the RMD years would otherwise have taxed, and the baseline shows that rate. Its drawdown years (ages
+ * 60 to 75, funded from the IRA) sit in the 12% band: MAGI 42,977, taxable 26,877, tax
+ * 1,240 + 12% × 14,477 = 2,977. Its RMD years sit in the 22% band: MAGI 115,090, taxable 98,990, tax
+ * 5,800 + 22% × 48,590 = 16,490 (the no-conversion plan at age 76). Only part of the displaced IRA is
+ * likely to come back at 22%: a balance left at age 100 is never taxed. That is an inference, since the
+ * tools do not expose the final IRA balance. The engine's later figures net the 22% fill's extra 36,498 of tax in 2026 to 2028 against
+ * about 31,200 saved later, which leaves the 22% fill 9,020 worse than the 12% fill once the surcharge is
+ * counted (5,575 of federal tax and 3,445 of IRMAA).
+ *
+ * 3. Hand-worked best by lifetime taxes: fill to 12%. It converts every dollar at 12%, and each of
+ *    those dollars would otherwise come out at 12% in a drawdown year or 22% in an RMD year. The 22%
+ *    fill adds dollars that come back only at 22% and only partly, and it crosses the IRMAA floor.
+ *
+ * `getTaxAnalytics` names each row by its date. The conversion dated 2026 fires in the row dated
+ * 1 January 2027, so that row is the one this test reads as "2027".
+ */
+const HAND = {
+  /** IRC §63 basic standard deduction, single, 2026. */
+  standardDeduction: 16_100,
+  /** Top of the 12% bracket, taxable ordinary income, single, 2026. */
+  bracket12Top: 50_400,
+  /** Top of the 22% bracket, taxable ordinary income, single, 2026. */
+  bracket22Top: 105_700,
+  /** Federal tax on the 12% bracket top: 10% × 12,400 + 12% × 38,000. */
+  taxAtBracket12Top: 5_800,
+  /** IRMAA tier 1 floor (single, MAGI), 2026 table. */
+  irmaaTier1Floor: 109_000,
+  /** IRMAA tier 2 floor (single, MAGI), 2026 table. */
+  irmaaTier2Floor: 137_000,
+  /** Part B + Part D tier-1 adjustment per month: 81.20 + 14.50, times 12 months. */
+  irmaaTier1Annual: (81.2 + 14.5) * 12,
+};
+
+const LADDER_CASE_ID = 'conversion-ladder-hand-worked';
+const LADDER_12 = 'fill the 12% bracket, 2026-2028';
+const LADDER_22 = 'fill the 22% bracket, 2026-2028';
+
+describe('conversion-ladder-hand-worked', () => {
+  const evalCase = TAX_OPTIMIZATION_EVALS.find((entry) => entry.id === LADDER_CASE_ID);
+  if (!evalCase) throw new Error(`the ${LADDER_CASE_ID} case is missing`);
+
+  const leverPatch = (label: string): Record<string, unknown> => {
+    const lever = evalCase.levers.find((entry) => entry.label === label);
+    if (!lever) throw new Error(`the ${label} lever is missing`);
+
+    return lever.planPatch;
+  };
+
+  /** The case's plan with a lever's conversions already in the baseline, for the analytics tools. */
+  const planWithLever = (label: string): SimulatorInputs =>
+    ({ ...evalCase.plan, conversions: leverPatch(label).conversions }) as SimulatorInputs;
+
+  it('ranks the 12% fill best by lifetime taxes, as the hand-worked comparison does', () => {
+    const toolkit = createChatToolkit({ inputs: evalCase.plan, asOf: EVAL_AS_OF });
+    const summary = JSON.parse(toolkit.execute('getPlanSummary', {})) as {
+      baseline?: { lifetimeTaxesAndPenalties?: number };
+    };
+
+    const ranked = [
+      { label: 'no conversion', total: summary.baseline?.lifetimeTaxesAndPenalties },
+      ...evalCase.levers.map((lever) => {
+        const result = JSON.parse(toolkit.execute('simulateVariant', { variantId: lever.label, planPatch: lever.planPatch })) as {
+          lifetimeTaxes?: { total?: number };
+        };
+
+        return { label: lever.label, total: result.lifetimeTaxes?.total };
+      }),
+    ];
+
+    for (const entry of ranked) expect(typeof entry.total).toBe('number');
+    const best = ranked.reduce((lowest, entry) => ((entry.total ?? Infinity) < (lowest.total ?? Infinity) ? entry : lowest));
+
+    expect(best.label).toBe(LADDER_12);
+    // The 22% fill is worse than the 12% fill by more than the lifetime total's own rounding.
+    const total = (label: string) => ranked.find((entry) => entry.label === label)?.total ?? NaN;
+    expect(total(LADDER_22) - total(LADDER_12)).toBeGreaterThan(1);
+  });
+
+  it('converts exactly the 12% bracket headroom in the first conversion year', () => {
+    const toolkit = createChatToolkit({ inputs: planWithLever(LADDER_12), asOf: EVAL_AS_OF });
+    const headroom = HAND.standardDeduction + HAND.bracket12Top;
+
+    // MAGI is the conversion here, because the year carries no other income.
+    const analytics = JSON.parse(toolkit.execute('getTaxAnalytics', { year: 2027 })) as {
+      bracketFill?: { ordinary?: { taxableIncome?: number } };
+      cliffs?: { irmaa?: { projected?: { magi?: number } } };
+    };
+    const magi = analytics.cliffs?.irmaa?.projected?.magi ?? NaN;
+    expect(Math.abs(magi - headroom)).toBeLessThanOrEqual(1);
+
+    const taxable = analytics.bracketFill?.ordinary?.taxableIncome ?? NaN;
+    expect(Math.abs(taxable - HAND.bracket12Top)).toBeLessThanOrEqual(1);
+
+    // The federal tax on that year is the hand figure too, so the conversion is priced at the 12% fill.
+    // perYearTaxes[1] is the row dated 1 January 2027, which settles the 2026 conversion.
+    const simulated = JSON.parse(toolkit.execute('simulateVariant', { variantId: 'as-planned', planPatch: {} })) as {
+      perYearTaxes?: Array<{ year: number; federalIncomeTax: number }>;
+    };
+    const firstConversionYear = simulated.perYearTaxes?.[1];
+    expect(Math.abs((firstConversionYear?.federalIncomeTax ?? NaN) - HAND.taxAtBracket12Top)).toBeLessThanOrEqual(1);
+  });
+
+  it('reports the IRMAA tier the 22% fill crosses, and leaves the ACA cliff unevaluated', () => {
+    const toolkit = createChatToolkit({ inputs: planWithLever(LADDER_22), asOf: EVAL_AS_OF });
+
+    const analytics = JSON.parse(toolkit.execute('getTaxAnalytics', { year: 2027 })) as {
+      cliffs?: {
+        irmaa?: {
+          projected?: {
+            magi?: number;
+            headroomToNextTier?: number | null;
+            tier?: { tier?: number; min?: number; annualSurcharge?: number };
+            nextTier?: { tier?: number } | null;
+          };
+        };
+        aca?: { supported?: boolean; prerequisites?: string[] };
+      };
+    };
+    const irmaa = analytics.cliffs?.irmaa?.projected;
+
+    // The fill puts MAGI at 121,800: tier 1, with 15,200 of room before tier 2.
+    expect(Math.abs((irmaa?.magi ?? NaN) - (HAND.standardDeduction + HAND.bracket22Top))).toBeLessThanOrEqual(1);
+    expect(irmaa?.tier?.tier).toBe(1);
+    expect(irmaa?.tier?.min).toBe(HAND.irmaaTier1Floor);
+    expect(irmaa?.nextTier?.tier).toBe(2);
+    expect(
+      Math.abs((irmaa?.headroomToNextTier ?? NaN) - (HAND.irmaaTier2Floor - (HAND.standardDeduction + HAND.bracket22Top)))
+    ).toBeLessThanOrEqual(1);
+    expect(Math.abs((irmaa?.tier?.annualSurcharge ?? NaN) - HAND.irmaaTier1Annual)).toBeLessThan(0.01);
+
+    // The plan did not opt in to the ACA credit, so the analytics say so and name what it would need.
+    expect(analytics.cliffs?.aca?.supported).toBe(false);
+    expect(analytics.cliffs?.aca?.prerequisites?.some((line) => line.includes('taxSettings.aca.optIn'))).toBe(true);
+  });
+
+  it('charges the IRMAA surcharge over the lifetime for the 22% fill, and none for the 12% fill', () => {
+    // The lifetime total is every tax line plus the IRMAA surcharge (the extractor adds it), and the
+    // tool does not return the surcharge on its own. Subtracting the lines it does return leaves the
+    // surcharge: three conversion years, each setting tier 1 two premium years later.
+    const lifetimeIrmaa = (label: string): number => {
+      const toolkit = createChatToolkit({ inputs: planWithLever(label), asOf: EVAL_AS_OF });
+      const result = JSON.parse(toolkit.execute('simulateVariant', { variantId: 'lever', planPatch: {} })) as {
+        lifetimeTaxes?: Record<string, number>;
+      };
+      const lines = result.lifetimeTaxes ?? {};
+      const listed =
+        (lines.federalIncomeTax ?? 0) +
+        (lines.ficaTax ?? 0) +
+        (lines.capitalGainsTax ?? 0) +
+        (lines.niit ?? 0) +
+        (lines.earlyWithdrawalPenalties ?? 0);
+
+      return (lines.total ?? NaN) - listed;
+    };
+
+    expect(Math.abs(lifetimeIrmaa(LADDER_22) - 3 * HAND.irmaaTier1Annual)).toBeLessThanOrEqual(1);
+    expect(Math.abs(lifetimeIrmaa(LADDER_12))).toBeLessThanOrEqual(1);
   });
 });
 
