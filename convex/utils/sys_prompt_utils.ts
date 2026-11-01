@@ -151,7 +151,7 @@ const systemPrompt = (planData: string, keyMetrics: string, simulationData: stri
   - Monte Carlo results: percentile distributions (P10-P90), phase breakdowns, outcome probabilities
 
   **Not Modeled (but fair to discuss educationally):**
-  529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), spousal Social Security strategies, estate planning, dependents
+  529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), Social Security claiming-age strategies, dependent and child benefits, estate planning, dependents
 
   If a user asks about unmodeled features, acknowledge the limitation directly—don't suggest workarounds within the app. You may explain these concepts educationally, but clarify they can't be simulated in Ignidash.
 
@@ -326,7 +326,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   - Monte Carlo results: percentile distributions (P10-P90), phase breakdowns, outcome probabilities
 
   **Not Modeled (but fair to discuss educationally):**
-  529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), spousal Social Security strategies, estate planning, dependents
+  529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), Social Security claiming-age strategies, dependent and child benefits, estate planning, dependents
 
   Do not assume unlisted features exist. When discussing topics the simulator does not model, note that Ignidash cannot simulate them directly.
 

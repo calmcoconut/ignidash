@@ -94,7 +94,7 @@ Parallel tax system — compute tentative minimum tax, compare to regular tax, p
 
 **Spousal Social Security strategies** — Priority: Low | Difficulty: 5
 
-Spousal benefits (up to 50% of higher earner's PIA), survivor benefits (100% of deceased spouse's), and claiming optimization across two benefit streams. Would need two separate SS inputs with age-dependent claiming rules and the ability to model different claiming age combinations.
+Spousal benefits (up to 50% of the other spouse's PIA, reduced for an early claim) and survivor benefits (the larger of the two benefits, with the 82.5% RIB-LIM floor) are now modelled for a couple whose Social Security lines carry an estimate (`src/lib/calc/social-security.ts`, wired in `incomes.ts`). What remains is claiming optimization across the two benefit streams — searching claim-age combinations rather than simulating the ones entered — and an early-claiming reduction on the survivor benefit.
 
 **Annuities** — Priority: Low | Difficulty: 5
 

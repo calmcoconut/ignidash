@@ -220,9 +220,12 @@ with what the tools accept, trust the tools and say the limit has changed.
   `socialSecurity` block pays the PIA the plan states, or a PIA derived from the AIME it states and the
   bend-point table, adjusted for its `claimAge` against the full retirement age of **that income's
   owner** — the birth year stored on the household member, so a partner born in a different year is
-  adjusted on their own FRA rather than the primary's. What is not modelled: spousal, survivor and
-  dependent benefits, the retirement earnings test, and any view on when to claim — the claim age is
-  an input to simulate, not a recommendation to make.
+  adjusted on their own FRA rather than the primary's. For a couple whose lines carry an estimate,
+  the spousal benefit (half the other's PIA less one's own, reduced for an early claim) and the
+  survivor benefit (the larger of the two benefits after the first death, never below 82.5% of the
+  deceased's PIA) are modelled. What is not modelled: an early-claiming reduction on a survivor's
+  benefit, dependent benefits, the retirement earnings test, and any view on when to claim — the
+  claim age is an input to simulate, not a recommendation to make.
 - **Tax law is projected from the vendored rules.** The vendored federal ruleset (2026) and California ruleset (2025)
   are applied across the projection; rules for 2027+ are projected from 2026 in today's dollars with inflation adjustments.
   There is no future-law modelling, no estate, trust, business or rental tax, and no multi-state

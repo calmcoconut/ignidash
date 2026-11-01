@@ -142,8 +142,12 @@ export default function HelpPage() {
           <DescriptionList>
             <DescriptionTerm>Social Security</DescriptionTerm>
             <DescriptionDetails>
-              An income line you enter, adjusted for its claim age against the earner&apos;s own full retirement age. Spousal, survivor and
-              dependent benefits, and the retirement earnings test, are not modelled.
+              An income line you enter, adjusted for its claim age against the earner&apos;s own full retirement age. For a couple, a
+              spousal benefit (up to half the other member&apos;s PIA, less your own, reduced for a claim before your full retirement age)
+              is added from the later of the two claims, and on the first death the survivor receives the larger of their own benefit and
+              the deceased&apos;s, from the later of the death and their own claim. A member with two Social Security lines, or a line with
+              no estimate, is left out of these couple rules. Not modelled: an early-claiming reduction on a survivor&apos;s benefit, a
+              separate survivor claiming strategy, dependent (child) benefits, and the retirement earnings test.
             </DescriptionDetails>
 
             <DescriptionTerm>Roth conversions</DescriptionTerm>

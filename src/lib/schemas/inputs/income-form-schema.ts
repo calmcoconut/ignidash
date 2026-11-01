@@ -68,8 +68,9 @@ export const incomeTaxSchema = z
  * Optional on the income, so every plan written before this field existed loads unchanged, and an
  * income without it simply has no Social Security estimate.
  *
- * Spousal and survivor benefits are not modelled (they need the household and survivor rules);
- * this block describes one earner's own retirement benefit.
+ * Spousal and survivor benefits are modelled for a couple (P1-P8, E2): `src/lib/calc/incomes.ts`
+ * adds the spousal share and the survivor top-up to the lines that carry this block. The block itself
+ * still describes one earner's own retirement benefit, and the schema is unchanged.
  */
 export const socialSecuritySchema = z
   .object({

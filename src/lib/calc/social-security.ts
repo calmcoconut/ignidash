@@ -30,12 +30,17 @@
  * retirement, and keeping exact values makes every number here checkable by hand against the
  * published formula. The hand-worked tests in `social-security.test.ts` rely on that.
  *
- * ## What is deliberately not modelled
+ * ## Spousal and survivor benefits (P1-P8, E2)
  *
- * Spousal benefits (up to 50% of a spouse's PIA) and survivor benefits both need the household
- * model and the survivor rules in `portfolio.ts` / `phase.ts`, which another item owns. Nothing
- * here reads a household: a single earner's own retirement benefit is the whole scope, and adding
- * a hook that nothing consumes would be worse than leaving this note.
+ * The two household rules are pure functions here, `spousalExcess` and `survivorBenefit`, each
+ * taking the members' own figures as arguments. They do not read a household: `incomes.ts` decides
+ * which couple's lines they apply to, when they start, and when they stop. A member with two
+ * Social Security lines, or with a line that has no `socialSecurity` block, is left out of the couple
+ * rules; any other shape is handled there (see `incomes.ts`).
+ *
+ * Not modelled, on purpose: an early-claiming reduction on a survivor benefit (the survivor is paid
+ * the deceased's benefit, not reduced for the survivor's own age), a separate survivor claiming
+ * strategy, the retirement earnings test, and dependent (child) benefits.
  */
 
 import type { SocialSecurityInputs } from '@/lib/schemas/inputs/income-form-schema';
@@ -198,4 +203,96 @@ function requireAmount(value: number | undefined, field: 'aime' | 'pia', mode: S
   }
 
   return value;
+}
+
+// ============================================================================
+// Spousal and survivor benefits (P1-P8)
+// ============================================================================
+
+/** SSA's spousal reduction: 25/36 of 1% per month for the first 36 months early, then 5/12 of 1% (20 CFR 404.410). */
+const SPOUSAL_REDUCTION_PER_MONTH_FIRST_36 = 25 / 36 / 100;
+const SPOUSAL_REDUCTION_PER_MONTH_AFTER_36 = 5 / 12 / 100;
+
+/** The survivor floor (RIB-LIM, Social Security Act §202(e)(2)(D)): a survivor is never paid below 82.5% of the deceased's PIA. */
+const SURVIVOR_FLOOR_SHARE = 0.825;
+
+/**
+ * The fraction of a spousal benefit that is payable, given the months it starts before the spouse's
+ * full retirement age. No delayed credits attach to a spousal benefit, so a spousal claim after FRA
+ * is paid at its full amount.
+ *
+ * Worked cases: 36 months early → 25% reduction, factor 0.75; 60 months early → 25% + 24 × 5/12% = 10%,
+ * so 35% reduction and factor 0.65.
+ */
+export function spousalReductionFactor(monthsEarly: number): number {
+  const months = Math.max(0, monthsEarly);
+  const reduction =
+    Math.min(months, 36) * SPOUSAL_REDUCTION_PER_MONTH_FIRST_36 + Math.max(0, months - 36) * SPOUSAL_REDUCTION_PER_MONTH_AFTER_36;
+
+  return 1 - reduction;
+}
+
+export interface SpousalExcessInput {
+  /** The spouse's own PIA, monthly, today's dollars. */
+  readonly ownPia: number;
+  /** The other member's PIA, monthly, today's dollars. Spousal benefits are measured on the worker's PIA, not on what they claim. */
+  readonly otherPia: number;
+  /** The spouse's own age when the spousal benefit starts (member age, not plan age). */
+  readonly claimAge: number;
+  /** The spouse's own full retirement age. */
+  readonly fra: FullRetirementAge;
+}
+
+/**
+ * The monthly spousal add-on a spouse receives on top of their own benefit (20 CFR 404.410): up to
+ * 50% of the other member's PIA, less the spouse's own PIA, so the spouse is paid the larger of the
+ * two. The excess is reduced for each month the spousal benefit starts before the spouse's FRA, and
+ * is not reduced at or after it.
+ *
+ * Worked cases (other PIA $3,000, own PIA $1,000, so the excess is $1,500 − $1,000 = $500):
+ * - spousal starts at FRA 67 → no reduction, $500 a month;
+ * - spousal starts at 65 with FRA 67 → 24 months early → 24 × 25/36% = 16 2/3% → factor 5/6, $416.67 a month.
+ * With own PIA $1,500 the excess is $0, whatever the claim age.
+ */
+export function spousalExcess({ ownPia, otherPia, claimAge, fra }: SpousalExcessInput): number {
+  const excess = Math.max(0, 0.5 * otherPia - ownPia);
+  const { monthsEarly } = claimingAdjustment(claimAge, fra);
+
+  return excess * spousalReductionFactor(monthsEarly);
+}
+
+export interface SurvivorBenefitInput {
+  /** The deceased's PIA, monthly, today's dollars. */
+  readonly pia: number;
+  /** The deceased's claim age (member age). */
+  readonly claimAge: number;
+  /** The age at which the deceased died (member age). */
+  readonly deathAge: number;
+  /** The deceased's full retirement age. */
+  readonly fra: FullRetirementAge;
+}
+
+/**
+ * The monthly survivor benefit a surviving spouse is paid on the deceased's record (Social Security Act
+ * §202(e)-(f); the RIB-LIM floor is §202(e)(2)(D)), in today's dollars.
+ *
+ * - The deceased had claimed by death: the benefit they were being paid (their claiming adjustment,
+ *   delayed credits included), but never less than 82.5% of their PIA (the RIB-LIM floor).
+ * - The deceased died before claiming: their PIA with only the delayed credits earned up to the
+ *   death age; no reduction applies, because they never claimed.
+ *
+ * Worked cases (PIA $1,000, FRA 67):
+ * - claimed at 62 → 70% = $700, floor 82.5% = $825, so $825;
+ * - claimed at 70 → 124% = $1,240, above the floor, so $1,240;
+ * - died at 68 before claiming at 70 → 12 months late → 8% credit → $1,080;
+ * - died at 64 before claiming at 70 → no credit → $1,000.
+ */
+export function survivorBenefit({ pia, claimAge, deathAge, fra }: SurvivorBenefitInput): number {
+  if (deathAge >= claimAge) {
+    const payable = pia * claimingAdjustment(claimAge, fra).factor;
+
+    return Math.max(payable, SURVIVOR_FLOOR_SHARE * pia);
+  }
+
+  return pia * (1 + claimingAdjustment(deathAge, fra).credit);
 }

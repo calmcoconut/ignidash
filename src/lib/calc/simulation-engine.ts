@@ -420,7 +420,14 @@ export class FinancialSimulationEngine {
     const memberDeaths: Partial<Record<HouseholdMemberRole, number>> =
       simulationContext.firstDeath === undefined ? {} : { [simulationContext.firstDeath.owner]: simulationContext.firstDeath.age };
 
-    const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext, memberDeaths);
+    // P1-P8: a couple's Social Security lines take their spousal and survivor terms from each member's
+    // own age offset (the same offsets `ageOffsetByOwner` carries). A household of one passes nothing.
+    const coupleAgeOffsets =
+      isCoupleHousehold(timeline.household) && simulationContext.ageOffsetByOwner !== undefined
+        ? { primary: simulationContext.ageOffsetByOwner.primary, partner: simulationContext.ageOffsetByOwner.partner }
+        : undefined;
+
+    const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext, memberDeaths, coupleAgeOffsets);
     // A residence's `propertyTax` is charged as an ordinary expense (P1-P5, real estate II): the
     // engine's cash flow funds expenses and nothing else, so the bill is derived into an expense
     // row here rather than added to the portfolio maths somewhere else. Absent `propertyTax`
