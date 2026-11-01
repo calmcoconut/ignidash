@@ -10,8 +10,7 @@ import { simulate } from '../src/lib/calc/simulate';
 import { StatsUtils } from '../src/lib/utils/stats-utils';
 import { oneAtATimeSensitivity } from '../src/lib/calc/sensitivity';
 import { compareHousing, type HousingChoice } from '../src/lib/calc/housing-comparison';
-import { computeLoanPayment } from '../src/lib/calc/amortization-schedule';
-import type { PhysicalAssetInputs } from '../src/lib/schemas/inputs/physical-asset-form-schema';
+import { buildHousingChoice } from '../src/lib/calc/housing-choice';
 
 /**
  * The tools the chat agent can call (§7-A1), executed against the pure engine on the server.
@@ -527,48 +526,19 @@ export function createChatToolkit({ inputs, asOf, seed = TOOL_SEED }: ChatToolki
       return error('monthlyRent must be a positive number.');
     }
 
-    const downPaymentPercent = args.downPaymentPercent !== undefined ? Number(args.downPaymentPercent) : 20;
-    const interestRatePercent = args.interestRatePercent !== undefined ? Number(args.interestRatePercent) : 6.5;
-    const termMonths = args.termMonths !== undefined ? Number(args.termMonths) : 360;
-    const downPayment = (downPaymentPercent / 100) * residencePrice;
-    const loanBalance = Math.max(0, residencePrice - downPayment);
-    const monthlyPayment =
-      loanBalance > 0
-        ? computeLoanPayment({
-            principal: loanBalance,
-            annualRatePercent: interestRatePercent,
-            termMonths,
-          })
-        : 0;
-
-    const residence: PhysicalAssetInputs = {
-      id: 'chat-comparison-residence',
-      name: 'Primary Residence',
-      assetType: 'primaryResidence',
-      purchaseDate: { type: 'now' },
-      purchasePrice: residencePrice,
-      appreciationRate: args.appreciationRatePercent !== undefined ? Number(args.appreciationRatePercent) : 3,
-      paymentMethod:
-        loanBalance > 0
-          ? {
-              type: 'loan',
-              downPayment,
-              loanBalance,
-              apr: interestRatePercent,
-              monthlyPayment,
-              termMonths,
-            }
-          : { type: 'cash' },
-      saleDate: { type: 'atLifeExpectancy' },
-    };
-
-    const choice: HousingChoice = {
-      residence,
+    // Optional numbers are passed through only when the caller stated them; the builder owns the
+    // defaults, so the AI and the results-page section build the same choice from the same inputs.
+    const choice: HousingChoice = buildHousingChoice({
+      residencePrice,
       monthlyRent,
+      downPaymentPercent: args.downPaymentPercent !== undefined ? Number(args.downPaymentPercent) : undefined,
+      interestRatePercent: args.interestRatePercent !== undefined ? Number(args.interestRatePercent) : undefined,
+      termMonths: args.termMonths !== undefined ? Number(args.termMonths) : undefined,
+      appreciationRatePercent: args.appreciationRatePercent !== undefined ? Number(args.appreciationRatePercent) : undefined,
       propertyTaxRatePercent: args.propertyTaxRatePercent !== undefined ? Number(args.propertyTaxRatePercent) : undefined,
       maintenanceRatePercent: args.maintenanceRatePercent !== undefined ? Number(args.maintenanceRatePercent) : undefined,
       rentRealGrowthRatePercent: args.rentRealGrowthRatePercent !== undefined ? Number(args.rentRealGrowthRatePercent) : undefined,
-    };
+    });
 
     const report = compareHousing(baseline, choice, {
       asOf,
