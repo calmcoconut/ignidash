@@ -238,7 +238,7 @@ export default function OnboardingDialog({ onClose }: OnboardingDialogProps) {
               <DisclosurePanel className="space-y-2 pt-4">
                 <Text>
                   Visit the{' '}
-                  <TextLink href="https://github.com/schelskedevco/ignidash" target="_blank" rel="noopener noreferrer">
+                  <TextLink href="https://github.com/calmcoconut/ignidash" target="_blank" rel="noopener noreferrer">
                     GitHub repository
                   </TextLink>{' '}
                   for source code and a guide on how to self-host Ignidash with Docker.
