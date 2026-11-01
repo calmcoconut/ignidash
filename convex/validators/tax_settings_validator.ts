@@ -18,6 +18,13 @@ export const acaSettingsValidator = v.object({
   actualPremium: v.optional(v.number()),
 });
 
+export const medicareSettingsValidator = v.object({
+  includePremiums: v.boolean(),
+  enrollmentAge: v.optional(v.number()),
+  partDMonthly: v.optional(v.number()),
+  supplementalMonthly: v.optional(v.number()),
+});
+
 export const taxSettingsValidator = v.object({
   /**
    * The filing status a single return is settled under (IRC §1). `marriedFilingSeparately` (P3-P1b)
@@ -39,4 +46,5 @@ export const taxSettingsValidator = v.object({
   itemizedDeductions: v.optional(itemizedDeductionsValidator),
   spouseQualifiesForSeniorDeduction: v.optional(v.boolean()),
   aca: v.optional(acaSettingsValidator),
+  medicare: v.optional(medicareSettingsValidator),
 });

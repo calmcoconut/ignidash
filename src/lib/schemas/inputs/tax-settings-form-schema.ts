@@ -86,6 +86,35 @@ export const acaSettingsSchema = z.object({
 
 export type AcaSettingsInputs = z.infer<typeof acaSettingsSchema>;
 
+/**
+ * Medicare enrolment and base premiums (v20).
+ *
+ * Absent means **enrolment at 65 and no base premiums charged**: IRMAA still applies from 65, and
+ * the standard Part B, Part D and supplemental premiums are left to whatever expense lines the plan
+ * already carries — which is what every earlier build charged (less the IRMAA age gate, which was a
+ * defect). `includePremiums` turns the base premiums on; the three numbers are optional claims, as
+ * in `acaSettingsSchema`: absent `partDMonthly` means the CMS national base beneficiary premium,
+ * absent `supplementalMonthly` means none.
+ */
+export const medicareSettingsSchema = z.object({
+  /** Whether the standard Part B, Part D and supplemental premiums are charged as expenses. */
+  includePremiums: z.boolean(),
+  /** The age each member enrols at; 65 when absent. Later enrolment is for employer coverage. */
+  enrollmentAge: optionalCoerceNumber(
+    z
+      .number('Must be a valid number')
+      .int('Enrollment age must be a whole number')
+      .min(65, 'Medicare enrollment starts at 65')
+      .max(80, 'Enrollment age must be at most 80')
+  ),
+  /** Part D (drug plan) premium per member, monthly; absent means the CMS base beneficiary premium. */
+  partDMonthly: optionalCurrencyFieldAllowsZero('Part D premium cannot be negative'),
+  /** Medigap or Medicare Advantage premium per member, monthly; absent means none. */
+  supplementalMonthly: optionalCurrencyFieldAllowsZero('Supplemental premium cannot be negative'),
+});
+
+export type MedicareSettingsInputs = z.infer<typeof medicareSettingsSchema>;
+
 export const taxSettingsFormSchema = z.object({
   filingStatus,
   stateResidency: stateResidencySchema.optional(),
@@ -100,6 +129,8 @@ export const taxSettingsFormSchema = z.object({
   spouseQualifiesForSeniorDeduction: z.boolean().optional(),
   /** ACA Premium Tax Credit (IRC §36B) opt-in and benchmark inputs. */
   aca: acaSettingsSchema.optional(),
+  /** Medicare enrolment age and base premiums (v20). */
+  medicare: medicareSettingsSchema.optional(),
 });
 
 export type TaxSettingsInputs = z.infer<typeof taxSettingsFormSchema>;

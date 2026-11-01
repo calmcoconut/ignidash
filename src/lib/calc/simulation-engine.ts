@@ -47,7 +47,8 @@ import { PENDING_MILESTONE_LATCH, type MilestoneLatchState, type MilestoneSnapsh
 import type { MilestoneFireDate } from './milestones';
 import type { MilestoneInputs } from '@/lib/schemas/inputs/milestone-form-schema';
 import { TaxProcessor, type ReturnOwnership, type TaxesData, type TaxProcessorSettings } from './taxes';
-import { taxYearFor } from './tax-data';
+import { getRules, taxYearFor } from './tax-data';
+import { MEDICARE_ELIGIBILITY_AGE, type MedicareMember, type MedicarePremiumSchedule, SOLE_MEDICARE_MEMBER } from './medicare';
 import type { TaxYear } from './tax-data/types';
 import { type AssetFlows, zeroAssetAmounts } from './asset';
 
@@ -281,6 +282,11 @@ export interface SimulationContext {
    * are equal (no survivor window, so nothing to transition).
    */
   readonly firstDeath?: { readonly age: number; readonly owner: HouseholdMemberRole };
+  /**
+   * Every member's age offset and death age on the plan axis, for the per-member Medicare rule
+   * (`medicare.ts`). Absent means the sole primary, alive for the run.
+   */
+  readonly members?: readonly MedicareMember[];
 }
 
 /** Mutable simulation state that evolves each month */
@@ -470,7 +476,26 @@ export class FinancialSimulationEngine {
     // returns are divided from. A one-return household — one member, or a couple filing jointly —
     // keeps the income data it always had, which is why the frozen corpus does not move.
     let incomesProcessor = new IncomesProcessor(simulationState, incomes, payrollTaxProcessor, filingStatus === 'marriedFilingSeparately');
-    const expensesProcessor = new ExpensesProcessor(simulationState, expenses);
+    // Medicare base premiums are opt-in (v20); absent settings charge none, so the expense rows of a
+    // plan that has not opted in are unchanged.
+    const medicareSettings = this.inputs.taxSettings.medicare;
+    const medicarePremiums: MedicarePremiumSchedule | undefined = medicareSettings?.includePremiums
+      ? {
+          members: simulationContext.members ?? SOLE_MEDICARE_MEMBER,
+          enrollmentAge: medicareSettings.enrollmentAge ?? MEDICARE_ELIGIBILITY_AGE,
+          ratesForMonth: (monthsElapsed) => {
+            // The premium is indexed (CMS re-issues it every year), so it is today's dollars as read.
+            // The month being charged is the `monthsElapsed`-th; its calendar year picks the ruleset.
+            const table = getRules(taxYearFor(startCalendarDate, Math.max(0, monthsElapsed - 1))).tables.medicareIrmaa.values;
+            return {
+              partBMonthly: table.standardPartBMonthly,
+              partDMonthly: medicareSettings.partDMonthly ?? table.basePartDMonthly,
+              supplementalMonthly: medicareSettings.supplementalMonthly ?? 0,
+            };
+          },
+        }
+      : undefined;
+    const expensesProcessor = new ExpensesProcessor(simulationState, expenses, medicarePremiums);
     const debtsProcessor = new DebtsProcessor(simulationState, debts);
     const physicalAssetsProcessor = new PhysicalAssetsProcessor(simulationState, physicalAssets);
     const portfolioProcessor = new PortfolioProcessor(
@@ -506,6 +531,8 @@ export class FinancialSimulationEngine {
       // The early-withdrawal gates read the account owner's age, not the primary's (P1-P3): the
       // engine already charges per-member RMD ages from the same offsets.
       ...(simulationContext.ageOffsetByOwner === undefined ? {} : { ageOffsetByOwner: simulationContext.ageOffsetByOwner }),
+      // IRMAA is charged per Medicare-enrolled member (see `medicare.ts`).
+      ...(simulationContext.members === undefined ? {} : { medicareMembers: simulationContext.members }),
       ownership: {
         accounts: simulationContext.accountOwners ?? {},
         physicalAssets: simulationContext.physicalAssetOwners ?? {},
@@ -597,7 +624,7 @@ export class FinancialSimulationEngine {
         }
       }
 
-      const { inflationRate: monthlyInflationRate } = returnsProcessor.process();
+      const { inflationRate: monthlyInflationRate, incomePaidAsCash = 0 } = returnsProcessor.process();
       const incomesData = incomesProcessor.process();
       const expensesData = expensesProcessor.process();
       // A mortgage offset account's balance reduces that loan's interest, and the portfolio is the
@@ -615,7 +642,10 @@ export class FinancialSimulationEngine {
         // Spending the plan marks essential (P1-P4) is funded first: a strategy's annual cap may
         // only trim the rest. Zero when no expense is marked essential, so a plan that never used
         // the flag withdraws exactly what it did before the strategies existed.
-        expensesProcessor.getMonthlyEssentialExpenses()
+        expensesProcessor.getMonthlyEssentialExpenses(),
+        // Dividends and interest a taxable account pays out as cash (v20): cash for this month's
+        // spending, before any withdrawal. Zero for a plan that reinvests everything.
+        incomePaidAsCash
       );
       if (monthlyDiscretionaryExpense) expensesProcessor.processDiscretionaryExpense(monthlyDiscretionaryExpense);
 
@@ -1001,6 +1031,7 @@ export class FinancialSimulationEngine {
       accountOwners,
       physicalAssetOwners,
       firstDeath,
+      members: memberFacts.map((member) => ({ role: member.role, ageOffset: member.ageOffset, deathAge: member.deathAge })),
     };
   }
 

@@ -65,9 +65,9 @@
 import type { IncomeInputs, IncomeType } from '@/lib/schemas/inputs/income-form-schema';
 import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
 
-import { fullRetirementAge } from './fra-table';
 import type { PayrollTaxProcessor } from './payroll-taxes';
-import { estimateSocialSecurityBenefit, spousalExcess, survivorBenefit, type SocialSecurityEstimate } from './social-security';
+import { estimateSocialSecurityBenefit, type SocialSecurityEstimate } from './social-security';
+import { HouseholdSocialSecurity, type SocialSecurityChild } from './social-security-household';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
@@ -350,6 +350,7 @@ export interface IncomesData {
 /** Collection of income sources that filters by active time frame */
 export class Incomes {
   private readonly incomes: Income[];
+  private readonly socialSecurity: HouseholdSocialSecurity;
   private readonly memberDeaths: Partial<Record<HouseholdMemberRole, number>>;
 
   /**
@@ -368,14 +369,39 @@ export class Incomes {
     data: IncomeInputs[],
     context: TimeBindingContext,
     memberDeaths: Partial<Record<HouseholdMemberRole, number>> = {},
-    coupleAgeOffsets?: Record<HouseholdMemberRole, number>
+    coupleAgeOffsets?: Record<HouseholdMemberRole, number>,
+    children: readonly SocialSecurityChild[] = []
   ) {
     const activeData = data.filter((income) => !income.disabled);
-    const householdTerms: Map<string, SocialSecurityHouseholdTerms> =
-      coupleAgeOffsets === undefined ? new Map() : householdSocialSecurityTerms(activeData, context, coupleAgeOffsets, memberDeaths);
+    const roles: readonly HouseholdMemberRole[] = coupleAgeOffsets === undefined ? ['primary'] : ['primary', 'partner'];
+    this.socialSecurity = new HouseholdSocialSecurity(
+      activeData,
+      roles.map((role) => ({
+        role,
+        ageOffset: coupleAgeOffsets?.[role] ?? 0,
+        deathPlanAge: memberDeaths[role] ?? Number.POSITIVE_INFINITY,
+        birthYear: ownerBirthYear(role, context),
+      })),
+      children,
+      context.startDate.getFullYear(),
+      context.marketAssumptions.inflationRate
+    );
 
-    this.incomes = activeData.map((income) => new Income(income, context, householdTerms.get(income.id)));
+    this.incomes = activeData.map((income) => new Income(income, context, this.socialSecurity));
     this.memberDeaths = memberDeaths;
+
+    const byId = new Map(this.incomes.map((income) => [income.getId(), income]));
+    this.socialSecurity.setStatedBenefitLookup((lineId) => byId.get(lineId)?.getStatedAnnualAmount() ?? 0);
+  }
+
+  /** The household's cross-line Social Security rules (spousal, survivor, children, earnings test). */
+  getHouseholdSocialSecurity(): HouseholdSocialSecurity {
+    return this.socialSecurity;
+  }
+
+  /** Every active income, in plan order. */
+  getAll(): readonly Income[] {
+    return this.incomes;
   }
 
   getActiveIncomesByTimeFrame(simulationState: SimulationState): Income[] {
@@ -468,153 +494,6 @@ function socialSecurityEstimateFor(data: IncomeInputs, owner: Owner, context: Ti
   });
 }
 
-/**
- * The household terms one Social Security line carries (P1-P8). Present only on a couple's wired
- * lines. Every amount is annual, in today's dollars at plan start, and grows in real terms at the
- * rate named beside it, the same way a line's own benefit does. Every start and end is a plan-axis
- * age (`time.age`).
- */
-interface SocialSecurityHouseholdTerms {
-  /** The spousal add-on, paid while the other member is alive, from the later of the two claims. */
-  readonly spousal?: { readonly annualBenefit: number; readonly fromPlanAge: number; readonly untilPlanAge: number };
-  /** On the line of the member who dies first: the survivor top-up from the survivor's claim date. */
-  readonly survivor?: {
-    readonly fromPlanAge: number;
-    /** The survivor benefit on the deceased's record (`survivorBenefit`, times 12), grown at `deceasedGrowthRate`. */
-    readonly annualSurvivorBenefit: number;
-    readonly deceasedGrowthRate: number;
-    /** The survivor's own retirement benefit, grown at `survivorGrowthRate`; 0 when they have no line. */
-    readonly annualOwnBenefit: number;
-    readonly survivorGrowthRate: number;
-  };
-}
-
-/** One member's estimated Social Security line, resolved for the household rules. */
-interface WiredSocialSecurityMember {
-  readonly role: HouseholdMemberRole;
-  readonly lineId: string;
-  readonly estimate: SocialSecurityEstimate;
-  /** The line's claim age, in the member's own years. */
-  readonly claimAge: number;
-  /** `planAge = memberAge + ageOffset`. */
-  readonly ageOffset: number;
-}
-
-/**
- * The household terms for each wired Social Security line of a couple, keyed by income id.
- *
- * A member is **wired** when they have exactly one `socialSecurity` income, owned by them, and it
- * carries a block. A member with none has no line to carry terms, and a member with a second line or
- * a line without a block is **unwired**: their figures are unknown, so no term reads them. The rules
- * that follow from that:
- * - spousal terms need both members wired (the spousal excess is measured on the other's PIA);
- * - survivor terms need the deceased to be wired, and the survivor either wired or without any line
- *   (an unwired survivor's own benefit is unknown, so the deceased's line then stops at death).
- *
- * Survivor timing: the top-up starts at the later of the death and the survivor's claim, taken from
- * the survivor's line or, with no line, from their FRA. The survivor's benefit is the deceased's
- * `survivorBenefit`, measured at the deceased's own claim age and death age.
- */
-function householdSocialSecurityTerms(
-  data: readonly IncomeInputs[],
-  context: TimeBindingContext,
-  ageOffsetByRole: Record<HouseholdMemberRole, number>,
-  memberDeaths: Partial<Record<HouseholdMemberRole, number>>
-): Map<string, SocialSecurityHouseholdTerms> {
-  const roles: readonly HouseholdMemberRole[] = ['primary', 'partner'];
-  const wired = new Map<HouseholdMemberRole, WiredSocialSecurityMember>();
-  const unwired = new Set<HouseholdMemberRole>();
-
-  for (const role of roles) {
-    const lines = data.filter((income) => ownerOf(income) === role && income.taxes.incomeType === 'socialSecurity');
-    if (lines.length === 0) continue;
-
-    const [line] = lines;
-    const estimate = lines.length === 1 && line !== undefined ? socialSecurityEstimateFor(line, role, context) : undefined;
-    if (line === undefined || estimate === undefined || line.socialSecurity === undefined) {
-      unwired.add(role);
-      continue;
-    }
-
-    wired.set(role, { role, lineId: line.id, estimate, claimAge: line.socialSecurity.claimAge, ageOffset: ageOffsetByRole[role] });
-  }
-
-  const terms = new Map<string, SocialSecurityHouseholdTerms>();
-  const planClaimAge = (member: { claimAge: number; ageOffset: number }) => member.claimAge + member.ageOffset;
-
-  for (const member of wired.values()) {
-    const otherRole: HouseholdMemberRole = member.role === 'primary' ? 'partner' : 'primary';
-    const other = wired.get(otherRole);
-    const ownDeathAge = memberDeaths[member.role];
-    const lineTerms: { spousal?: SocialSecurityHouseholdTerms['spousal']; survivor?: SocialSecurityHouseholdTerms['survivor'] } = {};
-
-    // Spousal (20 CFR 404.410), while the other member lives. Measured on the other's PIA, and
-    // reduced by the earner's own months early, so the start is converted back to the earner's age.
-    if (other !== undefined) {
-      const fromPlanAge = Math.max(planClaimAge(member), planClaimAge(other));
-      const annualBenefit =
-        spousalExcess({
-          ownPia: member.estimate.pia,
-          otherPia: other.estimate.pia,
-          claimAge: fromPlanAge - member.ageOffset,
-          fra: member.estimate.fullRetirementAge,
-        }) * 12;
-
-      lineTerms.spousal = { annualBenefit, fromPlanAge, untilPlanAge: memberDeaths[otherRole] ?? Number.POSITIVE_INFINITY };
-    }
-
-    // Survivor (Social Security Act §202(e)-(f), RIB-LIM at §202(e)(2)(D)), on the line of the member who dies first.
-    if (ownDeathAge !== undefined) {
-      const survivorOwn =
-        other !== undefined
-          ? {
-              claimPlanAge: planClaimAge(other),
-              annualOwnBenefit: other.estimate.annualBenefit,
-              growthRate: other.estimate.realColaGrowthRate ?? 0,
-            }
-          : unwired.has(otherRole)
-            ? undefined
-            : noLineSurvivor(otherRole, context, ageOffsetByRole);
-
-      if (survivorOwn !== undefined) {
-        const annualSurvivorBenefit =
-          survivorBenefit({
-            pia: member.estimate.pia,
-            claimAge: member.claimAge,
-            deathAge: ownDeathAge - member.ageOffset,
-            fra: member.estimate.fullRetirementAge,
-          }) * 12;
-
-        lineTerms.survivor = {
-          fromPlanAge: Math.max(ownDeathAge, survivorOwn.claimPlanAge),
-          annualSurvivorBenefit,
-          deceasedGrowthRate: member.estimate.realColaGrowthRate ?? 0,
-          annualOwnBenefit: survivorOwn.annualOwnBenefit,
-          survivorGrowthRate: survivorOwn.growthRate,
-        };
-      }
-    }
-
-    if (lineTerms.spousal !== undefined || lineTerms.survivor !== undefined) terms.set(member.lineId, lineTerms);
-  }
-
-  return terms;
-}
-
-/**
- * The survivor's own side of the top-up when they have no Social Security line: no own benefit, and
- * the claim date is their FRA, which is when their own benefit would otherwise have started.
- */
-function noLineSurvivor(
-  role: HouseholdMemberRole,
-  context: TimeBindingContext,
-  ageOffsetByRole: Record<HouseholdMemberRole, number>
-): { claimPlanAge: number; annualOwnBenefit: number; growthRate: number } {
-  const fra = fullRetirementAge(ownerBirthYear(role, context));
-
-  return { claimPlanAge: fra.totalMonths / 12 + ageOffsetByRole[role], annualOwnBenefit: 0, growthRate: 0 };
-}
-
 /** A single income source with frequency, growth, time frame, and tax treatment */
 export class Income {
   private hasOneTimeIncomeOccurred: boolean;
@@ -638,20 +517,20 @@ export class Income {
    * from pure inputs. `undefined` means the income pays its stored amount.
    */
   private socialSecurityEstimate: SocialSecurityEstimate | undefined;
-  /** P1-P8: the spousal and survivor terms this line carries in a couple; `undefined` otherwise. */
-  private readonly socialSecurityTerms: SocialSecurityHouseholdTerms | undefined;
+  /** The household's cross-line Social Security rules; a record line's payment is decided there. */
+  private readonly household: HouseholdSocialSecurity | undefined;
   /** The plan start's age, so `startAge + year` is the plan-axis age `time.age` runs on. */
   private readonly startAge: number;
 
   /**
    * @param context - Required. It is what resolves a `nominal` amount against the plan's start;
    *   omitting it used to treat every amount as real, which is a wrong number with no symptom.
-   * @param householdTerms - The couple's spousal and survivor terms for this line (P1-P8), resolved by
-   *   `Incomes`. Absent for every line of a household of one, and for any line that is not wired.
+   * @param household - The household's Social Security rules (`social-security-household.ts`). When
+   *   this line is a member's record line, they decide what it pays; absent in direct unit tests.
    */
-  constructor(data: IncomeInputs, context: TimeBindingContext, householdTerms?: SocialSecurityHouseholdTerms) {
+  constructor(data: IncomeInputs, context: TimeBindingContext, household?: HouseholdSocialSecurity) {
     this.startAge = context.startAge;
-    this.socialSecurityTerms = householdTerms;
+    this.household = household;
     this.hasOneTimeIncomeOccurred = false;
     this.id = data.id;
     this.name = data.name;
@@ -677,6 +556,15 @@ export class Income {
     return this.incomeType;
   }
 
+  getId(): string {
+    return this.id;
+  }
+
+  /** The stated benefit as currently paid (annual), for a stated-amount Social Security line. */
+  getStatedAnnualAmount(): number {
+    return this.amount * this.getTimesToApplyPerYear();
+  }
+
   /** Whose income this is. Absent on a pre-household plan, which reads as `primary`. */
   getOwner(): Owner {
     return this.owner;
@@ -697,9 +585,7 @@ export class Income {
    * Always false for a line with no survivor terms, which therefore stops at the death as before.
    */
   isSurvivorBenefitDue(planAge: number): boolean {
-    const survivor = this.socialSecurityTerms?.survivor;
-
-    return survivor !== undefined && planAge >= survivor.fromPlanAge;
+    return this.household?.isSurvivorBenefitDue(this.id, planAge) ?? false;
   }
 
   /**
@@ -713,7 +599,17 @@ export class Income {
 
     // Which figure is paid (P1-P8): the estimate when the income has one, otherwise the stored
     // amount grown to this year. The two are never combined — see the module doc.
-    const annualAmount = this.socialSecurityEstimate === undefined ? this.grownAnnualAmount(year) : this.annualSocialSecurityBenefit(year);
+    const annualAmount =
+      this.household?.isRecordLine(this.id) === true
+        ? this.household.annualPayment(
+            this.id,
+            this.startAge + year,
+            Math.max(0, Math.floor(year)),
+            this.socialSecurityEstimate === undefined ? this.grownAnnualAmount(year) : 0
+          )
+        : this.socialSecurityEstimate === undefined
+          ? this.grownAnnualAmount(year)
+          : this.annualSocialSecurityBenefit(year);
 
     if (timesToApplyPerYear === 0) {
       return {
@@ -802,41 +698,19 @@ export class Income {
 
   /**
    * The year's benefit from the estimate, in the plan's real (today's) dollars, after `floor(year)`
-   * years of COLA growth, plus the couple's spousal add-on where the line carries one (P1-P8). On a
-   * deceased member's line, after the survivor's claim date, it is the survivor top-up instead.
+   * years of COLA growth — for a line with a block that is not its member's record line (a second
+   * line, or a `joint` one). A record line is paid by `HouseholdSocialSecurity` instead, which adds
+   * the spousal, survivor and earnings-test terms to the same own benefit.
    *
    * `year` is the engine's years-since-plan-start axis, so the growth is measured from the plan's
    * own start: `realColaGrowthRate` already carries `(1 + COLA) / (1 + inflation) - 1`, which is 0
-   * when the COLA matches the plan's inflation assumption. An income that omits `colaRate` is paid
-   * with the plan's inflation rate as its COLA (`social-security.ts`), so it is 0 too rather than the
-   * erosion the old zero default implied. Growth is stepped once per year, like every other income.
-   *
-   * The top-up is `max(0, S − own)`, each side grown at its own member's real COLA, so the survivor's
-   * total is the larger of the two benefits in every year, whatever the two COLAs are.
+   * when the COLA matches the plan's inflation assumption. Growth is stepped once per year.
    */
   private annualSocialSecurityBenefit(year: number): number {
     const estimate = this.socialSecurityEstimate;
     if (estimate === undefined) return 0;
 
-    const years = Math.max(0, Math.floor(year));
-    const realGrowthRate = estimate.realColaGrowthRate ?? 0;
-    const planAge = this.startAge + year;
-    const survivor = this.socialSecurityTerms?.survivor;
-
-    if (survivor !== undefined && planAge >= survivor.fromPlanAge) {
-      const survivorBenefit = survivor.annualSurvivorBenefit * Math.pow(1 + survivor.deceasedGrowthRate, years);
-      const ownBenefit = survivor.annualOwnBenefit * Math.pow(1 + survivor.survivorGrowthRate, years);
-
-      return Math.max(0, survivorBenefit - ownBenefit);
-    }
-
-    const spousal = this.socialSecurityTerms?.spousal;
-    const spousalAdd =
-      spousal !== undefined && planAge >= spousal.fromPlanAge && planAge < spousal.untilPlanAge
-        ? spousal.annualBenefit * Math.pow(1 + realGrowthRate, years)
-        : 0;
-
-    return estimate.annualBenefit * Math.pow(1 + realGrowthRate, years) + spousalAdd;
+    return estimate.annualBenefit * Math.pow(1 + (estimate.realColaGrowthRate ?? 0), Math.max(0, Math.floor(year)));
   }
 
   getIsActiveByTimeFrame(simulationState: SimulationState): boolean {

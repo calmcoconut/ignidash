@@ -110,6 +110,8 @@ export class PortfolioProcessor {
    *   frequency-adjusted by the expenses processor. A strategy's annual cap may not cut it, so it
    *   raises the month's allowance when the cap would leave it unfunded. Zero by default, which is
    *   exactly the pre-essential behaviour.
+   * @param investmentIncomeCash - Dividends and interest paid out of taxable accounts this month
+   *   (v20 `distributeIncome`); already removed from the balances, so here it is household cash.
    * @returns Portfolio data and any discretionary expense from surplus
    */
   processContributionsAndWithdrawals(
@@ -117,7 +119,8 @@ export class PortfolioProcessor {
     expensesData: ExpensesData,
     debtsData: DebtsData,
     physicalAssetsData: PhysicalAssetsData,
-    essentialSpending = 0
+    essentialSpending = 0,
+    investmentIncomeCash = 0
   ): { portfolioData: PortfolioData; discretionaryExpense: number } {
     const debtAndLoanPayments = debtsData.totalPayment + physicalAssetsData.totalLoanPayment;
 
@@ -126,6 +129,7 @@ export class PortfolioProcessor {
 
     const netCashFlow =
       incomesData.totalIncomeAfterPayrollDeductions +
+      investmentIncomeCash +
       physicalAssetSaleProceeds -
       expensesData.totalExpenses -
       debtAndLoanPayments -
@@ -1475,6 +1479,19 @@ export class Portfolio {
     });
 
     return { returnAmounts, cumulativeReturnAmounts, byAccount };
+  }
+
+  /**
+   * Settles every taxable account's dividends and interest for the month, after returns: a
+   * reinvesting account adds them to its basis, a paying-out account hands them over as cash.
+   * @returns The month's investment income paid out as cash
+   */
+  settleInvestmentIncome(): number {
+    let cash = 0;
+    this.accounts.forEach((account) => {
+      if (account instanceof TaxableBrokerageAccount) cash += account.settleInvestmentIncome();
+    });
+    return cash;
   }
 
   /**

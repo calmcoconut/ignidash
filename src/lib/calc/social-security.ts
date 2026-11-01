@@ -270,6 +270,36 @@ export interface SurvivorBenefitInput {
   readonly deathAge: number;
   /** The deceased's full retirement age. */
   readonly fra: FullRetirementAge;
+  /**
+   * The survivor's own early-claiming factor (`survivorReductionFactor`); 1 for a survivor benefit
+   * that starts at or after the survivor's FRA, which is also the default.
+   */
+  readonly survivorFactor?: number;
+}
+
+/** The earliest age a survivor benefit can start on age alone (Social Security Act §202(e)(1)(B)(i)). */
+export const EARLIEST_SURVIVOR_CLAIM_AGE = 60;
+
+/** The largest survivor reduction, at age 60: 28.5% (Social Security Act §202(q)(1)(A); 20 CFR 404.410(b)). */
+const MAX_SURVIVOR_REDUCTION = 0.285;
+
+/**
+ * The fraction of a survivor benefit that is payable when it starts at `claimAge` (the survivor's
+ * own age, in years), against the survivor's own survivor FRA (`survivorFullRetirementAge`).
+ *
+ * The reduction runs linearly from 28.5% at 60 to nothing at the survivor FRA, by the month: the
+ * statute spreads the 28.5% over the months between 60 and that FRA (§202(q)(1)(A)). A claim at or
+ * after the FRA is paid in full; there are no delayed credits on a survivor benefit.
+ *
+ * Worked cases, survivor FRA 67 (84 months after 60): at 60 → factor 0.715; at 63 → 48 months early
+ * → 0.285 × 48 / 84 = 16.29% → 0.83714; at 67 → 1.
+ */
+export function survivorReductionFactor(claimAge: number, survivorFra: FullRetirementAge): number {
+  const claimMonths = Math.round(Math.max(EARLIEST_SURVIVOR_CLAIM_AGE, claimAge) * 12);
+  const spanMonths = survivorFra.totalMonths - EARLIEST_SURVIVOR_CLAIM_AGE * 12;
+  const monthsEarly = Math.min(Math.max(0, survivorFra.totalMonths - claimMonths), spanMonths);
+
+  return spanMonths > 0 ? 1 - (MAX_SURVIVOR_REDUCTION * monthsEarly) / spanMonths : 1;
 }
 
 /**
@@ -286,13 +316,24 @@ export interface SurvivorBenefitInput {
  * - claimed at 70 → 124% = $1,240, above the floor, so $1,240;
  * - died at 68 before claiming at 70 → 12 months late → 8% credit → $1,080;
  * - died at 64 before claiming at 70 → no credit → $1,000.
+ *
+ * With `survivorFactor` (the survivor claiming before their own survivor FRA), the same cases at a
+ * factor of 0.715 (survivor claims at 60): claimed at 62 → min($715, max($700, $825)) = $715;
+ * claimed at 70 → $1,240 × 0.715 = $886.60.
  */
-export function survivorBenefit({ pia, claimAge, deathAge, fra }: SurvivorBenefitInput): number {
+export function survivorBenefit({ pia, claimAge, deathAge, fra, survivorFactor = 1 }: SurvivorBenefitInput): number {
   if (deathAge >= claimAge) {
-    const payable = pia * claimingAdjustment(claimAge, fra).factor;
+    const adjustment = claimingAdjustment(claimAge, fra);
+    const payable = pia * adjustment.factor;
 
-    return Math.max(payable, SURVIVOR_FLOOR_SHARE * pia);
+    // Delayed credits carry over to the survivor, and the survivor's own reduction applies to them.
+    if (adjustment.factor >= 1) return payable * survivorFactor;
+
+    // The deceased claimed early: the survivor's rate is the PIA, reduced for the survivor's own age,
+    // and then limited to the larger of the deceased's reduced benefit and 82.5% of the PIA (RIB-LIM,
+    // §202(e)(2)(D); POMS RS 00615.320). At the survivor's FRA this is the floor rule above.
+    return Math.min(pia * survivorFactor, Math.max(payable, SURVIVOR_FLOOR_SHARE * pia));
   }
 
-  return pia * (1 + claimingAdjustment(deathAge, fra).credit);
+  return pia * (1 + claimingAdjustment(deathAge, fra).credit) * survivorFactor;
 }

@@ -281,6 +281,8 @@ export class SavingsAccount extends Account {
 /** Base class for stock/bond investment accounts with asset allocation tracking */
 export abstract class InvestmentAccount extends Account {
   private currPercentBonds: number;
+  /** The dividends and bond interest `applyYields` computed this month, for `settleInvestmentIncome`. */
+  protected lastMonthYield: { bonds: number; stocks: number } = { bonds: 0, stocks: 0 };
 
   constructor(data: AccountInputs & { type: InvestmentAccountType }) {
     const cumulativeReturnAmounts: AssetReturnAmounts = { cash: 0, bonds: 0, stocks: 0 };
@@ -366,11 +368,30 @@ export abstract class InvestmentAccount extends Account {
 
     this.cumulativeYieldAmounts.bonds += bondYieldAmount;
     this.cumulativeYieldAmounts.stocks += dividendYieldAmount;
+    this.lastMonthYield = { bonds: bondYieldAmount, stocks: dividendYieldAmount };
 
     return {
       yieldAmounts: { bonds: bondYieldAmount, stocks: dividendYieldAmount, cash: 0 },
       cumulativeYieldAmounts: { ...this.cumulativeYieldAmounts },
     };
+  }
+
+  /**
+   * Takes this month's dividends and interest out of the balance as cash, sleeve by sleeve: the
+   * dividend from the stocks, the interest from the bonds. The total return already holds them
+   * (`applyReturns`), so removing them is what paying them out *means*. Returns the cash removed.
+   */
+  protected payOutIncomeShared(): number {
+    const bondsValue = this.balance * this.currPercentBonds;
+    const stocksValue = this.balance - bondsValue;
+    const fromBonds = Math.min(Math.max(0, this.lastMonthYield.bonds), Math.max(0, bondsValue));
+    const fromStocks = Math.min(Math.max(0, this.lastMonthYield.stocks), Math.max(0, stocksValue));
+    const newBalance = this.balance - fromBonds - fromStocks;
+
+    this.currPercentBonds = newBalance > 0 ? (bondsValue - fromBonds) / newBalance : this.currPercentBonds;
+    this.balance = newBalance;
+
+    return fromBonds + fromStocks;
   }
 
   protected applyContributionShared(amount: number, type: ContributionType, contributionAllocation: AssetAllocation): AssetFlows {
@@ -499,9 +520,31 @@ export class TaxableBrokerageAccount extends InvestmentAccount {
 
   private costBasis: number;
 
+  /** Whether dividends and interest are paid out as cash instead of reinvested (v20). */
+  private readonly distributesIncome: boolean;
+
   constructor(data: AccountInputs & { type: 'taxableBrokerage' }) {
     super(data);
     this.costBasis = data.costBasis!;
+    this.distributesIncome = data.distributeIncome === true;
+  }
+
+  /**
+   * Settles this month's dividends and interest, after `applyReturns`. Returns the cash paid out.
+   *
+   * Either way the income is taxed in the year it is earned (`taxes.ts` reads `yieldAmounts`):
+   *
+   * - **Reinvested** (the default): the income buys more shares, so it adds to the cost basis —
+   *   Treas. Reg. §1.1012-1(c), the basis of a share bought with a dividend is the dividend. Without
+   *   this the same dollars were taxed again as a capital gain when the shares were sold.
+   * - **Paid out**: the income leaves the account as cash for the month's spending, and the basis is
+   *   unchanged, because no shares were bought.
+   */
+  settleInvestmentIncome(): number {
+    if (this.distributesIncome) return this.payOutIncomeShared();
+
+    this.costBasis += Math.max(0, this.lastMonthYield.bonds) + Math.max(0, this.lastMonthYield.stocks);
+    return 0;
   }
 
   getCostBasis(): number {

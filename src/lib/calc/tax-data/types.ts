@@ -234,6 +234,11 @@ export interface MedicareIrmaaTable {
   readonly lookbackYears: number;
   /** Standard Part B premium, so a report can show the total premium and not only the surcharge. */
   readonly standardPartBMonthly: number;
+  /**
+   * The Part D national base beneficiary premium (42 U.S.C. §1395w-113(a)(2)), the default Part D
+   * premium a plan pays when it states none. Real Part D plans price above or below it.
+   */
+  readonly basePartDMonthly: number;
 }
 
 /**

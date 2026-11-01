@@ -57,6 +57,12 @@ export interface CashFlowLedgerInflows {
    * cash identity degenerate in shortfall years (see the note above this interface).
    */
   unfundedSpending: number;
+  /**
+   * Dividends and interest a taxable account paid out as cash (v20 `distributeIncome`). The one
+   * place a `yieldAmounts` dollar becomes cash: it is read from `returns.incomePaidAsCash`, which
+   * the engine took out of the balance, never from the tax overlay. Zero for a reinvesting plan.
+   */
+  investmentIncomePaid: number;
 }
 
 /** Cash outflows of one year. */
@@ -101,7 +107,12 @@ export interface AnnualCashFlowLedger {
 }
 
 const totalInflows = (inflows: CashFlowLedgerInflows): number =>
-  inflows.income + inflows.employerMatch + inflows.portfolioWithdrawals + inflows.assetSaleProceeds + inflows.unfundedSpending;
+  inflows.income +
+  inflows.employerMatch +
+  inflows.portfolioWithdrawals +
+  inflows.assetSaleProceeds +
+  inflows.unfundedSpending +
+  inflows.investmentIncomePaid;
 
 const totalOutflows = (outflows: CashFlowLedgerOutflows): number =>
   outflows.expenses +
@@ -151,6 +162,7 @@ export function extractAnnualCashFlowLedger(data: readonly SimulationDataPoint[]
       portfolioWithdrawals: sumFlows(portfolio.withdrawals),
       assetSaleProceeds: physicalAssets?.totalSaleProceeds ?? 0,
       unfundedSpending: portfolio.shortfall,
+      investmentIncomePaid: dataPoint.returns?.incomePaidAsCash ?? 0,
     };
 
     const outflows: CashFlowLedgerOutflows = {
@@ -275,6 +287,7 @@ const node = (name: string, color: string, kind: CashFlowSankeyNodeKind): CashFl
  */
 export function buildCashFlowSankey(entry: AnnualCashFlowLedger): CashFlowSankeyData {
   const hub = node('Cash available', NODE_COLORS.hub, 'hub');
+  const returnsNode = node('Investment returns', NODE_COLORS.returns, 'inflow');
 
   const drafts: DraftLink[] = [
     { source: node('Income', NODE_COLORS.inflow, 'inflow'), target: hub, value: entry.inflows.income },
@@ -295,10 +308,13 @@ export function buildCashFlowSankey(entry: AnnualCashFlowLedger): CashFlowSankey
     // being contributed. A real quantity (`min(netCashFlow, outstandingShortfall)`).
     { source: hub, target: node('Shortfall repayment', NODE_COLORS.repayment, 'outflow'), value: entry.outflows.shortfallRepaid },
 
+    // Investment returns split in two: the share paid out as cash (dividends and interest from an
+    // account set to pay them out) joins the hub; the rest stays invested.
+    { source: returnsNode, target: hub, value: entry.inflows.investmentIncomePaid },
     {
-      source: node('Investment returns', NODE_COLORS.returns, 'inflow'),
+      source: returnsNode,
       target: node('Reinvested returns', NODE_COLORS.reinvested, 'reinvested'),
-      value: entry.returns,
+      value: entry.returns - entry.inflows.investmentIncomePaid,
     },
   ];
 

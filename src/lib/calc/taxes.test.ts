@@ -2461,6 +2461,75 @@ describe('TaxProcessor', () => {
     });
   });
 
+  describe('Medicare IRMAA enrolment', () => {
+    /**
+     * IRMAA is a premium surcharge, so it is charged per Medicare-enrolled member-month
+     * (42 U.S.C. §1395r(i)). Tier 1 single, 2026: Part B $81.20 + Part D $14.50 = $95.70 a month.
+     */
+    const year = (totalIncome: number) => createEmptyIncomesData({ totalIncome, totalWageIncome: totalIncome });
+    const settleThirdYear = (processor: TaxProcessor) => {
+      for (const taxYear of [2026, 2027, 2028]) {
+        processor.setTaxYear(taxYear);
+        const result = processor.process(
+          createEmptyPortfolioData(),
+          year(120000),
+          createEmptyReturnsData(),
+          createEmptyPhysicalAssetsData()
+        );
+        if (taxYear === 2028) return result;
+      }
+      throw new Error('unreachable');
+    };
+
+    it('charges a member under 65 nothing, whatever the MAGI', () => {
+      expect(settleThirdYear(new TaxProcessor(createMockSimulationState(60), 'single', 2026)).irmaa.total).toBe(0);
+    });
+
+    it('charges only the months from the 65th birthday', () => {
+      // Year-end age 65.25: the months at ages 65.25, 65.1667, 65.0833 and 65.0 are enrolled → 4 months.
+      const result = settleThirdYear(new TaxProcessor(createMockSimulationState(65.25), 'single', 2026));
+      expect(result.irmaa.tier).toBe(1);
+      expect(result.irmaa.total).toBeCloseTo(95.7 * 4, 6);
+    });
+
+    it('charges each enrolled spouse on a joint return, and a later enrolment age defers it', () => {
+      // Joint tier 1 is MAGI > $218,000; both members over 65 all year → 24 member-months.
+      const members = [
+        { role: 'primary' as const, ageOffset: 0, deathAge: Infinity },
+        { role: 'partner' as const, ageOffset: 2, deathAge: Infinity },
+      ];
+      const joint = (enrollmentAge?: number) => {
+        const processor = new TaxProcessor(createMockSimulationState(70), 'marriedFilingJointly', 2026, undefined, {
+          medicareMembers: members,
+          ...(enrollmentAge === undefined ? {} : { medicare: { includePremiums: false, enrollmentAge } }),
+        });
+        for (const taxYear of [2026, 2027, 2028]) {
+          processor.setTaxYear(taxYear);
+          const result = processor.process(
+            createEmptyPortfolioData(),
+            year(230000),
+            createEmptyReturnsData(),
+            createEmptyPhysicalAssetsData()
+          );
+          if (taxYear === 2028) return result;
+        }
+        throw new Error('unreachable');
+      };
+      expect(joint().irmaa.tier).toBe(1);
+      expect(joint().irmaa.total).toBeCloseTo(95.7 * 24, 6);
+      // Enrolment at 70: the primary (70 at year end) has the month at 70.0 only; the partner (68) none.
+      expect(joint(70).irmaa.total).toBeCloseTo(95.7 * 1, 6);
+    });
+
+    it('stops charging a member after their death', () => {
+      const processor = new TaxProcessor(createMockSimulationState(80), 'single', 2026, undefined, {
+        medicareMembers: [{ role: 'primary', ageOffset: 0, deathAge: 79.5 }],
+      });
+      // Months at plan ages 79.0833..79.4167 are alive (79.5 and later are not) → 5 months.
+      expect(settleThirdYear(processor).irmaa.total).toBeCloseTo(95.7 * 5, 6);
+    });
+  });
+
   describe('Medicare IRMAA', () => {
     /**
      * 2026 CMS table, single: tiers at >$109,000 / >$137,000 / … with Part B adjustments of
@@ -2470,7 +2539,7 @@ describe('TaxProcessor', () => {
     const year = (totalIncome: number) => createEmptyIncomesData({ totalIncome, totalWageIncome: totalIncome });
 
     it('charges nothing until two years of MAGI exist, then bills the lookback tier', () => {
-      const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2026);
+      const processor = new TaxProcessor(createMockSimulationState(70), 'single', 2026);
       const run = (taxYear: number, totalIncome: number) => {
         processor.setTaxYear(taxYear);
         return processor.process(createEmptyPortfolioData(), year(totalIncome), createEmptyReturnsData(), createEmptyPhysicalAssetsData());

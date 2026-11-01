@@ -45,6 +45,12 @@ interface ReturnsFlowData {
   returnAmounts: AssetReturnAmounts;
   yieldAmounts: Record<TaxCategory, AssetYieldAmounts>;
   perAccountData: Record<string, AccountDataWithReturns>;
+  /**
+   * Dividends and interest paid out of taxable accounts as cash (v20 `distributeIncome`). Present
+   * only when non-zero, so a plan that reinvests everything keeps the rows it always had. It is
+   * part of `returnAmounts` (the total return), not in addition to it.
+   */
+  incomePaidAsCash?: number;
 }
 
 export type ReturnsData = ReturnsSnapshotData & ReturnsFlowData;
@@ -106,6 +112,9 @@ export class ReturnsProcessor {
     const { yieldAmounts, cumulativeYieldAmounts } = this.simulationState.portfolio.applyYields(yieldRates);
 
     const { returnAmounts, cumulativeReturnAmounts, byAccount: perAccountData } = this.simulationState.portfolio.applyReturns(returnRates);
+    // Dividends and interest are inside the total return just applied; settle them now, so a
+    // reinvesting account adds them to its basis and a paying-out account hands them over as cash.
+    const incomePaidAsCash = this.simulationState.portfolio.settleInvestmentIncome();
 
     const result = {
       cumulativeReturnAmounts,
@@ -119,6 +128,7 @@ export class ReturnsProcessor {
       annualInflationRate: this.cachedAnnualInflationRate,
       annualYieldRates: this.cachedAnnualYieldRates,
       perAccountData,
+      ...(incomePaidAsCash > 0 ? { incomePaidAsCash } : {}),
     };
 
     this.monthlyData.push(result);
@@ -131,9 +141,12 @@ export class ReturnsProcessor {
 
   getAnnualData(): ReturnsData {
     const lastMonthData = this.monthlyData[this.monthlyData.length - 1];
+    const annualIncomePaidAsCash = this.monthlyData.reduce((sum, month) => sum + (month.incomePaidAsCash ?? 0), 0);
+
+    const { incomePaidAsCash: _lastMonthIncomePaid, ...lastMonthSnapshot } = lastMonthData ?? ({} as Partial<ReturnsData>);
 
     return {
-      ...lastMonthData,
+      ...(lastMonthSnapshot as ReturnsData),
       ...this.monthlyData.reduce(
         (acc, curr) => {
           acc.returnAmounts = addAssetAmounts(acc.returnAmounts, curr.returnAmounts);
@@ -163,6 +176,8 @@ export class ReturnsProcessor {
           perAccountData: {} as Record<string, AccountDataWithReturns>,
         } satisfies ReturnsFlowData
       ),
+      // A flow, so summed (the snapshot spread above leaves it out).
+      ...(annualIncomePaidAsCash > 0 ? { incomePaidAsCash: annualIncomePaidAsCash } : {}),
     };
   }
 }

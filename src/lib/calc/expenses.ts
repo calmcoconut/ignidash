@@ -7,6 +7,12 @@
 
 import type { ExpenseInputs } from '@/lib/schemas/inputs/expense-form-schema';
 
+import {
+  MEDICARE_PARTS_B_D_EXPENSE_ID,
+  MEDICARE_SUPPLEMENTAL_EXPENSE_ID,
+  monthlyMedicarePremiums,
+  type MedicarePremiumSchedule,
+} from './medicare';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
@@ -25,9 +31,15 @@ export class ExpensesProcessor {
   private currentQcdExpenses = 0;
   private monthlyQcdExpenses: number[] = [];
 
+  /**
+   * @param medicarePremiums - The household's Medicare base premiums (see `medicare.ts`). Absent
+   *   means none are charged, which is every plan that has not opted in: such a plan's expense rows
+   *   are exactly what they were before the schedule existed.
+   */
   constructor(
     private simulationState: SimulationState,
-    private expenses: Expenses
+    private expenses: Expenses,
+    private readonly medicarePremiums?: MedicarePremiumSchedule
   ) {}
 
   /**
@@ -43,6 +55,31 @@ export class ExpensesProcessor {
       qualifiedMedical: expense.getIsQualifiedMedical(),
       qcd: expense.getIsSatisfyFromIra(),
     }));
+    if (this.medicarePremiums !== undefined) {
+      const { partsBAndD, supplemental } = monthlyMedicarePremiums(
+        this.medicarePremiums,
+        this.simulationState.time.age,
+        this.simulationState.time.month
+      );
+      // Premiums are essential (a withdrawal cap may not cut health cover). Parts B and D are
+      // HSA-qualified medical expenses at 65 and later; a Medigap premium is not (IRC §223(d)(2)(C)).
+      if (partsBAndD > 0) {
+        processed.push({
+          data: { id: MEDICARE_PARTS_B_D_EXPENSE_ID, name: 'Medicare Part B & D premiums', expense: partsBAndD },
+          essential: true,
+          qualifiedMedical: true,
+          qcd: false,
+        });
+      }
+      if (supplemental > 0) {
+        processed.push({
+          data: { id: MEDICARE_SUPPLEMENTAL_EXPENSE_ID, name: 'Medicare supplemental premiums', expense: supplemental },
+          essential: true,
+          qualifiedMedical: false,
+          qcd: false,
+        });
+      }
+    }
     const processedExpenses = processed.map((entry) => entry.data);
 
     const totals = processedExpenses.reduce(
