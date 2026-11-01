@@ -148,7 +148,8 @@ export default function HelpPage() {
 
             <DescriptionTerm>Roth conversions</DescriptionTerm>
             <DescriptionDetails>
-              Taxed in full. Pro-rata basis under §408(d)(2) is not modelled, so the conversion tax shown is an upper bound.
+              Only the pre-tax share is taxed, using the Form 8606 pro-rata split of the nondeductible basis you enter on the traditional
+              IRA. The engine does not read past Form 8606 filings, so a basis you leave blank counts as zero.
             </DescriptionDetails>
 
             <DescriptionTerm>State income tax</DescriptionTerm>
