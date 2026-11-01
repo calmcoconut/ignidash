@@ -20,7 +20,9 @@ Then, before touching anything:
 
 ```bash
 npm run typecheck                       # expect clean
-npm run test:once                       # expect ~143 files, ~2790 tests, all passing
+npm run lint                            # expect clean
+npm run test:once                       # expect ~146 files, ~2875 tests, all passing
+npm run tax:validate                    # validate registered tax rulesets
 shasum -a 256 src/lib/calc/__tests__/golden/corpus.json | cut -c1-16
                                         # compare with src/lib/calc/__tests__/golden/README.md
 ```
@@ -29,6 +31,10 @@ That last command is the most valuable habit in this repository. The expected ha
 in `golden/README.md` rather than here, because a legitimate corpus move changes it; if yours
 differs from the recorded value and you did not mean to move a fixture, something changed a
 number. See §4.
+
+**Node 24 (active LTS) is required.** `.nvmrc` is set to `24`, `.npmrc` enforces `engine-strict=true`,
+and `package.json` specifies `"node": "^22.22.2 || ^24.15.0 || >=26.0.0"`. `jsdom` 30 rejects older Node.
+The Docker build (`Dockerfile`) pins `node:24-bookworm-slim` by SHA256 digest.
 
 **This is a fork.** `origin` is `calmcoconut/ignidash` (public), `upstream` is
 `schelskedevco/ignidash`. It is deliberately self-hosted: one container, LAN-only, plain
@@ -49,19 +55,19 @@ fork wants it.
 Five layers, and almost every bug lives at a boundary between two of them.
 
 ```text
-Convex documents
+Convex documents (database layer)
    │  src/hooks/use-convex-data.ts      (queries)
    ▼
-Zod-validated inputs                   src/lib/schemas/inputs/
-   │  src/lib/utils/data-transformers.ts
+Zod-validated inputs (app layer)        src/lib/schemas/inputs/
+   │  src/lib/utils/data-transformers.ts (bi-directional mapping)
    ▼
-Simulation engine                      src/lib/calc/
-   │  FinancialSimulationEngine, month by month
+Simulation engine (month-by-month)      src/lib/calc/
+   │  via Web Worker pool (Comlink)     src/lib/workers/
    ▼
 Raw results (SimulationDataPoint[])
    │  src/lib/calc/data-extractors/
    ▼
-Chart / table / metric data            → components
+Chart / table / metric data             → components & Zustand store
 ```
 
 **The engine is the only place numbers are produced.** Everything downstream extracts or
@@ -73,7 +79,42 @@ boundary must be plain data — no class instances, no functions, no `Date` obje
 why `asOf` is a string.
 
 **There are multiple return providers** (fixed, stochastic, historical backtest) behind one
-interface. A change to the engine loop affects all three; check each.
+interface (`src/lib/calc/returns-providers/`). A change to the engine loop affects all three; check each.
+
+### Real dollars and statutory threshold deflation
+
+The engine models all finances in **today's dollars** (real purchasing power). Investment returns
+are Fisher-deflated, and nominal inputs are deflated to the plan's starting anchor date.
+For taxes (`src/lib/calc/tax-data/real-dollars.ts`):
+
+- Tables with `indexing: 'indexed'` (e.g. federal tax brackets, standard deduction) rise with
+  inflation in the real world, so they remain constant in today's dollars.
+- Tables with `indexing: 'fixed'` (e.g. NIIT $200k/$250k thresholds, §86 Social Security base amounts
+  $25k/$32k, Additional Medicare $200k/$250k, §121 $250k/$500k exclusion, and the SALT cap schedule)
+  erode with inflation. They are deflated by dividing their `dollarFields` by
+  `cumulativeInflationIndex(simYear - rulesetYear)`.
+- **Dimensionless numbers** (tax rates, phase-down rates, percentages) are never deflated.
+
+### Retirement rules and special tax mechanisms
+
+Complex tax rules are isolated in pure sub-modules:
+
+- `src/lib/calc/retirement-rules/ira-basis.ts`: Form 8606 pro-rata recovery of nondeductible traditional IRA basis.
+- `src/lib/calc/retirement-rules/roth-five-year.ts`: Per-conversion 5-year clock tracking and 10% penalty on early withdrawal of converted principal.
+- `src/lib/calc/retirement-rules/sepp.ts` & `sepp-tables.ts`: Substantially Equal Periodic Payments (IRC §72(t)(2)(A)(iv), Notice 2022-6 RMD, amortization, annuitization, and §72(t)(4) recapture penalty).
+- `src/lib/calc/retirement-rules/qcd.ts`: Qualified Charitable Distributions from IRAs for age 70½+, offsetting RMDs.
+- `src/lib/calc/hsa-wiring.test.ts` & `taxes.ts`: HSA qualified medical withdrawals (tax-free) and California non-conformity (add-back, annual earnings tax, basis exclusion, FTB 3805P penalty exemption).
+- `src/lib/calc/aca-premium-tax-credit.ts`: IRC §36B Affordable Care Act premium tax credit and 400% FPL cliff for opted-in plans.
+
+### AI chat tools layer (`convex/chat_tools.ts`)
+
+The AI assistant executes deterministic financial calculations by importing `src/lib/calc/*` directly
+into Convex Node actions (proven by the Convex bundler). It provides:
+
+- `runSensitivityAnalysis`: One-at-a-time (OAT) parameter sweeps over returns, inflation, retirement age, spending (`src/lib/calc/sensitivity.ts`).
+- `compareHousing`: Deterministic dual-path comparison of renting vs owning (`src/lib/calc/housing-comparison.ts`).
+- `calculateRothLadder`: Multi-year Roth conversion ladder helper checking 2-year forward IRMAA brackets.
+- `previewRetirementPatch`: Dry-run simulation delta for suggested plan adjustments.
 
 ### The two things that make results trustworthy
 
@@ -135,29 +176,29 @@ charts without one are an accessibility regression.
 ## 4. The invariant that will bite you: the version constant
 
 **`EXPORT_SCHEMA_VERSION` in `src/lib/export/plan-envelope.ts` is a single-writer resource.**
-It is currently **19**. Its history:
+It is currently **19**. Its history and what absence means:
 
-| v   | Change                                                 |
-| --- | ------------------------------------------------------ |
-| 1   | export/import envelope                                 |
-| 2   | time binding                                           |
-| 3   | couples                                                |
-| 4   | historical backtest mode                               |
-| 5   | Social Security                                        |
-| 6   | household member ages                                  |
-| 7   | itemized deductions                                    |
-| 8   | California residency                                   |
-| 9   | MFS                                                    |
-| 10  | withdrawal strategies                                  |
-| 11  | real estate (term, property tax, offset)               |
-| 12  | milestones                                             |
-| 13  | IRA after-tax basis (Form 8606 pro-rata)               |
-| 14  | Roth conversions schedule (conversions)                |
-| 15  | HSA qualified medical withdrawals & CA non-conformity  |
-| 16  | Qualified Charitable Distributions (QCDs from IRAs)    |
-| 17  | Substantially Equal Periodic Payments (SEPP)           |
-| 18  | ACA Premium Tax Credit opt-in & 2026 statutory table   |
-| 19  | Net-worth journal history in portable plan JSON export |
+| v   | Change                                                 | What absent means                                          |
+| --- | ------------------------------------------------------ | ---------------------------------------------------------- |
+| 1   | export/import envelope                                 | unversioned initial schema                                 |
+| 2   | time binding                                           | customDate starts at plan start; nominal deflated          |
+| 3   | couples                                                | single-person household                                    |
+| 4   | historical backtest mode                               | stochastic Monte Carlo mode                                |
+| 5   | Social Security                                        | no Social Security claiming logic                          |
+| 6   | household member ages                                  | primary age only                                           |
+| 7   | itemized deductions                                    | standard deduction taken                                   |
+| 8   | California residency                                   | federal-only simulation                                    |
+| 9   | MFS                                                    | single or MFJ                                              |
+| 10  | withdrawal strategies                                  | ordered withdrawal strategy                                |
+| 11  | real estate (term, property tax, offset)               | simple physical asset                                      |
+| 12  | milestones                                             | no event triggers or dynamic shifts                        |
+| 13  | IRA after-tax basis (Form 8606 pro-rata)               | no nondeductible basis (traditional distributions taxable) |
+| 14  | Roth conversions schedule (conversions)                | no conversions executed                                    |
+| 15  | HSA qualified medical withdrawals & CA non-conformity  | ordinary income tax on HSA withdrawals (no medical flag)   |
+| 16  | Qualified Charitable Distributions (QCDs from IRAs)    | no QCD satisfaction from IRA                               |
+| 17  | Substantially Equal Periodic Payments (SEPP)           | standard 10% penalty applies (no SEPP schedules)           |
+| 18  | ACA Premium Tax Credit opt-in & 2026 statutory table   | ACA modeling disabled (`optIn: false`)                     |
+| 19  | Net-worth journal history in portable plan JSON export | no recorded manual journal snapshots in export             |
 
 Two people adding fields in parallel will produce a version number that claims to describe a
 shape it does not. **One field-adding change at a time.** If you need parallelism, batch by
@@ -252,13 +293,24 @@ answers this in seconds; reading JSX gets it wrong, including for experienced re
 7. **Two surfaces can disagree about the same number.** Success was once defined three
    different ways, and chance-of-retirement contradicted success on the same page. If you add
    a derived metric, find the existing definition first.
+8. **Do not deflate rates or percentages.** In `tax-data/real-dollars.ts`, fixed tables require an explicit
+   `dollarFields` list. Dimensionless quantities (tax brackets %, FICA rates, phase-down rates) must NEVER
+   be deflated. Deflating a percentage rate corrupts the tax calculation over the horizon.
+9. **Sub-cent rounding in fill-to-bracket conversions.** `calculateFillToBracketAmount` must be clamped
+   to the available traditional IRA account balance. Rounding up past the account balance (e.g. `$100,000.008`
+   -> `$100,000.01`) will throw `Insufficient funds for conversion` inside the simulation run.
+10. **Household member ages are per-person.** Never read the primary member's age for a partner's penalty
+    gates (age 59½, age 65) or Social Security FRA. Member ages are resolved per-person from member facts.
+11. **California HSA non-conformity.** California does not conform to IRC §223. Contributions are added back
+    to CA income, annual earnings are taxed, return of basis is subtracted, and HSAs are exempt from the
+    2.5% FTB 3805P early withdrawal penalty.
 
 ---
 
 ## 9. Before you open a PR
 
 ```bash
-npm run typecheck && npm run lint && npm run test:once
+npm run typecheck && npm run lint && npm run tax:validate && npm run test:once
 shasum -a 256 src/lib/calc/__tests__/golden/corpus.json   # must match golden/README.md's hash, unless explained
 ```
 
