@@ -52,7 +52,7 @@ import { computeSelfEmploymentTaxes, zeroWagePayrollTaxes, type FicaTaxesData, t
 import { getRules, LATEST_TAX_YEAR } from './tax-data';
 import { calculatePremiumTaxCredit, type AcaPremiumTaxCreditResult } from './aca-premium-tax-credit';
 import { prorateIraDistribution } from './retirement-rules/ira-basis';
-import { qualifiedCharitableDistribution } from './retirement-rules/qcd';
+import { QCD_MINIMUM_AGE, qualifiedCharitableDistribution } from './retirement-rules/qcd';
 import { irmaaTierFor } from './tax-data/medicare-irmaa';
 import { saltCapFor } from './tax-data/salt-cap';
 import { realDollarsIn } from './tax-data/real-dollars';
@@ -1946,6 +1946,12 @@ export class TaxProcessor {
     let iraDistributions = 0;
     let iraYearEndBalance = 0;
     let earlyIraWithdrawals = 0;
+    // The QCD (§408(d)(8)) is an individual's right at 70½: its base is the IRA distributions of the
+    // owners who have reached it, and its age is one of those owners' (P1-P3). With no such owner,
+    // `qcdAgeOwner` is the first IRA owner's age, which the call refuses, so nothing is excluded.
+    let qcdEligibleIraDistributions = 0;
+    let qcdEligibleAge: number | undefined;
+    let qcdAgeOwner: number | undefined;
 
     let totalHsaWithdrawals = 0;
     let hsaContributions = 0;
@@ -1992,6 +1998,13 @@ export class TaxProcessor {
 
           taxDeferredWithdrawals += annualWithdrawals + annualConversions;
           iraDistributions += annualWithdrawals + annualConversions;
+          if (annualWithdrawals + annualConversions > 0) {
+            qcdAgeOwner ??= accountAge;
+            if (accountAge >= QCD_MINIMUM_AGE) {
+              qcdEligibleIraDistributions += annualWithdrawals + annualConversions;
+              qcdEligibleAge ??= accountAge;
+            }
+          }
           // Form 8606 line 6 is the 12/31 balance, which `balance` already is: the year's
           // withdrawals and conversions have left it. The fraction adds the distributions back to get the balance
           // the basis is measured against.
@@ -2056,8 +2069,8 @@ export class TaxProcessor {
     if (qcdExpenses > 0 && iraDistributions > 0) {
       const qcdResult = qualifiedCharitableDistribution({
         year: Math.max(2013, Math.min(2025, this.taxYear)) as TaxYear,
-        age,
-        distribution: Math.min(iraDistributions, qcdExpenses),
+        age: qcdEligibleAge ?? qcdAgeOwner ?? age,
+        distribution: Math.min(qcdEligibleAge === undefined ? iraDistributions : qcdEligibleIraDistributions, qcdExpenses),
         rmdRequired: iraDistributions,
       });
       excludedQcd = qcdResult.excludedAmount;
