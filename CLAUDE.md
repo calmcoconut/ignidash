@@ -86,8 +86,8 @@ Husky runs `lint-staged` on commit, which auto-runs `eslint --fix` + `prettier -
 - `src/app/dashboard/simulator/[planId]/` — Main simulator view per plan:
   - `components/outputs/sections/sensitivity-section.tsx`: One-at-a-time (OAT) parameter sensitivity sweep
   - `components/outputs/sections/net-worth-overlay-section.tsx`: Historical journal snapshot overlay on simulated trajectories
-  - `components/outputs/drawers/tax-settings-drawer.tsx`: Tax filing status, CA residency, ACA PTC opt-in and benchmark SLCSP
   - `components/outputs/drawers/net-worth-journal-drawer.tsx`: Manual net worth snapshots ledger
+  - `components/inputs/drawers/tax-settings-drawer.tsx`: Tax filing status, CA residency, ACA PTC opt-in and benchmark SLCSP
   - `components/inputs/dialogs/conversion-dialog.tsx`: Roth conversions (fixed amount or fill-to-bracket bisection)
   - `components/inputs/dialogs/sepp-dialog.tsx`: SEPP schedules (RMD, amortization, annuitization under Notice 2022-6)
   - `components/inputs/dialogs/expense-dialog.tsx`: Qualified medical expenses (tax-free HSA) and QCD satisfaction
@@ -131,7 +131,8 @@ The core financial simulator runs month-by-month loops producing yearly `Simulat
 - `tax-data/` — Year-keyed tax rulesets with citations (`years/`, `states/CA/`, `salt-cap.ts`, `aca.ts`, `real-dollars.ts`).
   - `real-dollars.ts`: Deflates fixed statutory dollar thresholds (`indexing: 'fixed'`) via `cumulativeInflationIndex(simYear - rulesetYear)`, keeping indexed tables and percentage rates constant in today's dollars.
   - `salt-cap.ts`: Statutory SALT cap schedule and phase-down under P.L. 119-21.
-  - `aca.ts` & `aca-premium-tax-credit.ts`: IRC §36B ACA premium tax credit and 400% FPL cliff.
+  - `aca.ts`: Vendored statutory ACA guidelines and benchmark percentage tables.
+- `aca-premium-tax-credit.ts` — IRC §36B ACA premium tax credit calculation and 400% FPL cliff for opted-in plans.
 - `retirement-rules/` — Specialized retirement distribution and rollover rules:
   - `ira-basis.ts`: Form 8606 pro-rata recovery of nondeductible traditional IRA basis.
   - `roth-five-year.ts`: 5-year clock tracking per conversion & 10% penalty on early converted withdrawals.

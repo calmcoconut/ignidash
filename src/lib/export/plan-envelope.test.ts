@@ -1661,7 +1661,7 @@ describe('malformed files report the exact field paths', () => {
       journal: [
         {
           date: '2026-06',
-          balances: { [Object.keys(base.accounts)[0]]: 150000 },
+          balances: { [base.accounts[0].id]: 150000 },
           note: 'Mid-year net worth snapshot',
         },
       ],

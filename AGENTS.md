@@ -231,8 +231,8 @@ this repo were landed only after doing exactly that, and it is now the expected 
   ```ts
   // @vitest-environment jsdom
   ```
-  Do **not** flip the global environment — of the ~143 test files, 15 opt into an
-  `edge-runtime` docblock, 14 into `jsdom` and one names `node`; the rest (~113) run on the node
+  Do **not** flip the global environment — of the ~146 test files, 16 opt into an
+  `edge-runtime` docblock, 15 into `jsdom` and one names `node`; the rest (~114) run on the node
   default. Counts move with every commit, so treat the totals as a snapshot from a full
   `npx vitest run` rather than a fixed number. There is no global setup file, so call
   `afterEach(cleanup)` yourself.
