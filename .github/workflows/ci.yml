@@ -132,7 +132,9 @@ jobs:
         run: |
           # The layout check only proves files exist. Boot the image and prove the supervisor
           # brings both processes up, which nothing else exercises before a real deployment.
-          CID=$(docker run -d -e SELF_HOSTED=true "$IMAGE")
+          # TZ is set the way Unraid's dockerMan sets it on every container: the backend must
+          # still boot (it requires UTC, so the entrypoint unsets TZ for it).
+          CID=$(docker run -d -e SELF_HOSTED=true -e TZ=America/Los_Angeles "$IMAGE")
           trap 'docker logs "$CID"; docker rm -f "$CID" >/dev/null' EXIT
 
           READY=0

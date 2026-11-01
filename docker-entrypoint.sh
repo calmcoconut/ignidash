@@ -88,7 +88,9 @@ patch_bundles() {
 # --------------------------------------------------------------------------
 start_backend() {
     log "starting Convex backend (ports 3210/3211, data ${DATA_DIR:-/convex/data})"
-    ( cd "$BACKEND_DIR" && exec ./run_backend.sh ) &
+    # The backend panics if TZ is set ("Convex requires UTC"), and Unraid's dockerMan sets TZ on
+    # every container. Unset it for the backend only; the Next.js app keeps the host's TZ.
+    ( cd "$BACKEND_DIR" && exec env -u TZ ./run_backend.sh ) &
     BACKEND_PID=$!
 }
 
