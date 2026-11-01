@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 
 import { timelineValidator } from './validators/timeline_validator';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
@@ -14,7 +15,7 @@ export const get = query({
   },
 });
 
-export const update = mutation({
+export const updateDef = mutationDef({
   args: {
     planId: v.id('plans'),
     timeline: timelineValidator,
@@ -25,3 +26,5 @@ export const update = mutation({
     await patchPlanWithSnapshot(ctx, planId, { timeline });
   },
 });
+
+export const update = mutation(updateDef);

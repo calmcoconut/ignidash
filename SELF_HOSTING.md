@@ -136,6 +136,43 @@ and `npx convex env remove ALLOW_SIGNUP --url "$URL" --admin-key "$KEY"`. Repeat
 
 ---
 
+## AI access (MCP)
+
+An AI client can read and edit your plans through the MCP endpoint at `http://<host>:3030/api/mcp`
+(Streamable HTTP). It authenticates with a personal access token, not your password.
+
+1. **Settings → AI access (MCP)**: name a token, choose **Read only** or **Read and write**, and
+   create it. The token is shown once; only its hash is stored.
+2. Connect the client with the command the page shows, for example:
+
+   ```bash
+   claude mcp add --transport http ignidash http://<host>:3030/api/mcp \
+     --header "Authorization: Bearer ign_…"
+   ```
+
+3. Ask it to "run the setup_interview prompt", or use the tools directly.
+
+| Tools                                                                    | Scope |
+| ------------------------------------------------------------------------ | ----- |
+| `list_plans`, `get_plan`, `get_schema`, `validate_plan`, `list_journal`  | read  |
+| `analyze_plan` (the in-app chat's engine tools, batched in one call)     | read  |
+| `create_plan`, `clone_plan`, `rename_plan`                               | write |
+| `upsert_*` / `delete_*` for accounts, income, expenses, debts, property, | write |
+| contribution rules; `update_*` for timeline, taxes, settings, SEPP, etc. |       |
+| `add_journal_entry`, `update_journal_entry`, `delete_journal_entry`      | write |
+
+- Every call runs the app's own validators and handlers as the token's owner, is written to the
+  audit list on the settings page, and is limited to 120 calls a minute per token. **Revoke** stops
+  a token at once.
+- No tool deletes your account or all your data, or changes passwords or settings.
+- The app still calls nothing outside. A cloud AI client (Claude) does send your plan data to its
+  provider; a local model does not. Over plain HTTP the token crosses the LAN unencrypted;
+  Tailscale encrypts it in transit.
+- The tools live in `convex/mcp/`; the Next.js route (`src/app/api/mcp/route.ts`) only forwards to
+  the Convex HTTP routes `/mcp/manifest` and `/mcp/tool`.
+
+---
+
 ## Commands
 
 | Command                             | Description                                                    |

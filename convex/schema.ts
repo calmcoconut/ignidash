@@ -100,4 +100,35 @@ export default defineSchema({
   })
     .index('by_userId_planId_effectiveDate', ['userId', 'planId', 'effectiveDate'])
     .index('by_planId', ['planId']),
+  /**
+   * Personal access tokens for the MCP endpoint (`/api/mcp`). Only the SHA-256 of a token is
+   * stored; the plaintext is returned once, by `mcp/tokens:createToken`. Account-level, so not part
+   * of any plan export and untouched by `deleteAppData`.
+   */
+  mcpTokens: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    /** Lowercase hex SHA-256 of the whole token. */
+    tokenHash: v.string(),
+    /** The token's first 8 characters (`ign_` + 4), shown so tokens can be told apart. */
+    prefix: v.string(),
+    scope: v.union(v.literal('read'), v.literal('write')),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index('by_tokenHash', ['tokenHash'])
+    .index('by_userId', ['userId']),
+  /** One row per MCP tool call: the audit trail and, counted per token per minute, the rate limit. */
+  mcpAudit: defineTable({
+    userId: v.string(),
+    tokenId: v.id('mcpTokens'),
+    tool: v.string(),
+    planId: v.optional(v.string()),
+    ok: v.boolean(),
+    error: v.optional(v.string()),
+    at: v.number(),
+  })
+    .index('by_tokenId_at', ['tokenId', 'at'])
+    .index('by_userId_at', ['userId', 'at']),
 });

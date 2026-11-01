@@ -1,5 +1,6 @@
 import { v, ConvexError } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 
 import { contributionRulesValidator, baseContributionRuleValidator } from './validators/contribution_rules_validator';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
@@ -33,7 +34,7 @@ export const getContributionRule = query({
   },
 });
 
-export const upsertContributionRule = mutation({
+export const upsertContributionRuleDef = mutationDef({
   args: {
     planId: v.id('plans'),
     contributionRule: contributionRulesValidator,
@@ -53,7 +54,9 @@ export const upsertContributionRule = mutation({
   },
 });
 
-export const reorderContributionRules = mutation({
+export const upsertContributionRule = mutation(upsertContributionRuleDef);
+
+export const reorderContributionRulesDef = mutationDef({
   args: {
     planId: v.id('plans'),
     newOrder: v.array(v.string()),
@@ -71,7 +74,9 @@ export const reorderContributionRules = mutation({
   },
 });
 
-export const deleteContributionRule = mutation({
+export const reorderContributionRules = mutation(reorderContributionRulesDef);
+
+export const deleteContributionRuleDef = mutationDef({
   args: {
     planId: v.id('plans'),
     contributionRuleId: v.string(),
@@ -87,6 +92,8 @@ export const deleteContributionRule = mutation({
   },
 });
 
+export const deleteContributionRule = mutation(deleteContributionRuleDef);
+
 export const getBaseRule = query({
   args: { planId: v.id('plans') },
   handler: async (ctx, { planId }) => {
@@ -96,7 +103,7 @@ export const getBaseRule = query({
   },
 });
 
-export const updateBaseRule = mutation({
+export const updateBaseRuleDef = mutationDef({
   args: {
     planId: v.id('plans'),
     baseContributionRule: baseContributionRuleValidator,
@@ -107,3 +114,5 @@ export const updateBaseRule = mutation({
     await patchPlanWithSnapshot(ctx, planId, { baseContributionRule });
   },
 });
+
+export const updateBaseRule = mutation(updateBaseRuleDef);

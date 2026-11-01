@@ -13,6 +13,7 @@ import PageLoading from '@/components/ui/page-loading';
 import ProfileInfoForm from './profile-info-form';
 import BackupSettingsForm from './backup-settings-form';
 import DataSettingsForm from './data-settings-form';
+import AiAccessForm from './ai-access-form';
 
 interface SettingsFormsProps {
   preloadedUser: Preloaded<typeof api.auth.getCurrentUserSafe>;
@@ -53,6 +54,7 @@ export default function SettingsForms({ preloadedUser }: SettingsFormsProps) {
         <Authenticated>
           <ProfileInfoForm userData={{ fetchedName, ...settingsCapabilities }} showSuccessNotification={showSuccessNotification} />
           <BackupSettingsForm showSuccessNotification={showSuccessNotification} />
+          <AiAccessForm showSuccessNotification={showSuccessNotification} />
           <DataSettingsForm showSuccessNotification={showSuccessNotification} />
         </Authenticated>
       </main>

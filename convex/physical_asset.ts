@@ -1,5 +1,6 @@
 import { v, ConvexError } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 
 import { physicalAssetValidator } from './validators/physical_asset_validator';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
@@ -32,7 +33,7 @@ export const getPhysicalAsset = query({
   },
 });
 
-export const upsertPhysicalAsset = mutation({
+export const upsertPhysicalAssetDef = mutationDef({
   args: {
     planId: v.id('plans'),
     physicalAsset: physicalAssetValidator,
@@ -53,7 +54,9 @@ export const upsertPhysicalAsset = mutation({
   },
 });
 
-export const deletePhysicalAsset = mutation({
+export const upsertPhysicalAsset = mutation(upsertPhysicalAssetDef);
+
+export const deletePhysicalAssetDef = mutationDef({
   args: {
     planId: v.id('plans'),
     physicalAssetId: v.string(),
@@ -66,3 +69,5 @@ export const deletePhysicalAsset = mutation({
     await patchPlanWithSnapshot(ctx, planId, { physicalAssets: updatedPhysicalAssets });
   },
 });
+
+export const deletePhysicalAsset = mutation(deletePhysicalAssetDef);

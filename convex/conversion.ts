@@ -1,5 +1,6 @@
 import { v, ConvexError } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 
 import { conversionsValidator } from './validators/conversion_validator';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
@@ -51,7 +52,7 @@ export const get = query({
   },
 });
 
-export const update = mutation({
+export const updateDef = mutationDef({
   args: {
     planId: v.id('plans'),
     conversions: conversionsValidator,
@@ -73,3 +74,5 @@ export const update = mutation({
     await patchPlanWithSnapshot(ctx, planId, { conversions });
   },
 });
+
+export const update = mutation(updateDef);
