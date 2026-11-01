@@ -346,7 +346,7 @@ corpus file:
 
 19 is the 15 tests this file had plus the four the comparison now needs. `package.json`
 `engines` advertises `^22.22.2 || ^24.15.0 || >=26.0.0`, so the first row is a supported runtime —
-and `.github/workflows/test.yml` runs only the Node in `.nvmrc` (24, V8 13.6), which is why this
+and `.github/workflows/ci.yml` runs only the Node in `.nvmrc` (24, V8 13.6), which is why this
 went unnoticed.
 
 **Diagnosis, and the proof that the engine is untouched.** ECMAScript leaves `Math.pow`

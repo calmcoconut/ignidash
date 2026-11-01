@@ -1,0 +1,191 @@
+name: CI
+
+# One pipeline for a self-hosted, single-container deployment on one amd64 Unraid box:
+# verify the code, then build, boot and publish one linux/amd64 image. The image is only
+# published from main or a v* tag, and only after verification passed.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npx prettier --check .
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Validate tax rulesets
+        run: npm run tax:validate
+
+      - name: Run tests
+        run: npm run test:once
+
+      # The golden corpus is frozen: a moved corpus.json must come with a per-fixture note in
+      # golden/README.md, which records the new sha256. A hash the README does not name means
+      # the corpus was regenerated without that explanation.
+      - name: Check golden corpus hash is recorded
+        run: |
+          HASH=$(sha256sum src/lib/calc/__tests__/golden/corpus.json | cut -d' ' -f1)
+          echo "corpus.json sha256: $HASH"
+          if ! grep -q "$HASH" src/lib/calc/__tests__/golden/README.md; then
+            echo "::error::corpus.json hash $HASH is not recorded in golden/README.md"
+            exit 1
+          fi
+
+  image:
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=,enable={{is_default_branch}}
+            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=pr
+            type=ref,event=branch,enable=${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.title=Ignidash
+            org.opencontainers.image.description=Self-hosted Ignidash: Next.js app and Convex backend in one container
+
+      # Built once and loaded into the runner's Docker, so the image that is booted below is the
+      # exact image that is pushed.
+      - name: Build linux/amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            SELF_HOSTED=true
+            NEXT_PUBLIC_CONVEX_URL=http://localhost:3210
+            NEXT_PUBLIC_CONVEX_SITE_URL=http://localhost:3211
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Check image layout
+        env:
+          IMAGE: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        run: |
+          # The one image carries all three payloads: the app's Node runtime, the Convex backend
+          # binary, and the supervisor entrypoint.
+          docker run --rm --entrypoint node "$IMAGE" --version
+          docker run --rm --entrypoint /bin/bash "$IMAGE" -c \
+            'set -e; test -x /convex/convex-local-backend; test -x /convex/run_backend.sh; \
+             test -x /usr/local/bin/docker-entrypoint.sh; test -x /usr/bin/tini; \
+             test -f /app/server.js; echo "layout ok"'
+
+      - name: Boot the container
+        env:
+          IMAGE: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        run: |
+          # The layout check only proves files exist. Boot the image and prove the supervisor
+          # brings both processes up, which nothing else exercises before a real deployment.
+          CID=$(docker run -d -e SELF_HOSTED=true "$IMAGE")
+          trap 'docker logs "$CID"; docker rm -f "$CID" >/dev/null' EXIT
+
+          READY=0
+          for i in $(seq 1 60); do
+            if ! docker inspect -f '{{.State.Running}}' "$CID" | grep -q true; then
+              echo "::error::container exited during boot"
+              exit 1
+            fi
+            if docker exec "$CID" curl -fsS --max-time 2 http://127.0.0.1:3210/version >/dev/null 2>&1; then
+              READY=1
+              echo "Convex backend answered /version after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$READY" != "1" ]]; then
+            echo "::error::Convex backend never answered /version within 60s"
+            exit 1
+          fi
+
+          for i in $(seq 1 30); do
+            if docker exec "$CID" curl -fsS --max-time 2 http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+              echo "Next.js app answered /api/health after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Next.js app never answered /api/health within 30s"
+          exit 1
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: github.event_name != 'pull_request'
+        run: docker push --all-tags ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "## Image published"
+            echo ""
+            echo "Platform: \`linux/amd64\`"
+            echo ""
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
