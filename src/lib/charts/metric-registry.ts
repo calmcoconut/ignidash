@@ -6,11 +6,11 @@
  * definition onto the series for one chart kind, and the renderer adapters in
  * `plot-types.ts` hand those to the existing chart primitives.
  *
- * PILOT SCOPE (P4-P1): only the cash-flow category is ported, plus the display-only
- * `realNetWorth` canary. Every other category keeps its current in-chart switch and
- * resolves here as `status: 'legacy'` — the migration of those switches is a later
- * item (P4-P6). The mapping is total, so a persisted id can never fail to resolve and
- * a saved view is never reset.
+ * Every category's views are ported (P4-P1 piloted cash flow; P4-P6 moved the rest).
+ * Only each category's per-account `custom` view still resolves as `status: 'legacy'`
+ * and renders through its chart's own switch — the escape hatch the migration kept on
+ * purpose. The mapping is total, so a persisted id can never fail to resolve and a
+ * saved view is never reset.
  */
 
 import { formatChartString } from '@/lib/utils';
@@ -991,8 +991,8 @@ export type DataViewMetricId = string;
  * A persisted data-view id resolved against the registry.
  *
  * `registry` means a `MetricDefinition` owns this view's series. `legacy` means the
- * view still renders through its own in-chart switch (P4-P6 migrates those); the
- * metric id is reserved so the mapping never has a hole.
+ * view still renders through its own in-chart switch (today only the per-account `custom`
+ * views); the metric id is reserved so the mapping never has a hole.
  */
 export type DataViewResolution =
   | { readonly status: 'registry'; readonly category: MetricCategory; readonly dataViewId: string; readonly metric: MetricDefinition }
