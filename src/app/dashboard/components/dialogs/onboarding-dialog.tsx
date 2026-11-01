@@ -228,7 +228,7 @@ export default function OnboardingDialog({ onClose }: OnboardingDialogProps) {
                   <BookOpenIcon className="text-primary size-5 shrink-0" aria-hidden="true" />
                   <span className="text-base/7 font-semibold">Resources</span>
                   <span className="hidden sm:inline">|</span>
-                  <span className="text-muted-foreground hidden truncate sm:inline">Source code, self-hosting, & Discord</span>
+                  <span className="text-muted-foreground hidden truncate sm:inline">Source code and self-hosting</span>
                 </div>
                 <span className="text-muted-foreground ml-6 flex h-7 items-center">
                   <PlusIcon aria-hidden="true" className="size-6 group-data-open:hidden" />
@@ -241,11 +241,7 @@ export default function OnboardingDialog({ onClose }: OnboardingDialogProps) {
                   <TextLink href="https://github.com/schelskedevco/ignidash" target="_blank" rel="noopener noreferrer">
                     GitHub repository
                   </TextLink>{' '}
-                  for source code and a guide on how to self-host Ignidash with Docker, and join the{' '}
-                  <TextLink href="https://discord.gg/AVNg9JCNUr" target="_blank" rel="noopener noreferrer">
-                    Discord server
-                  </TextLink>{' '}
-                  to get support, provide feedback, and to stay updated about new features.
+                  for source code and a guide on how to self-host Ignidash with Docker.
                 </Text>
                 <Text>
                   <Strong>Tip:</Strong> Clone the repo and vibe-code features you want to see in Ignidash for yourself with{' '}

@@ -1,5 +1,5 @@
 const navigation = {
-  main: [{ name: 'Contact', href: 'mailto:joe@schelske.dev' }],
+  main: [{ name: 'Help', href: '/help' }],
   social: [
     {
       name: 'GitHub',

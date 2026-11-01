@@ -3,16 +3,16 @@ import { CircleQuestionMarkIcon } from 'lucide-react';
 import { Disclosure, DisclosureButton, DisclosurePanel } from '@headlessui/react';
 import { MinusSmallIcon, PlusSmallIcon } from '@heroicons/react/24/outline';
 
-import { Text, TextLink } from '@/components/catalyst/text';
+import { Text } from '@/components/catalyst/text';
 import { DescriptionDetails, DescriptionList, DescriptionTerm } from '@/components/catalyst/description-list';
 import { Divider } from '@/components/catalyst/divider';
 
 export const metadata: Metadata = {
   title: 'Help Center',
-  description: 'Get answers to common questions about Ignidash, learn how to use the simulator, and see what features are coming soon.',
+  description: 'Get answers to common questions about Ignidash, how the simulator works, and what the engine does not model.',
   openGraph: {
     title: 'Help Center - Ignidash',
-    description: 'Get answers to common questions about Ignidash, learn how to use the simulator, and see what features are coming soon.',
+    description: 'Get answers to common questions about Ignidash, how the simulator works, and what the engine does not model.',
   },
 };
 
@@ -96,7 +96,7 @@ export default function HelpPage() {
             <CircleQuestionMarkIcon className="text-primary h-12 w-12" />
             <div>
               <h1 className="mb-2 text-3xl font-bold">Help Center</h1>
-              <p className="text-muted-foreground text-sm">Last updated: January 23, 2026</p>
+              <p className="text-muted-foreground text-sm">Last updated: October 31, 2026</p>
             </div>
           </div>
         </div>
@@ -105,12 +105,9 @@ export default function HelpPage() {
           <div>
             <h2 className="text-xl font-semibold tracking-tight text-gray-900 sm:text-2xl dark:text-white">Frequently asked questions</h2>
             <Text className="mt-2">
-              For any questions not answered by Help Center, please email me directly at{' '}
-              <TextLink href="mailto:joe@schelske.dev">joe@schelske.dev</TextLink> or join the{' '}
-              <TextLink href="https://discord.gg/AVNg9JCNUr" target="_blank" rel="noopener noreferrer">
-                Discord server
-              </TextLink>
-              —I&apos;ll be there, and hopefully by the time you&apos;re reading this, other users will be too!
+              These pages document this deployment: a single self-hosted instance, one operator account, and no outside services. There is
+              no support desk behind it — the answers above and the limitations below are the reference, and the source is the reference for
+              everything else.
             </Text>
           </div>
           <dl className="divide-y divide-stone-900/10 dark:divide-white/10">
