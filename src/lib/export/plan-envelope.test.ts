@@ -10,8 +10,10 @@ import {
   accountFromConvex,
   conversionsFromConvex,
   expenseFromConvex,
+  journalFromConvex,
   milestonesFromConvex,
   physicalAssetFromConvex,
+  seppFromConvex,
   simulationSettingsFromConvex,
   taxSettingsFromConvex,
 } from '@/lib/utils/data-transformers';
@@ -1570,6 +1572,7 @@ describe('malformed files report the exact field paths', () => {
 
     const importedPlan = imported.plans[0];
     expect(importedPlan).not.toHaveProperty('sepp');
+    expect(seppFromConvex(importedPlan.sepp)).toBeUndefined();
   });
 
   /**
@@ -1640,6 +1643,7 @@ describe('malformed files report the exact field paths', () => {
 
     const importedPlan = imported.plans[0];
     expect(importedPlan.taxSettings).not.toHaveProperty('aca');
+    expect(taxSettingsFromConvex(importedPlan.taxSettings).aca).toBeUndefined();
   });
 
   /**
@@ -1709,6 +1713,7 @@ describe('malformed files report the exact field paths', () => {
 
     const importedPlan = imported.plans[0];
     expect(importedPlan).not.toHaveProperty('journal');
+    expect(journalFromConvex(importedPlan.journal)).toBeUndefined();
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

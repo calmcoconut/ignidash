@@ -540,6 +540,10 @@ export function seppToConvex(sepp: SeppScheduleInputs[]): NonNullable<Doc<'plans
   return structuredClone(sepp) as NonNullable<Doc<'plans'>['sepp']>;
 }
 
+export function journalToConvex(journal: JournalEntryInputs[]): NonNullable<Doc<'plans'>['journal']> {
+  return structuredClone(journal) as NonNullable<Doc<'plans'>['journal']>;
+}
+
 // Flattens multiple chart data extractors (net worth, cash flow, taxes, contributions,
 // withdrawals, returns) into a single flat row per year for LLM API consumption.
 // Skips the first net worth data point (initial state before year 1).

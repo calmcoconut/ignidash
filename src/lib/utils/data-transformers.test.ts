@@ -22,6 +22,7 @@ import {
   taxSettingsFromConvex,
   taxSettingsToConvex,
   journalFromConvex,
+  journalToConvex,
   arrayToRecord,
   recordToArray,
   simulationResultToConvex,
@@ -711,21 +712,25 @@ describe('arrayToRecord / recordToArray', () => {
 });
 
 describe('journal roundtrips (R11)', () => {
-  it('should roundtrip journal entries through journalFromConvex', () => {
-    const journalEntries = [
-      {
-        date: '2026-06',
-        balances: { 'account-1': 100000 },
-        note: 'Snapshot',
-      },
-    ];
+  const journalEntries = [
+    {
+      date: '2026-06',
+      balances: { 'account-1': 100000 },
+      note: 'Snapshot',
+    },
+  ];
+
+  it('should roundtrip journal entries through journalFromConvex and journalToConvex', () => {
     const from = journalFromConvex(journalEntries);
     expect(from).toStrictEqual(journalEntries);
+    const to = journalToConvex(from!);
+    expect(to).toStrictEqual(journalEntries);
   });
 
   it('should preserve absent journal entries', () => {
     const from = journalFromConvex(undefined);
     expect(from).toBeUndefined();
+    expect(journalToConvex([])).toStrictEqual([]);
   });
 });
 

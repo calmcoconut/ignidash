@@ -44,13 +44,12 @@ export type { ImportIssue };
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 12 (P5-P1, bumped by P1-P1, P1-P2, P2-P4, P1-P8, P1-P3, P3-P3, P3-P8,
- * P3-P1b, P1-P4, P1-P5 and P1-P7).
+ * Export/import envelope, version 19 (P5-P1, bumped through R11).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 12, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 12, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 19, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 19, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
