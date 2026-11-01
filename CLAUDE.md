@@ -109,7 +109,7 @@ All server functions (queries, mutations, actions) live here. Key files:
 - `messages.ts`, `conversations.ts` — AI chat persistence
 - `insights.ts` — AI-generated insights
 - `ai_chat.ts` — The streaming chat/insights action. Provider-agnostic: `OPENAI_BASE_URL` points the `openai` SDK at any OpenAI-compatible server (Ollama, vLLM, llama.cpp); `OPENAI_ENDPOINT` selects `AzureOpenAI`.
-- `chat_tools.ts` — Deterministic financial calculation tools for AI chat (`runSensitivityAnalysis`, `compareHousing`, `calculateRothLadder`, `previewRetirementPatch`). Imports directly from `../src/lib/calc/`.
+- `chat_tools.ts` — Deterministic financial calculation tools for AI chat (`getPlanSummary`, `simulateVariant`, `compareToBaseline`, `getTaxAnalytics`, `runSensitivityAnalysis`, `compareHousing`). Imports directly from `../src/lib/calc/`.
 - `prompts/tax-optimization.ts` & `prompts/tax-optimization.md` — Synchronized system prompts reflecting the engine's capabilities.
 - `prompts/evals/tax-optimization-evals.test.ts` — 39 eval tests scoring prompt accuracy.
 - `http.ts` — Convex HTTP router (no external payment webhooks)

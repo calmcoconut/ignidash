@@ -117,8 +117,10 @@
  *   inflation is the neutral assumption, and rising faster than inflation is a real question the
  *   caller can ask with `rentRealGrowthRatePercent` rather than one this module assumes.
  * - **Taxes** are the engine's, on each path as given. Neither path gets itemized mortgage interest
- *   or a property-tax deduction, because itemized deductions are not modelled yet (P3-P3). That
- *   omission understates the owner's advantage; it is disclosed here rather than approximated.
+ *   or a property-tax deduction: the engine's itemized deductions are amounts the user enters in
+ *   the tax settings (P3-P3), not figures derived from a loan or an assessment, and this module
+ *   does not invent them for the owning path. That omission understates the owner's advantage; it
+ *   is disclosed here rather than approximated.
  *
  * ## What this module refuses, and what it discloses but does not price
  *

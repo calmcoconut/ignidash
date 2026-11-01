@@ -113,8 +113,10 @@ into Convex Node actions (proven by the Convex bundler). It provides:
 
 - `runSensitivityAnalysis`: One-at-a-time (OAT) parameter sweeps over returns, inflation, retirement age, spending (`src/lib/calc/sensitivity.ts`).
 - `compareHousing`: Deterministic dual-path comparison of renting vs owning (`src/lib/calc/housing-comparison.ts`).
-- `calculateRothLadder`: Multi-year Roth conversion ladder helper checking 2-year forward IRMAA brackets.
-- `previewRetirementPatch`: Dry-run simulation delta for suggested plan adjustments.
+- `getPlanSummary`, `simulateVariant` and `compareToBaseline`: the baseline, a validated `planPatch` run
+  as a variant (never written to the plan), and its delta against the baseline. A Roth ladder is a
+  `conversions` patch evaluated this way.
+- `getTaxAnalytics`: marginal rates, bracket headroom and the IRMAA/ACA cliffs for one year (`src/lib/calc/tax-analytics.ts`).
 
 ### The two things that make results trustworthy
 
