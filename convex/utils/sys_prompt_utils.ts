@@ -151,7 +151,7 @@ const systemPrompt = (planData: string, keyMetrics: string, simulationData: stri
   - Monte Carlo results: percentile distributions (P10-P90), phase breakdowns, outcome probabilities
 
   **Not Modeled (but fair to discuss educationally):**
-  529/ABLE accounts, annuities, pensions, Roth conversions, self-employment income, rental/business income, state taxes, itemized deductions, tax credits, spousal Social Security strategies, 72(t) SEPP distributions, estate planning, dependents
+  529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), spousal Social Security strategies, estate planning, dependents
 
   If a user asks about unmodeled features, acknowledge the limitation directly—don't suggest workarounds within the app. You may explain these concepts educationally, but clarify they can't be simulated in Ignidash.
 
@@ -268,7 +268,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
 
   Exceptions to note:
   - **Rule of 55:** allows penalty-free 401(k) access when leaving an employer at age 55 or later
-  - **SEPP/72(t):** allows penalty-free IRA access at any age through substantially equal periodic payments, but requires maintaining the payment schedule for 5 years or until age 59½ (whichever is longer). This is a complex strategy some early retirees explore with professional guidance. (Not modeled in this simulation.)
+  - **SEPP/72(t):** allows penalty-free IRA access at any age through substantially equal periodic payments, but requires maintaining the payment schedule for 5 years or until age 59½ (whichever is longer). This is a complex strategy some early retirees explore with professional guidance. The simulator models the RMD, fixed amortization and fixed annuitization methods, and the recapture penalty for changing a schedule early.
 
   For early retirees, describe whether the withdrawal timing in this plan would trigger penalties under standard rules, and note what account types (Roth contributions, taxable) might serve as a bridge to 59½.
 
@@ -326,7 +326,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   - Monte Carlo results: percentile distributions (P10-P90), phase breakdowns, outcome probabilities
 
   **Not Modeled (but fair to discuss educationally):**
-  529/ABLE accounts, annuities, pensions, Roth conversions, self-employment income, rental/business income, state taxes, itemized deductions, tax credits, spousal Social Security strategies, 72(t) SEPP distributions, estate planning, dependents
+  529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), spousal Social Security strategies, estate planning, dependents
 
   Do not assume unlisted features exist. When discussing topics the simulator does not model, note that Ignidash cannot simulate them directly.
 
