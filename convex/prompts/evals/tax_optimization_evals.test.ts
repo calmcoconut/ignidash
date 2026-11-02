@@ -18,8 +18,8 @@ import { describe, expect, it } from 'vitest';
 
 import { createChatToolkit } from '../../chat_tools';
 import { simulatorSchema, type SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-schema';
-import { TAX_OPTIMIZATION_SKILL_PROMPT } from '../tax-optimization';
-import { EVAL_AS_OF, TAX_OPTIMIZATION_EVAL_CHECKS, TAX_OPTIMIZATION_EVALS, type EvalGoal } from './tax-optimization-evals';
+import { TAX_OPTIMIZATION_SKILL_PROMPT } from '../tax_optimization';
+import { EVAL_AS_OF, TAX_OPTIMIZATION_EVAL_CHECKS, TAX_OPTIMIZATION_EVALS, type EvalGoal } from './tax_optimization_evals';
 
 /** Every goal the plan names (F1: the user picks one of these, never the agent). */
 const GOALS: readonly EvalGoal[] = ['lifetime-taxes', 'ending-net-worth', 'success'];
@@ -335,7 +335,7 @@ describe('conversion-ladder-hand-worked', () => {
 // ============================================================================
 
 const readme = readFileSync(fileURLToPath(new URL('./README.md', import.meta.url)), 'utf8');
-const evalSetSource = readFileSync(fileURLToPath(new URL('./tax-optimization-evals.ts', import.meta.url)), 'utf8');
+const evalSetSource = readFileSync(fileURLToPath(new URL('./tax_optimization_evals.ts', import.meta.url)), 'utf8');
 
 const OMISSIONS_HEADING = '## What the set deliberately omits';
 

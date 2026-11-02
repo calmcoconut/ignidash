@@ -95,9 +95,81 @@ then fill in the fields. It carries:
 | Google / OpenAI               | empty                                 | Optional; AI features stay hidden until configured                    |
 | Healthcheck                   | `--health-cmd` in `ExtraParams`       | Probes both processes, the same pair as the compose healthcheck       |
 
-Appdata on an array share, not the cache pool — the same rule as backups. The template pins no
-version beyond `:latest`; change the Repository to a digest before upgrading, so the rollback is
-"start the previous image", not "downgrade the schema".
+Appdata can live on a cache-only `appdata` share as long as something backs it up (the Appdata
+Backup plugin, or `scripts/backup.sh` from a User Script). The template pins no version beyond
+`:latest`; change the Repository to a digest before upgrading, so the rollback is "start the
+previous image", not "downgrade the schema".
+
+Unraid sets `TZ` on every container, and the Convex backend refuses to start with it set. The
+entrypoint unsets it for the backend only, so leave the GUI's timezone alone.
+
+### First run on Unraid
+
+The image carries the backend, not your functions, and the backend reads its own environment, not
+the container's. `BETTER_AUTH_SECRET`, `SITE_URL` and `SELF_HOSTED` take effect once they are set
+**in Convex**. `ALLOW_SIGNUP` is read twice: the `/signup` page checks the container's variable
+(the template's **Allow signup** field) and redirects to `/signin` unless it is `true`, and the auth
+server checks the Convex one. Bootstrap needs both. So once the container is healthy, from a checkout of this repository
+on any machine that can reach the box:
+
+```bash
+# On the Unraid box: generate the admin key into a private file (outside the appdata volume;
+# /root is RAM on Unraid, and the key can be regenerated any time).
+docker exec -w /convex Ignidash ./generate_admin_key.sh | grep '|' | tail -1 > /root/.ignidash_admin_key
+chmod 600 /root/.ignidash_admin_key
+
+# From the checkout (substitute your box's address):
+KEY="$(ssh root@<unraid-ip> cat /root/.ignidash_admin_key)"
+URL=http://<unraid-ip>:3210
+npx convex deploy --url "$URL" --admin-key "$KEY" -y
+npx convex env set SELF_HOSTED true --url "$URL" --admin-key "$KEY"
+npx convex env set SITE_URL http://<unraid-ip>:3030 --url "$URL" --admin-key "$KEY"
+npx convex env set BETTER_AUTH_SECRET "<the same secret as the template>" --url "$URL" --admin-key "$KEY"
+npx convex env set ALLOW_SIGNUP true --url "$URL" --admin-key "$KEY"
+npx convex run migrations:runAll --url "$URL" --admin-key "$KEY"
+```
+
+Set **Allow signup** to `true` in the template and apply, then create your account at
+`http://<unraid-ip>:3030/signup`. Lock signup again in both places: clear **Allow signup** and apply,
+and `npx convex env remove ALLOW_SIGNUP --url "$URL" --admin-key "$KEY"`. Repeat `convex deploy` and
+`migrations:runAll` after pulling a new image whose functions changed.
+
+---
+
+## AI access (MCP)
+
+An AI client can read and edit your plans through the MCP endpoint at `http://<host>:3030/api/mcp`
+(Streamable HTTP). It authenticates with a personal access token, not your password.
+
+1. **Settings → AI access (MCP)**: name a token, choose **Read only** or **Read and write**, and
+   create it. The token is shown once; only its hash is stored.
+2. Connect the client with the command the page shows, for example:
+
+   ```bash
+   claude mcp add --transport http ignidash http://<host>:3030/api/mcp \
+     --header "Authorization: Bearer ign_…"
+   ```
+
+3. Ask it to "run the setup_interview prompt", or use the tools directly.
+
+| Tools                                                                    | Scope |
+| ------------------------------------------------------------------------ | ----- |
+| `list_plans`, `get_plan`, `get_schema`, `validate_plan`, `list_journal`  | read  |
+| `analyze_plan` (the in-app chat's engine tools, batched in one call)     | read  |
+| `create_plan`, `clone_plan`, `rename_plan`                               | write |
+| `upsert_*` / `delete_*` for accounts, income, expenses, debts, property, | write |
+| contribution rules; `update_*` for timeline, taxes, settings, SEPP, etc. |       |
+| `add_journal_entry`, `update_journal_entry`, `delete_journal_entry`      | write |
+
+- Every call runs the app's own validators and handlers as the token's owner, is written to the
+  audit list on the settings page, and is limited to 120 calls a minute per token. **Revoke** stops
+  a token at once.
+- No tool deletes your account or all your data, or changes passwords or settings.
+- The app still calls nothing outside. A cloud AI client (Claude) does send your plan data to its
+  provider; a local model does not. Over plain HTTP the token crosses the LAN unencrypted;
+  Tailscale encrypts it in transit.
+- The tools live in `convex/mcp/`; the Next.js route (`src/app/api/mcp/route.ts`) only forwards to
+  the Convex HTTP routes `/mcp/manifest` and `/mcp/tool`.
 
 ---
 

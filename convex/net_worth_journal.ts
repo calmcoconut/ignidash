@@ -1,5 +1,6 @@
 import { v, ConvexError } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef, queryDef } from './utils/function_defs';
 
 import { JOURNAL_MAX_YEAR, JOURNAL_MIN_YEAR, parseJournalDate } from '../src/lib/utils/net-worth-journal';
 import { netWorthJournalEntryValidator, type NetWorthJournalEntry } from './validators/net_worth_journal_validator';
@@ -88,7 +89,7 @@ function normalizeEntry(entry: NetWorthJournalEntry): NormalizedEntry {
 }
 
 /** The plan's journal, oldest snapshot first: the order the overlay reads it in. */
-export const list = query({
+export const listDef = queryDef({
   args: { planId: v.id('plans') },
   handler: async (ctx, { planId }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -103,6 +104,8 @@ export const list = query({
   },
 });
 
+export const list = query(listDef);
+
 export const get = query({
   args: { entryId: v.id('netWorthJournal') },
   handler: async (ctx, { entryId }) => {
@@ -110,7 +113,7 @@ export const get = query({
   },
 });
 
-export const create = mutation({
+export const createDef = mutationDef({
   args: { planId: v.id('plans'), entry: netWorthJournalEntryValidator },
   handler: async (ctx, { planId, entry }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -130,7 +133,9 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
+export const create = mutation(createDef);
+
+export const updateDef = mutationDef({
   args: { entryId: v.id('netWorthJournal'), entry: netWorthJournalEntryValidator },
   handler: async (ctx, { entryId, entry }) => {
     const existing = await getJournalEntryForCurrentUserOrThrow(ctx, entryId);
@@ -153,10 +158,14 @@ export const update = mutation({
   },
 });
 
-export const deleteEntry = mutation({
+export const update = mutation(updateDef);
+
+export const deleteEntryDef = mutationDef({
   args: { entryId: v.id('netWorthJournal') },
   handler: async (ctx, { entryId }) => {
     await getJournalEntryForCurrentUserOrThrow(ctx, entryId);
     await ctx.db.delete(entryId);
   },
 });
+
+export const deleteEntry = mutation(deleteEntryDef);

@@ -1,7 +1,7 @@
 /**
  * The tax-optimization skill prompt (§7-A2).
  *
- * `tax-optimization.md` is the reviewed artifact; `tax-optimization.ts` is the copy Convex
+ * `tax_optimization.md` is the reviewed artifact; `tax_optimization.ts` is the copy Convex
  * bundles. This test byte-compares them, so editing one without the other fails the suite. The
  * rest of the file pins what the prompt must keep saying: the marker on the first line, every hard
  * rule, and the stance (rank the engine's variants by the user's goal, never recommend one).
@@ -16,9 +16,9 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { TAX_OPTIMIZATION_SKILL_MARKER, TAX_OPTIMIZATION_SKILL_PROMPT, TAX_OPTIMIZATION_SKILL_VERSION } from './tax-optimization';
+import { TAX_OPTIMIZATION_SKILL_MARKER, TAX_OPTIMIZATION_SKILL_PROMPT, TAX_OPTIMIZATION_SKILL_VERSION } from './tax_optimization';
 
-const mdPath = fileURLToPath(new URL('./tax-optimization.md', import.meta.url));
+const mdPath = fileURLToPath(new URL('./tax_optimization.md', import.meta.url));
 const markdown = readFileSync(mdPath, 'utf8');
 
 describe('tax-optimization prompt: markdown and TypeScript mirror', () => {

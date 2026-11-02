@@ -158,6 +158,17 @@ jobs:
           for i in $(seq 1 30); do
             if docker exec "$CID" curl -fsS --max-time 2 http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
               echo "Next.js app answered /api/health after ${i}s"
+              # The MCP route ships in the image: without a token it must refuse with 401 (a 404
+              # means the route was not built). Convex functions are not deployed in CI, so this
+              # cannot go further than the token check.
+              status=$(docker exec "$CID" curl -s -o /dev/null -w '%{http_code}' --max-time 5 -X POST \
+                -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+                -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' http://127.0.0.1:3000/api/mcp)
+              if [ "$status" != "401" ]; then
+                echo "::error::/api/mcp without a token answered $status, expected 401"
+                exit 1
+              fi
+              echo "/api/mcp refuses an unauthenticated call (401)"
               exit 0
             fi
             sleep 1

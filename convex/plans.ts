@@ -1,5 +1,6 @@
 import { v, ConvexError } from 'convex/values';
 import { query, mutation, internalMutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 import type { Doc } from './_generated/dataModel';
 
 import { getUserIdOrThrow } from './utils/auth_utils';
@@ -152,7 +153,7 @@ export const createBlankPlan = mutation({
   },
 });
 
-export const createPlanWithData = mutation({
+export const createPlanWithDataDef = mutationDef({
   // Every `planDataFields` entry has to be listed here by hand: this is the mutation both
   // import paths use, and Convex validates arguments per function. A field that is stored and
   // exported but missing from this list is dropped on import, so
@@ -208,7 +209,9 @@ export const createPlanWithData = mutation({
   },
 });
 
-export const clonePlan = mutation({
+export const createPlanWithData = mutation(createPlanWithDataDef);
+
+export const clonePlanDef = mutationDef({
   args: { newPlanName: v.string(), planId: v.union(v.id('plans'), v.literal('template1'), v.literal('template2')) },
   handler: async (ctx, { newPlanName, planId }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -269,6 +272,8 @@ export const clonePlan = mutation({
   },
 });
 
+export const clonePlan = mutation(clonePlanDef);
+
 export const deletePlan = mutation({
   args: { planId: v.id('plans') },
   handler: async (ctx, { planId }) => {
@@ -291,7 +296,7 @@ export const deletePlan = mutation({
   },
 });
 
-export const updatePlanName = mutation({
+export const updatePlanNameDef = mutationDef({
   args: { planId: v.id('plans'), name: v.string() },
   handler: async (ctx, { planId, name }) => {
     await getPlanForCurrentUserOrThrow(ctx, planId);
@@ -299,6 +304,8 @@ export const updatePlanName = mutation({
     await ctx.db.patch(planId, { name });
   },
 });
+
+export const updatePlanName = mutation(updatePlanNameDef);
 
 export const setPlanAsDefault = mutation({
   args: { planId: v.id('plans') },

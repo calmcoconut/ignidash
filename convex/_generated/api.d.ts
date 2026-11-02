@@ -9,14 +9,13 @@
  */
 
 import type * as account from "../account.js";
+import type * as ai_chat from "../ai_chat.js";
 import type * as app_data from "../app_data.js";
 import type * as auth from "../auth.js";
+import type * as chat_tools from "../chat_tools.js";
 import type * as contribution_rule from "../contribution_rule.js";
-// HAND-MAINTAINED, unlike the rest of this file: `conversion` (the Roth conversion schedule, P3-P5)
-// is a live Convex module and codegen has still not run here. These are the two declarations codegen
-// emits for a module, and the key is the module *path* — `api.conversion.*`.
-import type * as conversion from "../conversion.js";
 import type * as conversations from "../conversations.js";
+import type * as conversion from "../conversion.js";
 import type * as crons from "../crons.js";
 import type * as debt from "../debt.js";
 import type * as expense from "../expense.js";
@@ -26,40 +25,42 @@ import type * as http from "../http.js";
 import type * as income from "../income.js";
 import type * as insights from "../insights.js";
 import type * as market_assumptions from "../market_assumptions.js";
+import type * as mcp_exec from "../mcp/exec.js";
+import type * as mcp_http_handlers from "../mcp/http_handlers.js";
+import type * as mcp_prompts from "../mcp/prompts.js";
+import type * as mcp_registry from "../mcp/registry.js";
+import type * as mcp_tokens from "../mcp/tokens.js";
+import type * as mcp_tools_read from "../mcp/tools_read.js";
+import type * as mcp_tools_write from "../mcp/tools_write.js";
+import type * as mcp_types from "../mcp/types.js";
 import type * as messages from "../messages.js";
 import type * as migrations from "../migrations.js";
-// HAND-MAINTAINED, unlike the rest of this file. `net_worth_journal` is a live Convex module, but
-// codegen has not run since it landed: regeneration needs `npx convex dev` against a configured
-// deployment, which this machine does not have. This pair of declarations (the import here and the
-// `net_worth_journal` entry in `fullApi` below) is exactly what codegen emits for a module, so when
-// codegen can run it will replace both with no change to the consuming code. Delete this comment
-// at that point — until then, a module added to `convex/` needs the same two lines by hand.
-import type * as net_worth_journal from "../net_worth_journal.js";
-// HAND-MAINTAINED for the same reason: `milestones` (P1-P7 wiring) is a live module and codegen
-// has still not run here. These are the two declarations codegen emits for a module and for a new
-// validator file, so replacing them needs no change to the consuming code.
 import type * as milestones from "../milestones.js";
-// HAND-MAINTAINED for the same reason: `sepp` (IRC §72(t) schedules) is a live module and codegen
-// has still not run here. These are the two declarations codegen emits for a module.
-import type * as sepp from "../sepp.js";
+import type * as net_worth_journal from "../net_worth_journal.js";
 import type * as onboarding from "../onboarding.js";
 import type * as physical_asset from "../physical_asset.js";
 import type * as plan_snapshots from "../plan_snapshots.js";
 import type * as plans from "../plans.js";
 import type * as privacy_settings from "../privacy_settings.js";
+import type * as prompts_evals_tax_optimization_evals from "../prompts/evals/tax_optimization_evals.js";
+import type * as prompts_tax_optimization from "../prompts/tax_optimization.js";
+import type * as sepp from "../sepp.js";
 import type * as simulation_settings from "../simulation_settings.js";
 import type * as tax_settings from "../tax_settings.js";
 import type * as templates_basic from "../templates/basic.js";
 import type * as templates_early_retirement from "../templates/early_retirement.js";
 import type * as timeline from "../timeline.js";
-import type * as ai_chat from "../ai_chat.js";
 import type * as user_feedback from "../user_feedback.js";
 import type * as utils_ai_utils from "../utils/ai_utils.js";
+import type * as utils_auth_hardening from "../utils/auth_hardening.js";
 import type * as utils_auth_utils from "../utils/auth_utils.js";
 import type * as utils_conversation_utils from "../utils/conversation_utils.js";
 import type * as utils_finance_sync_utils from "../utils/finance_sync_utils.js";
 import type * as utils_finances_utils from "../utils/finances_utils.js";
+import type * as utils_function_defs from "../utils/function_defs.js";
+import type * as utils_household_backfill from "../utils/household_backfill.js";
 import type * as utils_insights_utils from "../utils/insights_utils.js";
+import type * as utils_net_worth_journal_utils from "../utils/net_worth_journal_utils.js";
 import type * as utils_plan_export_utils from "../utils/plan_export_utils.js";
 import type * as utils_plan_utils from "../utils/plan_utils.js";
 import type * as utils_snapshot_utils from "../utils/snapshot_utils.js";
@@ -67,17 +68,21 @@ import type * as utils_sys_prompt_utils from "../utils/sys_prompt_utils.js";
 import type * as validators_accounts_validator from "../validators/accounts_validator.js";
 import type * as validators_asset_validator from "../validators/asset_validator.js";
 import type * as validators_contribution_rules_validator from "../validators/contribution_rules_validator.js";
+import type * as validators_conversion_validator from "../validators/conversion_validator.js";
 import type * as validators_debt_validator from "../validators/debt_validator.js";
 import type * as validators_expenses_validator from "../validators/expenses_validator.js";
 import type * as validators_glide_path_validator from "../validators/glide_path_validator.js";
+import type * as validators_household_validator from "../validators/household_validator.js";
 import type * as validators_incomes_validator from "../validators/incomes_validator.js";
 import type * as validators_key_metrics_validator from "../validators/key_metrics_validator.js";
 import type * as validators_liability_validator from "../validators/liability_validator.js";
 import type * as validators_market_assumptions_validator from "../validators/market_assumptions_validator.js";
 import type * as validators_milestone_validator from "../validators/milestone_validator.js";
+import type * as validators_net_worth_journal_validator from "../validators/net_worth_journal_validator.js";
 import type * as validators_physical_asset_validator from "../validators/physical_asset_validator.js";
 import type * as validators_plan_data_fields from "../validators/plan_data_fields.js";
 import type * as validators_privacy_settings_validator from "../validators/privacy_settings_validator.js";
+import type * as validators_sepp_validator from "../validators/sepp_validator.js";
 import type * as validators_simulation_result_validator from "../validators/simulation_result_validator.js";
 import type * as validators_simulation_settings_validator from "../validators/simulation_settings_validator.js";
 import type * as validators_tax_settings_validator from "../validators/tax_settings_validator.js";
@@ -92,11 +97,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   account: typeof account;
+  ai_chat: typeof ai_chat;
   app_data: typeof app_data;
   auth: typeof auth;
+  chat_tools: typeof chat_tools;
   contribution_rule: typeof contribution_rule;
-  conversion: typeof conversion;
   conversations: typeof conversations;
+  conversion: typeof conversion;
   crons: typeof crons;
   debt: typeof debt;
   expense: typeof expense;
@@ -106,29 +113,42 @@ declare const fullApi: ApiFromModules<{
   income: typeof income;
   insights: typeof insights;
   market_assumptions: typeof market_assumptions;
+  "mcp/exec": typeof mcp_exec;
+  "mcp/http_handlers": typeof mcp_http_handlers;
+  "mcp/prompts": typeof mcp_prompts;
+  "mcp/registry": typeof mcp_registry;
+  "mcp/tokens": typeof mcp_tokens;
+  "mcp/tools_read": typeof mcp_tools_read;
+  "mcp/tools_write": typeof mcp_tools_write;
+  "mcp/types": typeof mcp_types;
   messages: typeof messages;
   migrations: typeof migrations;
-  net_worth_journal: typeof net_worth_journal;
   milestones: typeof milestones;
+  net_worth_journal: typeof net_worth_journal;
   onboarding: typeof onboarding;
   physical_asset: typeof physical_asset;
   plan_snapshots: typeof plan_snapshots;
   plans: typeof plans;
   privacy_settings: typeof privacy_settings;
+  "prompts/evals/tax_optimization_evals": typeof prompts_evals_tax_optimization_evals;
+  "prompts/tax_optimization": typeof prompts_tax_optimization;
   sepp: typeof sepp;
   simulation_settings: typeof simulation_settings;
   tax_settings: typeof tax_settings;
   "templates/basic": typeof templates_basic;
   "templates/early_retirement": typeof templates_early_retirement;
   timeline: typeof timeline;
-  ai_chat: typeof ai_chat;
   user_feedback: typeof user_feedback;
   "utils/ai_utils": typeof utils_ai_utils;
+  "utils/auth_hardening": typeof utils_auth_hardening;
   "utils/auth_utils": typeof utils_auth_utils;
   "utils/conversation_utils": typeof utils_conversation_utils;
   "utils/finance_sync_utils": typeof utils_finance_sync_utils;
   "utils/finances_utils": typeof utils_finances_utils;
+  "utils/function_defs": typeof utils_function_defs;
+  "utils/household_backfill": typeof utils_household_backfill;
   "utils/insights_utils": typeof utils_insights_utils;
+  "utils/net_worth_journal_utils": typeof utils_net_worth_journal_utils;
   "utils/plan_export_utils": typeof utils_plan_export_utils;
   "utils/plan_utils": typeof utils_plan_utils;
   "utils/snapshot_utils": typeof utils_snapshot_utils;
@@ -136,17 +156,21 @@ declare const fullApi: ApiFromModules<{
   "validators/accounts_validator": typeof validators_accounts_validator;
   "validators/asset_validator": typeof validators_asset_validator;
   "validators/contribution_rules_validator": typeof validators_contribution_rules_validator;
+  "validators/conversion_validator": typeof validators_conversion_validator;
   "validators/debt_validator": typeof validators_debt_validator;
   "validators/expenses_validator": typeof validators_expenses_validator;
   "validators/glide_path_validator": typeof validators_glide_path_validator;
+  "validators/household_validator": typeof validators_household_validator;
   "validators/incomes_validator": typeof validators_incomes_validator;
   "validators/key_metrics_validator": typeof validators_key_metrics_validator;
   "validators/liability_validator": typeof validators_liability_validator;
   "validators/market_assumptions_validator": typeof validators_market_assumptions_validator;
   "validators/milestone_validator": typeof validators_milestone_validator;
+  "validators/net_worth_journal_validator": typeof validators_net_worth_journal_validator;
   "validators/physical_asset_validator": typeof validators_physical_asset_validator;
   "validators/plan_data_fields": typeof validators_plan_data_fields;
   "validators/privacy_settings_validator": typeof validators_privacy_settings_validator;
+  "validators/sepp_validator": typeof validators_sepp_validator;
   "validators/simulation_result_validator": typeof validators_simulation_result_validator;
   "validators/simulation_settings_validator": typeof validators_simulation_settings_validator;
   "validators/tax_settings_validator": typeof validators_tax_settings_validator;
@@ -248,7 +272,7 @@ export declare const components: {
                   publicKey: string;
                 };
                 model: "jwks";
-              }
+              };
           onCreateHandle?: string;
           select?: Array<string>;
         },
@@ -429,7 +453,7 @@ export declare const components: {
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onDeleteHandle?: string;
           paginationOpts: {
             cursor: string | null;
@@ -617,7 +641,7 @@ export declare const components: {
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onDeleteHandle?: string;
         },
         any
@@ -628,12 +652,7 @@ export declare const components: {
         {
           join?: any;
           limit?: number;
-          model:
-            | "user"
-            | "session"
-            | "account"
-            | "verification"
-            | "jwks";
+          model: "user" | "session" | "account" | "verification" | "jwks";
           offset?: number;
           paginationOpts: {
             cursor: string | null;
@@ -675,12 +694,7 @@ export declare const components: {
         "internal",
         {
           join?: any;
-          model:
-            | "user"
-            | "session"
-            | "account"
-            | "verification"
-            | "jwks";
+          model: "user" | "session" | "account" | "verification" | "jwks";
           select?: Array<string>;
           where?: Array<{
             connector?: "AND" | "OR";
@@ -929,7 +943,7 @@ export declare const components: {
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onUpdateHandle?: string;
           paginationOpts: {
             cursor: string | null;
@@ -1163,7 +1177,7 @@ export declare const components: {
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onUpdateHandle?: string;
         },
         any

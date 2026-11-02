@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { v, ConvexError } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 
 import { accountValidator } from './validators/accounts_validator';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
@@ -52,7 +53,7 @@ export const getInvestmentAccount = query({
   },
 });
 
-export const upsertAccount = mutation({
+export const upsertAccountDef = mutationDef({
   args: {
     planId: v.id('plans'),
     account: accountValidator,
@@ -80,7 +81,9 @@ export const upsertAccount = mutation({
   },
 });
 
-export const deleteAccount = mutation({
+export const upsertAccount = mutation(upsertAccountDef);
+
+export const deleteAccountDef = mutationDef({
   args: {
     planId: v.id('plans'),
     accountId: v.string(),
@@ -97,3 +100,5 @@ export const deleteAccount = mutation({
     await patchPlanWithSnapshot(ctx, planId, { accounts: updatedAccounts, contributionRules: updatedContributionRules });
   },
 });
+
+export const deleteAccount = mutation(deleteAccountDef);

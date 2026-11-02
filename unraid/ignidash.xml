@@ -24,9 +24,9 @@
 
 The browser talks to the Convex API directly, so ports 3210 and 3211 must be reachable from client machines as well as 3030.
 
-Appdata: /mnt/user/appdata/ignidash holds the SQLite database, uploaded file storage and the Convex instance credentials. Back that path up; it is the only stateful volume. Do not put it on a cache-only share.
+Appdata: /mnt/user/appdata/ignidash holds the SQLite database, uploaded file storage and the Convex instance credentials. Back that path up (the Appdata Backup plugin covers it); it is the only stateful volume.
 
-First run: open the WebUI, create your account, then clear ALLOW_SIGNUP (signup is locked by default and only unlocked for that bootstrap step). Upgrade by changing the Repository tag or digest; take a backup first (scripts/backup.sh) because the backend applies in-place migrations on start.
+First run: the image does not carry your functions, and auth settings are read from Convex, not from this container. Once it is healthy, deploy the functions and set SELF_HOSTED, SITE_URL, BETTER_AUTH_SECRET and ALLOW_SIGNUP in Convex from a checkout (SELF_HOSTING.md, First run on Unraid). ALLOW_SIGNUP is needed both here (the signup page reads it) and in Convex (the auth server reads it). Create your account, then clear it in both places. Upgrade by changing the Repository tag or digest; take a backup first (scripts/backup.sh) because the backend applies in-place migrations on start.
 
 Full documentation: https://github.com/calmcoconut/ignidash/blob/main/SELF_HOSTING.md</Description>
 
@@ -36,7 +36,7 @@ Full documentation: https://github.com/calmcoconut/ignidash/blob/main/SELF_HOSTI
   <Config Name="Convex Actions Port" Target="3211" Default="3211" Mode="tcp" Description="Convex HTTP actions (auth callbacks)." Type="Port" Display="always" Required="true" Mask="false">3211</Config>
 
   <!-- The only stateful path in the container. -->
-  <Config Name="Appdata" Target="/convex/data" Default="/mnt/user/appdata/ignidash" Mode="rw" Description="SQLite database, file storage and the Convex instance credentials. Edit this to move the appdata elsewhere; use an array share, not the cache pool." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ignidash</Config>
+  <Config Name="Appdata" Target="/convex/data" Default="/mnt/user/appdata/ignidash" Mode="rw" Description="SQLite database, file storage and the Convex instance credentials. Edit this to move the appdata elsewhere; keep it backed up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ignidash</Config>
 
   <!-- Required settings. -->
   <Config Name="Site URL" Target="SITE_URL" Default="http://[IP]:[PORT:3030]" Mode="" Description="Public URL of the app, as the browser sees it. Use the LAN IP or hostname, not localhost, when reaching it from another machine." Type="Variable" Display="always" Required="true" Mask="false">http://[IP]:[PORT:3030]</Config>

@@ -11,7 +11,7 @@ import {
   resolveTaxOptimizationTurn,
   TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE,
 } from './sys_prompt_utils';
-import { TAX_OPTIMIZATION_SKILL_MARKER } from '../prompts/tax-optimization';
+import { TAX_OPTIMIZATION_SKILL_MARKER } from '../prompts/tax_optimization';
 import type { KeyMetrics } from '../validators/key_metrics_validator';
 import type { SimulationResult } from '../validators/simulation_result_validator';
 import type { Doc } from '../_generated/dataModel';

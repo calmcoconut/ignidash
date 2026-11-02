@@ -89,7 +89,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   publicKey: string;
                 };
                 model: "jwks";
-              }
+              };
           onCreateHandle?: string;
           select?: Array<string>;
         },
@@ -271,7 +271,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onDeleteHandle?: string;
           paginationOpts: {
             cursor: string | null;
@@ -460,7 +460,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onDeleteHandle?: string;
         },
         any,
@@ -472,12 +472,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           join?: any;
           limit?: number;
-          model:
-            | "user"
-            | "session"
-            | "account"
-            | "verification"
-            | "jwks";
+          model: "user" | "session" | "account" | "verification" | "jwks";
           offset?: number;
           paginationOpts: {
             cursor: string | null;
@@ -520,12 +515,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           join?: any;
-          model:
-            | "user"
-            | "session"
-            | "account"
-            | "verification"
-            | "jwks";
+          model: "user" | "session" | "account" | "verification" | "jwks";
           select?: Array<string>;
           where?: Array<{
             connector?: "AND" | "OR";
@@ -775,7 +765,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onUpdateHandle?: string;
           paginationOpts: {
             cursor: string | null;
@@ -1010,7 +1000,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | Array<number>
                     | null;
                 }>;
-              }
+              };
           onUpdateHandle?: string;
         },
         any,

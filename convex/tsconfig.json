@@ -18,7 +18,14 @@
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+
+    /* The engine in src/lib/calc is imported by chat_tools.ts and reads its own modules through the
+     * root alias, so this project needs the same paths as the root tsconfig. */
+    "paths": {
+      "@/*": ["../src/*"],
+      "@/convex/*": ["./*"]
+    }
   },
   "include": ["./**/*"],
   "exclude": ["./_generated"]

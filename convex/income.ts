@@ -1,5 +1,6 @@
 import { v, ConvexError } from 'convex/values';
 import { query, mutation } from './_generated/server';
+import { mutationDef } from './utils/function_defs';
 
 import { incomeValidator } from './validators/incomes_validator';
 import { getPlanForCurrentUserOrThrow } from './utils/plan_utils';
@@ -33,7 +34,7 @@ export const getIncome = query({
   },
 });
 
-export const upsertIncome = mutation({
+export const upsertIncomeDef = mutationDef({
   args: {
     planId: v.id('plans'),
     income: incomeValidator,
@@ -51,7 +52,9 @@ export const upsertIncome = mutation({
   },
 });
 
-export const deleteIncome = mutation({
+export const upsertIncome = mutation(upsertIncomeDef);
+
+export const deleteIncomeDef = mutationDef({
   args: {
     planId: v.id('plans'),
     incomeId: v.string(),
@@ -68,3 +71,5 @@ export const deleteIncome = mutation({
     await patchPlanWithSnapshot(ctx, planId, { incomes: updatedIncomes, contributionRules: updatedContributionRules });
   },
 });
+
+export const deleteIncome = mutation(deleteIncomeDef);

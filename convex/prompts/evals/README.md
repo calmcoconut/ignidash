@@ -2,12 +2,12 @@
 
 Two files make up the eval set, and they do different jobs:
 
-- `tax-optimization-evals.ts` — twelve hand-specified plans and the eight properties a run must satisfy.
+- `tax_optimization_evals.ts` — twelve hand-specified plans and the eight properties a run must satisfy.
   No provider, no network: it is data, typed as `SimulatorInputs`.
-- `tax-optimization-evals.test.ts` — the automated half. It proves every fixture still validates
+- `tax_optimization_evals.test.ts` — the automated half. It proves every fixture still validates
   against `simulatorSchema`, that every fixture produces a baseline through the real
   `createChatToolkit(...)`, and that every rubric check has a rule in
-  `../tax-optimization.md` to review it against.
+  `../tax_optimization.md` to review it against.
 
 The agent itself is **not** driven by any test. A live run costs tokens, needs a model with tool
 calling, and produces prose a human has to read, so it runs on demand.
@@ -20,7 +20,7 @@ Prerequisites: a deployment with an AI provider configured — `OPENAI_API_KEY` 
 `true`; `false` hides the entry point, per F4).
 
 1. Start the app and the Convex backend: `npm run dev` and `npm run dev:convex`.
-2. Recreate the eval plan in the simulator. Each case in `tax-optimization-evals.ts` is the shared
+2. Recreate the eval plan in the simulator. Each case in `tax_optimization_evals.ts` is the shared
    `basePlan()` plus the fields shown in that case, so enter those numbers exactly — timeline,
    incomes, expenses, accounts, market assumptions and filing status are what the baseline is made
    of. A different balance is a different eval.
@@ -44,7 +44,7 @@ confirm by reading one transcript:
 | `assumptions-stated`     | The answer ends with the pinned clock and seed, the plan's own return/inflation/tax assumptions, and the limits that bear on the variants proposed.                                                                                                                                                                       |
 | `monte-carlo-on-request` | Monte Carlo numbers appear only when the request asks for probabilistic results, and then as aggregates (500 trials, summary).                                                                                                                                                                                            |
 
-`convex/prompts/evals/tax-optimization-evals.test.ts` fails if a check id loses its rule in the
+`convex/prompts/evals/tax_optimization_evals.test.ts` fails if a check id loses its rule in the
 prompt, so the rubric and the prompt cannot drift apart silently.
 
 ## What the set deliberately omits
@@ -117,16 +117,16 @@ transcript.
 | `conversion-ladder-hand-worked` | Single filer retired at 56 with a large IRA and no other income: a three-year Roth conversion ladder at the 12% and the 22% fill. Pins the 12% fill as the best by lifetime taxes, its first-year headroom of $66,500 (standard deduction plus the 12% bracket top), and the IRMAA tier the 22% fill crosses. |
 
 `conversion-ladder-hand-worked` is the one case whose numbers are checked by hand, not only by the
-engine: `tax-optimization-evals.test.ts` carries the bracket arithmetic, and the test fails if the
+engine: `tax_optimization_evals.test.ts` carries the bracket arithmetic, and the test fails if the
 ranking, the headroom or the IRMAA surcharge moves.
 
 ## Changing the prompt
 
-`../tax-optimization.md` is the reviewed artifact. `../tax-optimization.ts` is the copy Convex
-bundles, and `../tax-optimization.test.ts` byte-compares the two, so both change in one commit:
+`../tax_optimization.md` is the reviewed artifact. `../tax_optimization.ts` is the copy Convex
+bundles, and `../tax_optimization.test.ts` byte-compares the two, so both change in one commit:
 
 1. Edit the `.md`.
-2. Run `npx prettier --write convex/prompts/tax-optimization.md` **first** — Prettier owns Markdown
+2. Run `npx prettier --write convex/prompts/tax_optimization.md` **first** — Prettier owns Markdown
    formatting, and formatting the file after copying it into the mirror is how the two drift.
 3. Update `TAX_OPTIMIZATION_SKILL_PROMPT` in the `.ts` from the formatted file, escaping backticks
    and `${`. Bump `TAX_OPTIMIZATION_SKILL_VERSION` and the `(v1)` line in the heading.
