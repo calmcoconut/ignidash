@@ -206,14 +206,19 @@ with what the tools accept, trust the tools and say the limit has changed.
   lines carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap. **IRMAA is modelled**:
   the surcharge
   is a liability line, and `cliffs.irmaa` reports the tier, the room before the next one and what
-  crossing it costs, from the two-year MAGI lookback. **The ACA premium tax credit is modelled, for
+  crossing it costs, from the two-year MAGI lookback. It is charged per Medicare-enrolled member
+  (from 65, or `taxSettings.medicare.enrollmentAge`), so nobody under that age pays it. The base Part
+  B, Part D and supplemental premiums are expenses only when `taxSettings.medicare.includePremiums`
+  is set. **The ACA premium tax credit is modelled, for
   a plan that opts in.** `taxSettings.aca` — the opt-in flag, the second-lowest-cost silver
   premium, optionally the household size and the premium actually paid — makes the year's return
   compute the §36B credit, which is refundable: it lands in `totalTaxesRefund`/`totalTaxesDue`
   rather than in a liability line, so it does **not** appear in `lifetimeTaxes` or `perYearTaxes`,
   and `cliffs.aca.credit` is the figure to quote. Report an ACA number only when a tool result
-  carries it. What the engine does not model is Covered California's state subsidy on top of the
-  federal credit; a plan that has not opted in, or that filed married filing separately, gets
+  carries it. The credit is prorated to the member-months off Medicare, and a stated
+  `taxSettings.aca.stateSubsidy` (Covered California's state assistance, entered by the operator from
+  their eligibility notice, optionally limited by `stateSubsidyMaxFplPercent`) offsets alongside it.
+  The state's own schedule is not vendored. A plan that has not opted in, or that filed married filing separately, gets
   `supported: false` with a prerequisite list, which states what that plan is missing rather than
   that the credit is unmodelled.
 - **Social Security is an income line with a claiming adjustment.** An income that carries a
@@ -223,9 +228,14 @@ with what the tools accept, trust the tools and say the limit has changed.
   adjusted on their own FRA rather than the primary's. For a couple whose lines carry an estimate,
   the spousal benefit (half the other's PIA less one's own, reduced for an early claim) and the
   survivor benefit (the larger of the two benefits after the first death, never below 82.5% of the
-  deceased's PIA) are modelled. What is not modelled: an early-claiming reduction on a survivor's
-  benefit, dependent benefits, the retirement earnings test, and any view on when to claim — the
-  claim age is an input to simulate, not a recommendation to make.
+  deceased's PIA, reduced for a survivor who starts it before their survivor FRA) are modelled, with
+  `socialSecurity.survivorClaimAge` timing the survivor benefit separately from the own claim.
+  Children in `timeline.household.children` are paid 50% (or 75% after a parent's death) of the
+  parent's PIA to 18, or 19 as a student, under the family maximum, and the retirement earnings test
+  withholds a working beneficiary's benefits before FRA and recomputes them at FRA. What is not
+  modelled: a spouse's child-in-care benefit, a worker's excess earnings withholding the spouse's
+  benefit, and any view on when to claim — the claim ages are inputs to simulate, not
+  recommendations to make.
 - **Tax law is projected from the vendored rules.** The vendored federal ruleset (2026) and California ruleset (2025)
   are applied across the projection; rules for 2027+ are projected from 2026 in today's dollars with inflation adjustments.
   There is no future-law modelling, no estate, trust, business or rental tax, and no multi-state

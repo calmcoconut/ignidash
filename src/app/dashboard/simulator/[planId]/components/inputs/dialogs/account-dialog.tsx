@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { TrendingUpIcon, InfoIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 
 import { accountToConvex } from '@/lib/utils/data-transformers';
 import { ownershipForStorage } from '@/lib/schemas/inputs/household-schema';
@@ -15,7 +15,8 @@ import { DialogTitle, DialogBody, DialogActions } from '@/components/catalyst/di
 import { accountFormSchema, type AccountInputs, isRothAccount, type RothAccountType } from '@/lib/schemas/inputs/account-form-schema';
 import { assetTypeForDisplay, type AssetInputs } from '@/lib/schemas/finances/asset-form-schema';
 import NumberInput from '@/components/ui/number-input';
-import { Fieldset, FieldGroup, Field, Label, ErrorMessage } from '@/components/catalyst/fieldset';
+import { Fieldset, FieldGroup, Field, Label, ErrorMessage, Description } from '@/components/catalyst/fieldset';
+import { Switch, SwitchField } from '@/components/catalyst/switch';
 import ErrorMessageCard from '@/components/ui/error-message-card';
 import { Select } from '@/components/catalyst/select';
 import { Button } from '@/components/catalyst/button';
@@ -233,29 +234,46 @@ export default function AccountDialog({ onClose, selectedAccount: _selectedAccou
                   {errors.balance && <ErrorMessage>{errors.balance?.message}</ErrorMessage>}
                 </Field>
                 {type === 'taxableBrokerage' && (
-                  <Field>
-                    <Label htmlFor="costBasis" className="flex w-full items-center justify-between">
-                      <span className="whitespace-nowrap">Cost Basis</span>
-                      <Tooltip>
-                        <TooltipTrigger className="text-muted-foreground">
-                          <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>What you originally paid for your taxable investments.</p>
-                          <p>Optional—helps calculate taxes owed when you sell.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </Label>
-                    <NumberInput
-                      name="costBasis"
-                      control={control}
-                      id="costBasis"
-                      inputMode="decimal"
-                      placeholder="–"
-                      prefix={getCurrencySymbol()}
-                    />
-                    {costBasisError && <ErrorMessage>{costBasisError.message}</ErrorMessage>}
-                  </Field>
+                  <>
+                    <Field>
+                      <Label htmlFor="costBasis" className="flex w-full items-center justify-between">
+                        <span className="whitespace-nowrap">Cost Basis</span>
+                        <Tooltip>
+                          <TooltipTrigger className="text-muted-foreground">
+                            <InfoIcon className="size-4 fill-white dark:fill-stone-950" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>What you originally paid for your taxable investments.</p>
+                            <p>Optional—helps calculate taxes owed when you sell.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </Label>
+                      <NumberInput
+                        name="costBasis"
+                        control={control}
+                        id="costBasis"
+                        inputMode="decimal"
+                        placeholder="–"
+                        prefix={getCurrencySymbol()}
+                      />
+                      {costBasisError && <ErrorMessage>{costBasisError.message}</ErrorMessage>}
+                    </Field>
+                    <SwitchField>
+                      <Label>Pay dividends and interest as cash</Label>
+                      <Description>
+                        Off reinvests them, which adds them to the cost basis. On pays them out to fund spending before any withdrawal.
+                        Taxed in the year earned either way.
+                      </Description>
+                      <Controller
+                        name="distributeIncome"
+                        defaultValue={false}
+                        control={control}
+                        render={({ field: { onChange, value, name } }) => (
+                          <Switch name={name} checked={value ?? false} onChange={onChange} color="rose" />
+                        )}
+                      />
+                    </SwitchField>
+                  </>
                 )}
                 {isRothAccount(type) && (
                   <Field>

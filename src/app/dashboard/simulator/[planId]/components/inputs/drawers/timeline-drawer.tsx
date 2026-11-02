@@ -5,7 +5,9 @@ import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useEffect, useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useForm, useWatch, type FieldErrors, Controller } from 'react-hook-form';
+import { useForm, useWatch, useFieldArray, type FieldErrors, Controller } from 'react-hook-form';
+import { v4 as uuidv4 } from 'uuid';
+import { Switch, SwitchField } from '@/components/catalyst/switch';
 
 import { timelineToConvex } from '@/lib/utils/data-transformers';
 import { currentLocalISODate } from '@/lib/utils/system-clock';
@@ -127,6 +129,11 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
 
   // A member that stored its own ages is edited here (P1-P3). The plan-level fields above are the
   // primary's, so only a second member needs a block of its own; a one-member plan has none.
+  const {
+    fields: childFields,
+    append: appendChild,
+    remove: removeChild,
+  } = useFieldArray({ control, name: 'household.children', keyName: 'fieldKey' });
   const members = useWatch({ control, name: 'household.members' });
   const partnerIndex = members?.findIndex((member) => member?.role === 'partner') ?? -1;
 
@@ -307,6 +314,76 @@ export default function TimelineDrawer({ setOpen, timeline }: TimelineDrawerProp
                     </Field>
                   </>
                 )}
+                <Divider />
+                <Fieldset aria-label="Children">
+                  <legend className="text-base font-semibold text-zinc-950 dark:text-white">Children</legend>
+                  <Description>
+                    Only for Social Security children&apos;s benefits: a child under 18, or under 19 while still in high school, is paid on
+                    a parent&apos;s record once that parent claims, or after a parent&apos;s death.
+                  </Description>
+                  {childFields.map((child, index) => (
+                    <div key={child.fieldKey} className="mt-4 space-y-3">
+                      <div className="grid grid-cols-3 items-end gap-x-3">
+                        <Field>
+                          <Label htmlFor={`household.children.${index}.name`}>Name</Label>
+                          <Input
+                            id={`household.children.${index}.name`}
+                            placeholder="Optional"
+                            {...register(`household.children.${index}.name`)}
+                          />
+                        </Field>
+                        <Field>
+                          <Label htmlFor={`household.children.${index}.birthMonth`}>Birth Month</Label>
+                          <NumberInput
+                            name={`household.children.${index}.birthMonth`}
+                            control={control}
+                            id={`household.children.${index}.birthMonth`}
+                            inputMode="numeric"
+                            placeholder="1–12"
+                            decimalScale={0}
+                            disableThousandsSeparator
+                          />
+                          <ErrorMessage>{errors.household?.children?.[index]?.birthMonth?.message}</ErrorMessage>
+                        </Field>
+                        <Field>
+                          <Label htmlFor={`household.children.${index}.birthYear`}>Birth Year</Label>
+                          <NumberInput
+                            name={`household.children.${index}.birthYear`}
+                            control={control}
+                            id={`household.children.${index}.birthYear`}
+                            inputMode="numeric"
+                            placeholder="YYYY"
+                            decimalScale={0}
+                            disableThousandsSeparator
+                          />
+                          <ErrorMessage>{errors.household?.children?.[index]?.birthYear?.message}</ErrorMessage>
+                        </Field>
+                      </div>
+                      <div className="flex items-center justify-between gap-x-4">
+                        <SwitchField>
+                          <Label>Full-time student at 18</Label>
+                          <Controller
+                            name={`household.children.${index}.student`}
+                            control={control}
+                            render={({ field: { onChange, value, name } }) => (
+                              <Switch name={name} checked={value ?? false} onChange={onChange} color="rose" />
+                            )}
+                          />
+                        </SwitchField>
+                        <Button plain onClick={() => removeChild(index)}>
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    outline
+                    className="mt-4"
+                    onClick={() => appendChild({ id: uuidv4(), birthMonth: 1, birthYear: Number(currentLocalISODate().slice(0, 4)) })}
+                  >
+                    Add child
+                  </Button>
+                </Fieldset>
                 <Divider />
                 <Field>
                   <Label htmlFor="retirementStrategy.type">Retirement Trigger</Label>

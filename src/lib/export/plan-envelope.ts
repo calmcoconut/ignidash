@@ -44,12 +44,12 @@ export type { ImportIssue };
 import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLike } from './convex-validator-to-zod';
 
 /**
- * Export/import envelope, version 19 (P5-P1, bumped through R11).
+ * Export/import envelope, version 20 (P5-P1, bumped through the v20 minor-gaps change).
  *
  * A file is a versioned JSON envelope:
  *
- *   { schemaVersion: 19, kind, exportedAt, plan, finances }          // one plan
- *   { schemaVersion: 19, kind, exportedAt, plans, finances }         // every plan
+ *   { schemaVersion: 20, kind, exportedAt, plan, finances }          // one plan
+ *   { schemaVersion: 20, kind, exportedAt, plans, finances }         // every plan
  *
  * `plan`/`plans` hold the plan document without its per-deployment identity
  * (`_id`, `_creationTime`, `userId`), and `finances` holds the net-worth tracker
@@ -266,6 +266,25 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  *        A v18 file is made by deleting the `journal` key. The upgrade test in
  *        `plan-envelope.test.ts` asserts the key is stripped.
  *
+ *   20 — The minor-gaps change: five optional fields, each absent on every earlier file.
+ *        A version 19 file cannot carry them, because the bump lands in the change that adds them.
+ *
+ *        - `taxSettings.medicare` (`{ includePremiums, enrollmentAge?, partDMonthly?,
+ *          supplementalMonthly? }`). Absent means **enrolment at 65 and no base premiums
+ *          charged**. (IRMAA is charged per enrolled member from 65 whether or not the block is
+ *          present — that is a correction of the engine, not something the field opts into.)
+ *        - `taxSettings.aca.stateSubsidy` and `taxSettings.aca.stateSubsidyMaxFplPercent`. Absent
+ *          means **no California state premium assistance**.
+ *        - `accounts[].distributeIncome` on a taxable brokerage account. Absent means **dividends and
+ *          interest are reinvested**.
+ *        - `incomes[].socialSecurity.survivorClaimAge`. Absent means **the survivor benefit starts at
+ *          the member's own claim age**, as the top-up was always timed.
+ *        - `timeline.household.children`. Absent means **no dependent children**, so no children's
+ *          benefits.
+ *
+ *        A v19 file is made by deleting those keys. The upgrade test in `plan-envelope.test.ts`
+ *        asserts every one of them is stripped.
+ *
  * A bump is backward compatible on the reading side but never silently forward: importing
  * accepts every version from 1 up to this build's, and refuses anything newer until the
  * operator upgrades. Fields added by a bump are optional in both the validators and the
@@ -277,7 +296,7 @@ import { zodFromConvexValidator, zodObjectFromValidators, type ConvexValidatorLi
  * enforces, so there is exactly one description of the shape.
  */
 
-export const EXPORT_SCHEMA_VERSION = 19;
+export const EXPORT_SCHEMA_VERSION = 20;
 
 /** The oldest file this build still reads. Whole-number range: 1..EXPORT_SCHEMA_VERSION. */
 export const MIN_EXPORT_SCHEMA_VERSION = 1;
