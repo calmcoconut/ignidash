@@ -433,7 +433,20 @@ export class FinancialSimulationEngine {
         ? { primary: simulationContext.ageOffsetByOwner.primary, partner: simulationContext.ageOffsetByOwner.partner }
         : undefined;
 
-    const incomes = new Incomes(Object.values(this.inputs.incomes), timeBindingContext, memberDeaths, coupleAgeOffsets);
+    // Dependent children (v20), on the plan axis: `planAge - ageOffset` is the child's age. They take
+    // no part in anything but Social Security children's benefits.
+    const socialSecurityChildren = (timeline.household?.children ?? []).map((child) => ({
+      id: child.id,
+      ageOffset: simulationContext.startAge - calculatePreciseAge(child.birthMonth, child.birthYear, this.clock.asOf),
+      student: child.student === true,
+    }));
+    const incomes = new Incomes(
+      Object.values(this.inputs.incomes),
+      timeBindingContext,
+      memberDeaths,
+      coupleAgeOffsets,
+      socialSecurityChildren
+    );
     // A residence's `propertyTax` is charged as an ordinary expense (P1-P5, real estate II): the
     // engine's cash flow funds expenses and nothing else, so the bill is derived into an expense
     // row here rather than added to the portfolio maths somewhere else. Absent `propertyTax`

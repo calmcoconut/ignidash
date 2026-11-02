@@ -83,12 +83,30 @@ export const householdMemberSchema = z.object({
 export type HouseholdMember = z.infer<typeof householdMemberSchema>;
 
 /**
+ * A dependent child (v20), for Social Security children's benefits (Social Security Act §202(d)).
+ * Not a member: a child owns nothing and files nothing in the model. A child is paid on a parent's
+ * record until 18, or until 19 while a full-time secondary student (`student`).
+ */
+export const householdChildSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().max(50).optional(),
+  birthMonth: z.number().int().min(1).max(12),
+  birthYear: z.number().int().min(1990).max(2100),
+  /** A full-time elementary or secondary student at 18, so benefits continue to 19. */
+  student: z.boolean().optional(),
+});
+
+export type HouseholdChild = z.infer<typeof householdChildSchema>;
+
+/**
  * Who is in the plan. `members` has at most two entries and each role at most once, so a plan
  * cannot claim two partners or an empty household.
  */
 export const householdSchema = z
   .object({
     members: z.array(householdMemberSchema).min(1, 'A household needs at least one member').max(2, 'A household has at most two members'),
+    /** Dependent children (v20). Absent means none, which is every plan written before v20. */
+    children: z.array(householdChildSchema).max(10, 'A household has at most ten children').optional(),
   })
   .refine((data) => new Set(data.members.map((member) => member.role)).size === data.members.length, {
     message: 'Each household member must have a distinct role',

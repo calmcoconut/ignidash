@@ -32,4 +32,16 @@ export const householdValidator = v.object({
       lifeExpectancy: v.optional(v.number()),
     })
   ),
+  // Dependent children for Social Security children's benefits (v20). Absent means none.
+  children: v.optional(
+    v.array(
+      v.object({
+        id: v.string(),
+        name: v.optional(v.string()),
+        birthMonth: v.number(),
+        birthYear: v.number(),
+        student: v.optional(v.boolean()),
+      })
+    )
+  ),
 });

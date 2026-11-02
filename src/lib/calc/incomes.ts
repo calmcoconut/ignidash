@@ -68,6 +68,15 @@ import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inp
 import type { PayrollTaxProcessor } from './payroll-taxes';
 import { estimateSocialSecurityBenefit, type SocialSecurityEstimate } from './social-security';
 import { HouseholdSocialSecurity, type SocialSecurityChild } from './social-security-household';
+import {
+  EARNINGS_TEST_FRA_YEAR_WITHHOLDING_RATE,
+  EARNINGS_TEST_WITHHOLDING_RATE,
+  earningsTestAmountsFor,
+  earningsTestWithholding,
+} from './social-security-family';
+
+/** Id prefix of the child-benefit rows, one per worker record (`social-security:children:primary`). */
+export const CHILD_BENEFIT_ROW_PREFIX = 'social-security:children:';
 import { TimeBinding, type TimeBindingContext } from './time-binding';
 
 import type { SimulationState } from './simulation-engine';
@@ -112,7 +121,13 @@ export class IncomesProcessor {
       };
     });
 
-    const totals = processedIncomes.reduce(
+    // Children's benefits and the earnings test (v20) read every line of the month at once, so they
+    // run after each line has been priced. The child rows are the child's income, not the parents':
+    // tax-free here, and kept out of the per-owner split that divides a separate-return pair.
+    const childRows = this.incomes.applySocialSecurityHouseholdRules(activeIncomes, processedIncomes, this.simulationState);
+    const allRows = [...processedIncomes, ...childRows];
+
+    const totals = allRows.reduce(
       (acc, curr) => {
         acc.totalIncome += curr.income;
         acc.totalAmountWithheld += curr.amountWithheld;
@@ -143,7 +158,7 @@ export class IncomesProcessor {
       0
     );
 
-    const perIncomeData = Object.fromEntries(processedIncomes.map((income) => [income.id, income]));
+    const perIncomeData = Object.fromEntries(allRows.map((income) => [income.id, income]));
 
     const result: IncomesData = {
       ...totals,
@@ -351,6 +366,12 @@ export interface IncomesData {
 export class Incomes {
   private readonly incomes: Income[];
   private readonly socialSecurity: HouseholdSocialSecurity;
+  private readonly startYear: number;
+  private earningsTestYear = -1;
+  private readonly earningsYearToDate = new Map<HouseholdMemberRole, number>();
+  private readonly withheldYearToDate = new Map<HouseholdMemberRole, number>();
+  private readonly dueYearToDate = new Map<HouseholdMemberRole, number>();
+  private readonly carriedWithholding = new Map<HouseholdMemberRole, number>();
   private readonly memberDeaths: Partial<Record<HouseholdMemberRole, number>>;
 
   /**
@@ -373,6 +394,7 @@ export class Incomes {
     children: readonly SocialSecurityChild[] = []
   ) {
     const activeData = data.filter((income) => !income.disabled);
+    this.startYear = context.startDate.getFullYear();
     const roles: readonly HouseholdMemberRole[] = coupleAgeOffsets === undefined ? ['primary'] : ['primary', 'partner'];
     this.socialSecurity = new HouseholdSocialSecurity(
       activeData,
@@ -392,6 +414,114 @@ export class Incomes {
 
     const byId = new Map(this.incomes.map((income) => [income.getId(), income]));
     this.socialSecurity.setStatedBenefitLookup((lineId) => byId.get(lineId)?.getStatedAnnualAmount() ?? 0);
+  }
+
+  /**
+   * Children's benefits and the retirement earnings test for the month (v20; see
+   * `social-security-family.ts`). Mutates the Social Security rows of `processed` in place when the
+   * test withholds from them, and returns the month's child-benefit rows, one per worker record.
+   *
+   * The year-to-date state lives here rather than on the processor, because the engine builds a new
+   * `IncomesProcessor` when a death changes the filing status, and the test must not restart then.
+   */
+  applySocialSecurityHouseholdRules(active: readonly Income[], processed: IncomeData[], simulationState: SimulationState): IncomeData[] {
+    const household = this.socialSecurity;
+    const planAge = simulationState.time.age;
+    const monthsElapsed = simulationState.time.month;
+    const years = Math.max(0, Math.floor(simulationState.time.year));
+
+    const childRows: IncomeData[] = [];
+    for (const [role, annual] of household.annualChildBenefitsByRecord(planAge, years)) {
+      const income = annual / 12;
+      if (income <= 0) continue;
+      childRows.push({
+        id: `${CHILD_BENEFIT_ROW_PREFIX}${role}`,
+        name: 'Social Security (children)',
+        income,
+        amountWithheld: 0,
+        ficaTax: 0,
+        incomeAfterPayrollDeductions: income,
+        taxFreeIncome: income,
+        socialSecurityIncome: 0,
+      });
+    }
+
+    // The engine's year: months 1-12 are year 0. The test runs on these years (see the module doc).
+    const yearIndex = Math.floor((monthsElapsed - 1) / 12);
+    if (yearIndex !== this.earningsTestYear) {
+      // Withholding falls after the excess is earned, so a year's last months may not hold all of it:
+      // what is still owed carries into the next year, as SSA recovers an overpayment from later benefits.
+      for (const role of ['primary', 'partner'] as const) {
+        this.carriedWithholding.set(role, Math.max(0, (this.dueYearToDate.get(role) ?? 0) - (this.withheldYearToDate.get(role) ?? 0)));
+      }
+      this.earningsTestYear = yearIndex;
+      this.earningsYearToDate.clear();
+      this.withheldYearToDate.clear();
+      this.dueYearToDate.clear();
+    }
+    const yearEndPlanAge = planAge - monthsElapsed / 12 + yearIndex + 1;
+    const amounts = earningsTestAmountsFor(this.startYear + yearIndex);
+
+    for (const role of ['primary', 'partner'] as const) {
+      const fraPlanAge = household.fraPlanAge(role);
+      if (fraPlanAge === undefined || planAge >= fraPlanAge - 1e-9) continue;
+
+      let earned = 0;
+      active.forEach((income, index) => {
+        const type = income.getIncomeType();
+        if (type !== 'wage' && type !== 'selfEmployment') return;
+        const owner = income.getOwner();
+        earned += processed[index]!.income * (owner === role ? 1 : owner === 'joint' ? 0.5 : 0);
+      });
+      const yearToDate = (this.earningsYearToDate.get(role) ?? 0) + earned;
+      this.earningsYearToDate.set(role, yearToDate);
+
+      const fraYear = fraPlanAge <= yearEndPlanAge + 1e-9;
+      const dueYearToDate =
+        earningsTestWithholding(
+          yearToDate,
+          fraYear ? amounts.fraYearExempt : amounts.annualExempt,
+          fraYear ? EARNINGS_TEST_FRA_YEAR_WITHHOLDING_RATE : EARNINGS_TEST_WITHHOLDING_RATE
+        ) + (this.carriedWithholding.get(role) ?? 0);
+      this.dueYearToDate.set(role, dueYearToDate);
+      const due = dueYearToDate - (this.withheldYearToDate.get(role) ?? 0);
+      if (due <= 1e-9) continue;
+
+      // What this member is paid this month: their record line (own and spousal, or the survivor
+      // top-up on the deceased's line), and the children's benefits on their record.
+      const rows: IncomeData[] = [];
+      let ownsAnOwnRow = false;
+      active.forEach((income, index) => {
+        const id = income.getId();
+        // A Social Security line that is not a record line (a second line) is its owner's.
+        const receiver =
+          household.receiverOf(id, planAge) ??
+          (income.getIncomeType() === 'socialSecurity' && income.getOwner() === role ? role : undefined);
+        if (receiver !== role) return;
+        rows.push(processed[index]!);
+        if (household.recordOwnerOf(id) === role) ownsAnOwnRow = true;
+      });
+      const childRow = childRows.find((row) => row.id === `${CHILD_BENEFIT_ROW_PREFIX}${role}`);
+      if (childRow !== undefined) rows.push(childRow);
+
+      const paid = rows.reduce((total, row) => total + row.income, 0);
+      if (paid <= 0) continue;
+
+      const withheld = Math.min(due, paid);
+      const keep = 1 - withheld / paid;
+      for (const row of rows) {
+        row.income *= keep;
+        row.amountWithheld *= keep;
+        row.socialSecurityIncome *= keep;
+        row.taxFreeIncome *= keep;
+        row.incomeAfterPayrollDeductions = row.income - row.amountWithheld - row.ficaTax;
+      }
+      this.withheldYearToDate.set(role, (this.withheldYearToDate.get(role) ?? 0) + withheld);
+      // The share of this month's own benefit withheld, in months, for the recomputation at FRA.
+      if (ownsAnOwnRow) household.recordWithholding(role, withheld / paid);
+    }
+
+    return childRows;
   }
 
   /** The household's cross-line Social Security rules (spousal, survivor, children, earnings test). */

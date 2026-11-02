@@ -16,6 +16,9 @@ export const acaSettingsValidator = v.object({
   householdSize: v.optional(v.number()),
   slcsp: v.optional(v.number()),
   actualPremium: v.optional(v.number()),
+  // Covered California state premium assistance, annual, and its FPL ceiling (v20). Absent: none.
+  stateSubsidy: v.optional(v.number()),
+  stateSubsidyMaxFplPercent: v.optional(v.number()),
 });
 
 export const medicareSettingsValidator = v.object({

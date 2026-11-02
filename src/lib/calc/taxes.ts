@@ -46,7 +46,13 @@ import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-sche
 
 import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
 
-import { enrolledMedicareMemberMonths, MEDICARE_ELIGIBILITY_AGE, type MedicareMember, SOLE_MEDICARE_MEMBER } from './medicare';
+import {
+  enrolledMedicareMemberMonths,
+  enrolledMedicareMembers,
+  MEDICARE_ELIGIBILITY_AGE,
+  type MedicareMember,
+  SOLE_MEDICARE_MEMBER,
+} from './medicare';
 import type { SimulationState } from './simulation-engine';
 import type { IncomesData, OwnerIncomesData } from './incomes';
 import type { PortfolioData } from './portfolio';
@@ -1368,8 +1374,11 @@ export class TaxProcessor {
       });
     }
 
-    // The ACA Premium Tax Credit (IRC §36B) is a refundable tax credit reducing taxes due or increasing refund.
-    const acaCredit = acaResult?.credit ?? 0;
+    if (acaResult !== undefined) acaResult = this.withMarketplaceShareAndStateSubsidy(acaResult);
+
+    // The ACA Premium Tax Credit (IRC §36B) is a refundable tax credit reducing taxes due or increasing
+    // refund; California's state premium assistance reduces the same premium, so it offsets alongside.
+    const acaCredit = (acaResult?.credit ?? 0) + (acaResult?.stateSubsidy ?? 0);
     const difference = totalTaxLiability - (withheld + acaCredit);
 
     return {
@@ -1617,6 +1626,44 @@ export class TaxProcessor {
    *   tier 1 (> $109,000, ≤ $137,000): Part B $81.20 + Part D $14.50 = $95.70 a month
    *   the year charges 95.70 × 12 = $1,148.40
    */
+  /**
+   * Scales the federal credit to the year's marketplace share and adds California's state assistance.
+   *
+   * A member enrolled in Medicare has minimum essential coverage and no premium tax credit (IRC
+   * §36B(c)(2)(B)), so the credit is paid for the share of the household's member-months spent off
+   * Medicare: a single filer's credit stops at 65, and a couple keeps half while one spouse is on it.
+   * The state amount (v20) applies under its ceiling, is scaled the same way, and together with the
+   * federal credit never exceeds the premium (the actual premium when stated, else the benchmark).
+   */
+  private withMarketplaceShareAndStateSubsidy(result: AcaPremiumTaxCreditResult): AcaPremiumTaxCreditResult {
+    const members = this.deductionSettings.medicareMembers ?? SOLE_MEDICARE_MEMBER;
+    const enrollmentAge = this.deductionSettings.medicare?.enrollmentAge ?? MEDICARE_ELIGIBILITY_AGE;
+    const yearEndAge = this.simulationState.time.age;
+    let alive = 0;
+    let enrolled = 0;
+    for (let k = 0; k < 12; k++) {
+      const planAge = yearEndAge - k / 12;
+      alive += members.filter((member) => planAge < member.deathAge).length;
+      enrolled += enrolledMedicareMembers(members, planAge, enrollmentAge);
+    }
+    const share = alive > 0 ? (alive - enrolled) / alive : 0;
+
+    const aca = this.deductionSettings.aca;
+    const statedState = aca?.stateSubsidy ?? 0;
+    const ceiling = aca?.stateSubsidyMaxFplPercent;
+    const premium = aca?.actualPremium ?? result.slcspPremium;
+    const federal = result.credit * share;
+    const stateEligible = statedState > 0 && (ceiling === undefined || result.fplPercent <= ceiling);
+    const stateSubsidy = stateEligible ? Math.max(0, Math.min(statedState * share, premium * share - federal)) : 0;
+
+    return {
+      ...result,
+      credit: federal,
+      ...(share < 1 ? { marketplaceShare: share } : {}),
+      ...(stateSubsidy > 0 ? { stateSubsidy } : {}),
+    };
+  }
+
   /**
    * Medicare-enrolled member-months on the return being priced, for the year being settled.
    *

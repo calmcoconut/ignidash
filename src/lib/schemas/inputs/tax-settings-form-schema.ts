@@ -82,6 +82,19 @@ export const acaSettingsSchema = z.object({
   slcsp: optionalCurrencyFieldAllowsZero('SLCSP premium cannot be negative'),
   /** Actual health insurance premium paid for the coverage year (§36B(b)(2) cap), annual. */
   actualPremium: optionalCurrencyFieldAllowsZero('Actual premium cannot be negative'),
+  /**
+   * California state premium assistance from Covered California, annual (v20). The state sets it
+   * each budget year and publishes no formula this model can vendor, so the operator enters the
+   * amount on their eligibility notice. Absent means none.
+   */
+  stateSubsidy: optionalCurrencyFieldAllowsZero('State subsidy cannot be negative'),
+  /**
+   * The income ceiling for the state assistance, in percent of the poverty line (e.g. 165 for plan
+   * year 2026). Absent means the stated subsidy applies at any income where it is entered.
+   */
+  stateSubsidyMaxFplPercent: optionalCoerceNumber(
+    z.number('Must be a valid number').min(100, 'The ceiling must be at least 100% FPL').max(1000, 'The ceiling must be at most 1000% FPL')
+  ),
 });
 
 export type AcaSettingsInputs = z.infer<typeof acaSettingsSchema>;
