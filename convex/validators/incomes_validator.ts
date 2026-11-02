@@ -47,6 +47,8 @@ export const incomeValidator = v.object({
       pia: v.optional(v.number()),
       claimAge: v.number(),
       colaRate: v.optional(v.number()),
+      // The age a survivor benefit would start at (v20). Absent means `claimAge`.
+      survivorClaimAge: v.optional(v.number()),
     })
   ),
   taxes: v.object({

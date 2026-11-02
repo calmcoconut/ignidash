@@ -52,7 +52,13 @@ export function accountFromConvex(account: Doc<'plans'>['accounts'][number]): Ac
     case 'savings':
       return { ...base, type: 'savings' };
     case 'taxableBrokerage':
-      return { ...base, type: 'taxableBrokerage', percentBonds: account.percentBonds!, costBasis: account.costBasis };
+      return {
+        ...base,
+        type: 'taxableBrokerage',
+        percentBonds: account.percentBonds!,
+        costBasis: account.costBasis,
+        ...(account.distributeIncome === true ? { distributeIncome: true } : {}),
+      };
     case 'roth401k':
     case 'roth403b':
     case 'rothIra':
@@ -103,6 +109,7 @@ export function taxSettingsFromConvex(taxSettings: Doc<'plans'>['taxSettings']):
     itemizedDeductions: taxSettings.itemizedDeductions,
     spouseQualifiesForSeniorDeduction: taxSettings.spouseQualifiesForSeniorDeduction,
     aca: taxSettings.aca,
+    medicare: taxSettings.medicare,
   };
 }
 
@@ -324,7 +331,14 @@ export function accountToConvex(account: AccountInputs): Doc<'plans'>['accounts'
     case 'savings':
       return { ...base, type: 'savings' };
     case 'taxableBrokerage':
-      return { ...base, type: 'taxableBrokerage', percentBonds: account.percentBonds, costBasis: account.costBasis };
+      return {
+        ...base,
+        type: 'taxableBrokerage',
+        percentBonds: account.percentBonds,
+        costBasis: account.costBasis,
+        // Absent means reinvested, so only a payout is stored.
+        ...(account.distributeIncome === true ? { distributeIncome: true } : {}),
+      };
     case 'roth401k':
     case 'roth403b':
     case 'rothIra':
@@ -382,6 +396,11 @@ export function taxSettingsToConvex(taxSettings: TaxSettingsInputs): Doc<'plans'
     ...(itemizes ? { itemizedDeductions: entered } : {}),
     ...(taxSettings.spouseQualifiesForSeniorDeduction === true ? { spouseQualifiesForSeniorDeduction: true } : {}),
     ...(taxSettings.aca?.optIn ? { aca: taxSettings.aca } : {}),
+    // Absent means enrolment at 65 with no base premiums, so only a setting that says something
+    // else is stored.
+    ...(taxSettings.medicare !== undefined && (taxSettings.medicare.includePremiums || taxSettings.medicare.enrollmentAge !== undefined)
+      ? { medicare: taxSettings.medicare }
+      : {}),
   };
 }
 

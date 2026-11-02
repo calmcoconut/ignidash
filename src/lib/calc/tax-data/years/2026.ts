@@ -213,15 +213,19 @@ export const FEDERAL_2026: FederalTaxRuleset = {
     //   Part D income-related adjustments $0.00 / $14.50 / $37.50 / $60.40 / $83.30 / $91.00/month;
     //   MAGI tiers ≤109,000 / ≤137,000 / ≤171,000 / ≤205,000 / <500,000 / ≥500,000 (individual),
     //   doubled for a joint return. The tier is set from the return filed two years earlier.
+    // Part D national base beneficiary premium $38.99/month: CMS, "2026 Medicare Part D Bid
+    //   Information and Part D Premium Stabilization Demonstration Parameters" (Jul 28, 2025).
     medicareIrmaa: {
       indexing: 'indexed',
       source:
         'CMS, "2026 Medicare Parts A & B Premiums and Deductibles" (Nov 14, 2025): Part B adjustments ' +
         '$0.00/$81.20/$202.90/$324.60/$446.30/$487.00 and Part D $0.00/$14.50/$37.50/$60.40/$83.30/$91.00 per month, ' +
         'on MAGI tiers of $109k/$137k/$171k/$205k/$500k (individual), doubled for a joint return and halved for a separate ' +
-        'one (42 U.S.C. §1395r(i)(3)).',
+        'one (42 U.S.C. §1395r(i)(3)). Part D base beneficiary premium $38.99/month: CMS, "2026 Medicare Part D Bid ' +
+        'Information and Part D Premium Stabilization Demonstration Parameters" (Jul 28, 2025).',
       values: {
         standardPartBMonthly: 202.9,
+        basePartDMonthly: 38.99,
         lookbackYears: 2,
         tiers: {
           single: [

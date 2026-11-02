@@ -168,16 +168,17 @@ describe('tax-optimization eval set', () => {
  *    5,800 + 22% × 55,300 = 5,800 + 12,166 = 17,966 a year. MAGI 121,800 is past the 109,000 floor
  *    (tier 1) with 15,200 to the 137,000 floor. Tier 1 is (81.20 + 14.50) × 12 = 1,148.40 a year.
  *
- * What the extra 55,300 of the 22% fill costs and returns. Now it costs 12,166 a year at 22%, plus the
- * surcharge in each premium year it sets: 3 × 1,148.40 = 3,445.20. Later it saves tax only on the dollars
+ * What the extra 55,300 of the 22% fill costs and returns. Now it costs 12,166 a year at 22%. It crosses
+ * the IRMAA floor, but the premium years it sets (2028 to 2030, ages 58 to 60) fall before Medicare
+ * enrolment at 65, so no surcharge is charged: IRMAA is a premium surcharge, paid only by an enrolled
+ * member (v20 corrected the engine, which used to charge it at any age). Later it saves tax only on the dollars
  * the RMD years would otherwise have taxed, and the baseline shows that rate. Its drawdown years (ages
  * 60 to 75, funded from the IRA) sit in the 12% band: MAGI 42,977, taxable 26,877, tax
  * 1,240 + 12% × 14,477 = 2,977. Its RMD years sit in the 22% band: MAGI 115,090, taxable 98,990, tax
  * 5,800 + 22% × 48,590 = 16,490 (the no-conversion plan at age 76). Only part of the displaced IRA is
  * likely to come back at 22%: a balance left at age 100 is never taxed. That is an inference, since the
  * tools do not expose the final IRA balance. The engine's later figures net the 22% fill's extra 36,498 of tax in 2026 to 2028 against
- * about 31,200 saved later, which leaves the 22% fill 9,020 worse than the 12% fill once the surcharge is
- * counted (5,575 of federal tax and 3,445 of IRMAA).
+ * about 31,200 saved later, which leaves the 22% fill about 5,575 of federal tax worse than the 12% fill.
  *
  * 3. Hand-worked best by lifetime taxes: fill to 12%. It converts every dollar at 12%, and each of
  *    those dollars would otherwise come out at 12% in a drawdown year or 22% in an RMD year. The 22%
@@ -305,10 +306,11 @@ describe('conversion-ladder-hand-worked', () => {
     expect(analytics.cliffs?.aca?.prerequisites?.some((line) => line.includes('taxSettings.aca.optIn'))).toBe(true);
   });
 
-  it('charges the IRMAA surcharge over the lifetime for the 22% fill, and none for the 12% fill', () => {
+  it('charges no IRMAA for either fill: the 22% fill crosses the floor before Medicare enrolment', () => {
     // The lifetime total is every tax line plus the IRMAA surcharge (the extractor adds it), and the
     // tool does not return the surcharge on its own. Subtracting the lines it does return leaves the
-    // surcharge: three conversion years, each setting tier 1 two premium years later.
+    // surcharge. The 22% fill sets tier 1 for ages 58 to 60, when nobody is on Medicare, so it is 0:
+    // the pre-v20 engine charged 3 × 1,148.40 here, which was the defect.
     const lifetimeIrmaa = (label: string): number => {
       const toolkit = createChatToolkit({ inputs: planWithLever(label), asOf: EVAL_AS_OF });
       const result = JSON.parse(toolkit.execute('simulateVariant', { variantId: 'lever', planPatch: {} })) as {
@@ -325,7 +327,7 @@ describe('conversion-ladder-hand-worked', () => {
       return (lines.total ?? NaN) - listed;
     };
 
-    expect(Math.abs(lifetimeIrmaa(LADDER_22) - 3 * HAND.irmaaTier1Annual)).toBeLessThanOrEqual(1);
+    expect(Math.abs(lifetimeIrmaa(LADDER_22))).toBeLessThanOrEqual(1);
     expect(Math.abs(lifetimeIrmaa(LADDER_12))).toBeLessThanOrEqual(1);
   });
 });

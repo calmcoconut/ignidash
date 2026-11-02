@@ -13,7 +13,7 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  *
  * Deliberately **not** covered:
  * - **California state-tax planning.** The state return is computed (P3-P8) and reported, but no case
- *   turns on it: there is no state-specific lever, and Covered California subsidies and CA AMT are not modelled.
+ *   turns on it: there is no state-specific lever, Covered California's schedule is not vendored (a stated subsidy is), and CA AMT is not modelled.
  * - **ACA opt-in cases.** The skill may be *asked* about the credit. No case here opts in through
  *   `taxSettings.aca`, so no fixture exercises the premium tax credit, and the correct answer to
  *   "add the ACA credit" is to read it from a tool result after opting the plan in — not to refuse
@@ -22,8 +22,8 @@ import type { SimulatorInputs } from '../../../src/lib/schemas/inputs/simulator-
  *   `socialSecurity` block carries `claimAge`, adjusted against the full retirement age of the birth
  *   year stored on that income's owner — so no case here carries a `socialSecurity` block. That is a
  *   fixture gap in this corpus, not a missing lever: calling a claim-age change unmodelled is the
- *   wrong answer. What Social Security does not model is spousal, survivor and dependent benefits
- *   and the retirement earnings test.
+ *   wrong answer. Spousal, survivor and children's benefits and the earnings test are modelled (v20);
+ *   what is not is a view on when to claim.
  * - **Not on that list: the levers the engine does model.** Itemized deductions (the four entered
  *   lines under `taxSettings.itemizedDeductions`, so a `planPatch` can enter them), the §164 SALT
  *   cap with its MAGI phase-down, AMT, IRMAA, Roth conversions (with fixed amounts or bracket-filling,

@@ -548,7 +548,7 @@ describe('malformed files report the exact field paths', () => {
 
     // The whole written history, named rather than implied: a bump that forgets to keep reading
     // an older file fails here, not in a support thread. Adding version 12 means adding it here.
-    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
+    const writtenVersions = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
     expect(MIN_EXPORT_SCHEMA_VERSION).toBe(1);
     expect(writtenVersions).toHaveLength(EXPORT_SCHEMA_VERSION - MIN_EXPORT_SCHEMA_VERSION + 1);
 
@@ -1160,8 +1160,8 @@ describe('malformed files report the exact field paths', () => {
 
     // The field really is carried by the newest build: reverting the constant below 13 makes this
     // line fail before the field is even looked at.
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_12_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1238,8 +1238,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion13Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_13_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1321,8 +1321,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion14Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_14_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1398,8 +1398,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion15Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_15_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1461,8 +1461,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion16Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_16_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1533,8 +1533,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion17Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_17_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1603,8 +1603,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion18Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_18_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1672,8 +1672,8 @@ describe('malformed files report the exact field paths', () => {
     const plan = makeVersion19Plan();
     const envelope = createPlanEnvelope({ plan, finances: null, exportedAt: EXPORTED_AT });
 
-    expect(envelope.schemaVersion).toBe(19);
-    expect(EXPORT_SCHEMA_VERSION).toBe(19);
+    expect(envelope.schemaVersion).toBe(20);
+    expect(EXPORT_SCHEMA_VERSION).toBe(20);
     expect(countFields(envelope, VERSION_19_FIELDS)).toBe(1);
 
     const restored = parseOrThrow(serializeEnvelope(envelope));
@@ -1714,6 +1714,107 @@ describe('malformed files report the exact field paths', () => {
     const importedPlan = imported.plans[0];
     expect(importedPlan).not.toHaveProperty('journal');
     expect(journalFromConvex(importedPlan.journal)).toBeUndefined();
+  });
+
+  /**
+   * What the v20 bump added: five optional fields (see the history in `plan-envelope.ts`). They are
+   * stripped by path rather than by key, because `children` is also the key of a milestone's
+   * condition tree.
+   */
+  type V20Plan = {
+    taxSettings: Record<string, unknown> & { aca?: Record<string, unknown> };
+    accounts: Array<Record<string, unknown>>;
+    incomes: Array<Record<string, unknown> & { socialSecurity?: Record<string, unknown> }>;
+    timeline: { household: Record<string, unknown> };
+  };
+
+  const makeVersion20Plan = () => {
+    const base = makeVersion19Plan();
+    return {
+      ...base,
+      taxSettings: {
+        ...base.taxSettings,
+        aca: { ...base.taxSettings.aca, stateSubsidy: 1200, stateSubsidyMaxFplPercent: 165 },
+        medicare: { includePremiums: true, enrollmentAge: 66, partDMonthly: 45, supplementalMonthly: 150 },
+      },
+      accounts: base.accounts.map((account, index) =>
+        index === 0 ? { ...account, type: 'taxableBrokerage' as const, distributeIncome: true } : account
+      ),
+      incomes: base.incomes.map((income, index) =>
+        index === 0 && income.socialSecurity !== undefined
+          ? { ...income, socialSecurity: { ...income.socialSecurity, survivorClaimAge: 60 } }
+          : income
+      ),
+      timeline: {
+        ...base.timeline!,
+        household: { ...base.timeline!.household!, children: [{ id: 'kid', name: 'Kid', birthMonth: 5, birthYear: 2015, student: true }] },
+      },
+    } as unknown as ReturnType<typeof makeVersion19Plan>;
+  };
+
+  /** The v20 fields a plan carries, by path. */
+  const version20Fields = (plan: V20Plan): number =>
+    Number(plan.taxSettings.medicare !== undefined) +
+    Number(plan.taxSettings.aca?.stateSubsidy !== undefined) +
+    Number(plan.taxSettings.aca?.stateSubsidyMaxFplPercent !== undefined) +
+    plan.accounts.filter((account) => account.distributeIncome !== undefined).length +
+    plan.incomes.filter((income) => income.socialSecurity?.survivorClaimAge !== undefined).length +
+    Number(plan.timeline.household.children !== undefined);
+
+  const stripVersion20Fields = (plan: V20Plan): void => {
+    delete plan.taxSettings.medicare;
+    if (plan.taxSettings.aca !== undefined) {
+      delete plan.taxSettings.aca.stateSubsidy;
+      delete plan.taxSettings.aca.stateSubsidyMaxFplPercent;
+    }
+    for (const account of plan.accounts) delete account.distributeIncome;
+    for (const income of plan.incomes) if (income.socialSecurity !== undefined) delete income.socialSecurity.survivorClaimAge;
+    delete plan.timeline.household.children;
+  };
+
+  it('roundtrips a version 20 plan through export and import', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion20Plan(), finances: null, exportedAt: EXPORTED_AT });
+    expect(envelope.schemaVersion).toBe(20);
+    expect(version20Fields(envelope.plan as unknown as V20Plan)).toBe(6);
+
+    const restored = parseOrThrow(serializeEnvelope(envelope));
+    if (restored.kind !== PLAN_EXPORT_KIND) throw new Error('expected a plan envelope');
+    expect(version20Fields(restored.plan as unknown as V20Plan)).toBe(6);
+    expect(taxSettingsFromConvex(restored.plan.taxSettings).medicare).toEqual({
+      includePremiums: true,
+      enrollmentAge: 66,
+      partDMonthly: 45,
+      supplementalMonthly: 150,
+    });
+  });
+
+  it('imports a version 19 plan with the v20 fields absent, and keeps them absent', () => {
+    const envelope = createPlanEnvelope({ plan: makeVersion20Plan(), finances: null, exportedAt: EXPORTED_AT });
+    const v19 = structuredClone(envelope) as unknown as Record<string, unknown> & { plan: V20Plan };
+    v19.schemaVersion = 19;
+
+    expect(version20Fields(v19.plan)).toBe(6);
+    stripVersion20Fields(v19.plan);
+    expect(version20Fields(v19.plan)).toBe(0);
+    // The v19 journal is still there.
+    expect(countFields(v19, VERSION_19_FIELDS)).toBe(1);
+
+    const parsed = parseEnvelope(JSON.stringify(v19));
+    expect(parsed.ok, !parsed.ok ? JSON.stringify(parsed.issues) : '').toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.envelope.schemaVersion).toBe(19);
+
+    const imported = prepareImport(
+      parsed.envelope,
+      { plans: [], finances: null },
+      { confirmReplaceFinances: true, exportedAt: EXPORTED_AT }
+    );
+    expect(imported.ok, !imported.ok ? JSON.stringify(imported.issues) : '').toBe(true);
+    if (!imported.ok) return;
+
+    const importedPlan = imported.plans[0] as unknown as V20Plan;
+    expect(version20Fields(importedPlan)).toBe(0);
+    expect(taxSettingsFromConvex(imported.plans[0].taxSettings).medicare).toBeUndefined();
   });
 
   it('reads a v12 file down the v11 → v10 chain, keeping every earlier absence', () => {

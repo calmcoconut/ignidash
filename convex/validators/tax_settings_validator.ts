@@ -16,6 +16,16 @@ export const acaSettingsValidator = v.object({
   householdSize: v.optional(v.number()),
   slcsp: v.optional(v.number()),
   actualPremium: v.optional(v.number()),
+  // Covered California state premium assistance, annual, and its FPL ceiling (v20). Absent: none.
+  stateSubsidy: v.optional(v.number()),
+  stateSubsidyMaxFplPercent: v.optional(v.number()),
+});
+
+export const medicareSettingsValidator = v.object({
+  includePremiums: v.boolean(),
+  enrollmentAge: v.optional(v.number()),
+  partDMonthly: v.optional(v.number()),
+  supplementalMonthly: v.optional(v.number()),
 });
 
 export const taxSettingsValidator = v.object({
@@ -39,4 +49,5 @@ export const taxSettingsValidator = v.object({
   itemizedDeductions: v.optional(itemizedDeductionsValidator),
   spouseQualifiesForSeniorDeduction: v.optional(v.boolean()),
   aca: v.optional(acaSettingsValidator),
+  medicare: v.optional(medicareSettingsValidator),
 });

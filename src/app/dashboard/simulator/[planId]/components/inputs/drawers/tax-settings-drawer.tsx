@@ -48,6 +48,24 @@ function withStatedAca(taxSettings: TaxSettingsInputs): TaxSettingsInputs {
       ...(aca.householdSize !== undefined ? { householdSize: aca.householdSize } : {}),
       ...(aca.slcsp !== undefined ? { slcsp: aca.slcsp } : {}),
       ...(aca.actualPremium !== undefined ? { actualPremium: aca.actualPremium } : {}),
+      ...(aca.stateSubsidy !== undefined ? { stateSubsidy: aca.stateSubsidy } : {}),
+      ...(aca.stateSubsidyMaxFplPercent !== undefined ? { stateSubsidyMaxFplPercent: aca.stateSubsidyMaxFplPercent } : {}),
+    },
+  };
+}
+
+/** The Medicare block, with unstated numbers dropped rather than stored as `undefined` (v20). */
+function withStatedMedicare(taxSettings: TaxSettingsInputs): TaxSettingsInputs {
+  const medicare = taxSettings.medicare;
+  if (medicare === undefined) return taxSettings;
+
+  return {
+    ...taxSettings,
+    medicare: {
+      includePremiums: medicare.includePremiums,
+      ...(medicare.enrollmentAge !== undefined ? { enrollmentAge: medicare.enrollmentAge } : {}),
+      ...(medicare.partDMonthly !== undefined ? { partDMonthly: medicare.partDMonthly } : {}),
+      ...(medicare.supplementalMonthly !== undefined ? { supplementalMonthly: medicare.supplementalMonthly } : {}),
     },
   };
 }
@@ -73,6 +91,14 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
         householdSize: settings?.aca?.householdSize,
         slcsp: settings?.aca?.slcsp,
         actualPremium: settings?.aca?.actualPremium,
+        stateSubsidy: settings?.aca?.stateSubsidy,
+        stateSubsidyMaxFplPercent: settings?.aca?.stateSubsidyMaxFplPercent,
+      },
+      medicare: {
+        includePremiums: settings?.medicare?.includePremiums ?? false,
+        enrollmentAge: settings?.medicare?.enrollmentAge,
+        partDMonthly: settings?.medicare?.partDMonthly,
+        supplementalMonthly: settings?.medicare?.supplementalMonthly,
       },
     }),
     []
@@ -101,7 +127,7 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
   const onSubmit = async (data: TaxSettingsInputs) => {
     try {
       setSaveError(null);
-      await updateTaxSettings({ taxSettings: taxSettingsToConvex(withStatedAca(data)), planId });
+      await updateTaxSettings({ taxSettings: taxSettingsToConvex(withStatedMedicare(withStatedAca(data))), planId });
       setOpen(false);
     } catch (error) {
       setSaveError(error instanceof ConvexError ? error.message : 'Failed to save tax settings.');
@@ -295,6 +321,97 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                         What you actually pay for the plan, per year. The credit is capped at this figure. Leave blank to use the benchmark
                         alone.
                       </Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="aca.stateSubsidy">California State Subsidy</Label>
+                      <NumberInput
+                        name="aca.stateSubsidy"
+                        control={control}
+                        id="aca.stateSubsidy"
+                        inputMode="decimal"
+                        placeholder="–"
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.aca?.stateSubsidy && <ErrorMessage>{errors.aca.stateSubsidy.message}</ErrorMessage>}
+                      <Description>
+                        Covered California&apos;s state premium assistance, per year, from your eligibility notice. The state sets it each
+                        budget year, so it is entered rather than calculated.
+                      </Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="aca.stateSubsidyMaxFplPercent">State Subsidy Income Limit (% FPL)</Label>
+                      <NumberInput
+                        name="aca.stateSubsidyMaxFplPercent"
+                        control={control}
+                        id="aca.stateSubsidyMaxFplPercent"
+                        inputMode="numeric"
+                        placeholder="–"
+                        decimalScale={0}
+                        disableThousandsSeparator
+                      />
+                      {errors.aca?.stateSubsidyMaxFplPercent && <ErrorMessage>{errors.aca.stateSubsidyMaxFplPercent.message}</ErrorMessage>}
+                      <Description>The state subsidy stops above this income. Leave blank to apply it at any income.</Description>
+                    </Field>
+                  </div>
+                  <p className="mt-4 text-sm/6 text-zinc-500 dark:text-zinc-400">
+                    Both credits stop for anyone on Medicare: they are prorated to the months each member is off it.
+                  </p>
+                </Fieldset>
+                <Divider />
+                <Fieldset aria-label="Medicare">
+                  <legend className="text-base font-semibold text-zinc-950 dark:text-white">Medicare</legend>
+                  <SwitchField>
+                    <Label>Charge Medicare premiums</Label>
+                    <Description>
+                      Adds the standard Part B premium, a Part D premium and any supplemental premium for each member from enrollment, as
+                      essential spending. Leave off if your expenses already include them. IRMAA is charged either way.
+                    </Description>
+                    <Controller
+                      name="medicare.includePremiums"
+                      control={control}
+                      render={({ field: { onChange, value, name } }) => <Switch name={name} checked={value ?? false} onChange={onChange} />}
+                    />
+                  </SwitchField>
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field>
+                      <Label htmlFor="medicare.enrollmentAge">Enrollment Age</Label>
+                      <NumberInput
+                        name="medicare.enrollmentAge"
+                        control={control}
+                        id="medicare.enrollmentAge"
+                        inputMode="numeric"
+                        placeholder="65"
+                        decimalScale={0}
+                        disableThousandsSeparator
+                      />
+                      {errors.medicare?.enrollmentAge && <ErrorMessage>{errors.medicare.enrollmentAge.message}</ErrorMessage>}
+                      <Description>Later than 65 only while covered by an employer plan. IRMAA starts here too.</Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="medicare.partDMonthly">Part D Premium (monthly)</Label>
+                      <NumberInput
+                        name="medicare.partDMonthly"
+                        control={control}
+                        id="medicare.partDMonthly"
+                        inputMode="decimal"
+                        placeholder="–"
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.medicare?.partDMonthly && <ErrorMessage>{errors.medicare.partDMonthly.message}</ErrorMessage>}
+                      <Description>Per member. Leave blank for the national base premium.</Description>
+                    </Field>
+                    <Field>
+                      <Label htmlFor="medicare.supplementalMonthly">Supplemental Premium (monthly)</Label>
+                      <NumberInput
+                        name="medicare.supplementalMonthly"
+                        control={control}
+                        id="medicare.supplementalMonthly"
+                        inputMode="decimal"
+                        placeholder="–"
+                        prefix={getCurrencySymbol()}
+                      />
+                      {errors.medicare?.supplementalMonthly && <ErrorMessage>{errors.medicare.supplementalMonthly.message}</ErrorMessage>}
+                      <Description>Medigap or Medicare Advantage, per member. Not HSA-eligible.</Description>
                     </Field>
                   </div>
                 </Fieldset>

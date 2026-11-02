@@ -225,3 +225,35 @@ describe('ACA Premium Tax Credit engine wiring (R8)', () => {
     expect([...new Set(settled.map((point) => point.taxes!.aca!.resolvedYear))]).toStrictEqual([2027]);
   });
 });
+
+describe('Medicare and California state assistance (v20)', () => {
+  // The case above: $31,300 single at 200% FPL, SLCSP $8,000 → federal credit $5,934.20.
+  const settle = (age: number, aca: Record<string, unknown>) => {
+    const processor = new TaxProcessor(createState(age), 'single', RULESET_YEAR, undefined, {
+      aca: { optIn: true, householdSize: 1, slcsp: 8_000, ...aca },
+    });
+    const incomes = createEmptyIncomesData({ totalIncome: 31_300, totalWageIncome: 31_300, totalAmountWithheld: 0 });
+
+    return processor.process(createEmptyPortfolioData(), incomes, createEmptyReturnsData(), createEmptyPhysicalAssetsData());
+  };
+
+  it('stops the federal credit once the member is on Medicare (IRC §36B(c)(2)(B))', () => {
+    expect(settle(70, {}).aca?.credit).toBe(0);
+    // Year-end age 65.25: the months at 65.0-65.25 are on Medicare (4), the other 8 on the marketplace.
+    const turning65 = settle(65.25, {}).aca;
+    expect(turning65?.marketplaceShare).toBeCloseTo(8 / 12, 12);
+    expect(turning65?.credit).toBeCloseTo(5_934.2 * (8 / 12), 2);
+  });
+
+  it('adds the stated state assistance under its ceiling, capped by the premium', () => {
+    expect(settle(45, { stateSubsidy: 1_200, stateSubsidyMaxFplPercent: 250 }).aca?.stateSubsidy).toBeCloseTo(1_200, 6);
+    // Above the ceiling: none.
+    expect(settle(45, { stateSubsidy: 1_200, stateSubsidyMaxFplPercent: 150 }).aca?.stateSubsidy).toBeUndefined();
+    // Federal 5,934.20 + state can never exceed the $6,500 premium actually paid: 565.80.
+    expect(settle(45, { stateSubsidy: 1_200, actualPremium: 6_500 }).aca?.stateSubsidy).toBeCloseTo(565.8, 2);
+    // The state amount offsets taxes like the federal credit does.
+    const withState = settle(45, { stateSubsidy: 1_200 });
+    const without = settle(45, {});
+    expect(withState.totalTaxesRefund - without.totalTaxesRefund + (without.totalTaxesDue - withState.totalTaxesDue)).toBeCloseTo(1_200, 6);
+  });
+});

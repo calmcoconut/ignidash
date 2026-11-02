@@ -19,6 +19,8 @@ export const accountValidator = v.object({
   ),
   percentBonds: v.optional(v.number()),
   costBasis: v.optional(v.number()),
+  // Pay a taxable account's dividends and interest out as cash (v20). Absent means reinvested.
+  distributeIncome: v.optional(v.boolean()),
   contributionBasis: v.optional(v.number()),
   // After-tax basis in a traditional IRA (Form 8606 lines 2/5). Optional because it is newer than
   // the table: absent means no after-tax basis, which is what every plan written before it had.

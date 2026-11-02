@@ -178,8 +178,8 @@ Single Zustand store (`useSimulatorStore`) with slices: `results`, `preferences`
 ### Export / import (`src/lib/export/`)
 
 `plan-envelope.ts` owns the versioned envelope. **`EXPORT_SCHEMA_VERSION` is a single-writer
-resource**: currently at **19**. One field-adding change at a time, and `npm run schema:plan`
-regenerates the matching JSON schema (`schema/ignidash-plan.v19.schema.json`). Add the field,
+resource**: currently at **20**. One field-adding change at a time, and `npm run schema:plan`
+regenerates the matching JSON schema (`schema/ignidash-plan.v20.schema.json`). Add the field,
 bump, state what absent means in the history table, and prove the upgrade with a non-vacuous
 test that fails if you remove it. History and rules: `AGENTS.md` §4.
 

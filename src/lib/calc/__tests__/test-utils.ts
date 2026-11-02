@@ -84,6 +84,7 @@ export const createTaxableBrokerageAccount = (
   balance: overrides?.balance ?? 75000,
   percentBonds: overrides?.percentBonds ?? 15,
   costBasis: overrides?.costBasis ?? 50000,
+  ...(overrides?.distributeIncome === undefined ? {} : { distributeIncome: overrides.distributeIncome }),
 });
 
 export const createHsaAccount = (overrides?: Partial<AccountInputs & { type: 'hsa' }>): AccountInputs & { type: 'hsa' } => ({

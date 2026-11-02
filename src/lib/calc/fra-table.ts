@@ -68,3 +68,20 @@ export function fullRetirementAge(birthYear: number): FullRetirementAge {
 
   return { years: step.years, months: step.months, totalMonths: step.years * 12 + step.months };
 }
+
+/**
+ * The full retirement age for a **survivor** benefit (widow or widower), by the survivor's birth year.
+ *
+ * The survivor schedule is the retirement schedule two cohorts later: the statute phases it in for
+ * those attaining age 60 after 1999 rather than age 62 after 1999 (42 U.S.C. §416(l)(1)), so a
+ * survivor born in year Y has the retirement FRA of someone born in Y − 2:
+ *
+ *   1939 or earlier  65
+ *   1940 – 1944      65 + 2, 4, 6, 8, 10 months
+ *   1945 – 1956      66
+ *   1957 – 1961      66 + 2, 4, 6, 8, 10 months
+ *   1962 or later    67
+ */
+export function survivorFullRetirementAge(birthYear: number): FullRetirementAge {
+  return fullRetirementAge(birthYear - 2);
+}

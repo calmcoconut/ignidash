@@ -11,7 +11,7 @@ const SETUP_INTERVIEW_TEXT = `Set up or update an Ignidash retirement plan for m
 1. Call list_plans. If I already have a plan I want to keep, call clone_plan on it and work on the copy, unless I tell you otherwise.
 
 2. Interview me one section at a time, in this order:
-   - timeline: birth dates (both spouses' if we are married), life expectancy, and when we plan to retire
+   - timeline: birth dates (both spouses' if we are married), life expectancy, when we plan to retire, and any children under 19 (their birth month and year, for Social Security children's benefits)
    - accounts: each account's type, balance, and owner
    - income: salary and Social Security
    - expenses

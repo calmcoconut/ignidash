@@ -36,11 +36,23 @@
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
-import type { AcaSettingsInputs, FilingStatus, ItemizedDeductionsInputs } from '@/lib/schemas/inputs/tax-settings-form-schema';
+import type {
+  AcaSettingsInputs,
+  FilingStatus,
+  ItemizedDeductionsInputs,
+  MedicareSettingsInputs,
+} from '@/lib/schemas/inputs/tax-settings-form-schema';
 import type { ConversionInputs } from '@/lib/schemas/inputs/conversion-form-schema';
 
 import { type HouseholdMemberRole, type Owner, ownerOf } from '@/lib/schemas/inputs/household-schema';
 
+import {
+  enrolledMedicareMemberMonths,
+  enrolledMedicareMembers,
+  MEDICARE_ELIGIBILITY_AGE,
+  type MedicareMember,
+  SOLE_MEDICARE_MEMBER,
+} from './medicare';
 import type { SimulationState } from './simulation-engine';
 import type { IncomesData, OwnerIncomesData } from './incomes';
 import type { PortfolioData } from './portfolio';
@@ -132,7 +144,10 @@ export interface IrmaaData {
   tier: number;
   partBMonthly: number;
   partDMonthly: number;
-  /** `(partBMonthly + partDMonthly) × 12`: the income-related surcharge for the year. */
+  /**
+   * `(partBMonthly + partDMonthly) ×` the return's Medicare-enrolled member-months: the
+   * income-related surcharge for the year (12 per member enrolled all year; see `medicare.ts`).
+   */
   total: number;
 }
 
@@ -198,6 +213,14 @@ export interface TaxProcessorSettings {
    * first of its owners to reach the gate, i.e. the older member.
    */
   readonly ageOffsetByOwner?: Readonly<Record<Owner, number>> | undefined;
+  /**
+   * The household's members for the Medicare enrolment rule (see `medicare.ts`): IRMAA is charged per
+   * enrolled member-month on the return. Absent means the sole primary on the plan axis, alive for
+   * the whole run — what a direct construction in a test and a plan without a household want.
+   */
+  readonly medicareMembers?: readonly MedicareMember[] | undefined;
+  /** Medicare enrolment age and base premiums; absent means enrolment at 65. */
+  readonly medicare?: MedicareSettingsInputs | undefined;
   /**
    * ACA Premium Tax Credit (IRC §36B) opt-in and benchmark inputs (R8).
    *
@@ -1351,8 +1374,11 @@ export class TaxProcessor {
       });
     }
 
-    // The ACA Premium Tax Credit (IRC §36B) is a refundable tax credit reducing taxes due or increasing refund.
-    const acaCredit = acaResult?.credit ?? 0;
+    if (acaResult !== undefined) acaResult = this.withMarketplaceShareAndStateSubsidy(acaResult);
+
+    // The ACA Premium Tax Credit (IRC §36B) is a refundable tax credit reducing taxes due or increasing
+    // refund; California's state premium assistance reduces the same premium, so it offsets alongside.
+    const acaCredit = (acaResult?.credit ?? 0) + (acaResult?.stateSubsidy ?? 0);
     const difference = totalTaxLiability - (withheld + acaCredit);
 
     return {
@@ -1600,6 +1626,61 @@ export class TaxProcessor {
    *   tier 1 (> $109,000, ≤ $137,000): Part B $81.20 + Part D $14.50 = $95.70 a month
    *   the year charges 95.70 × 12 = $1,148.40
    */
+  /**
+   * Scales the federal credit to the year's marketplace share and adds California's state assistance.
+   *
+   * A member enrolled in Medicare has minimum essential coverage and no premium tax credit (IRC
+   * §36B(c)(2)(B)), so the credit is paid for the share of the household's member-months spent off
+   * Medicare: a single filer's credit stops at 65, and a couple keeps half while one spouse is on it.
+   * The state amount (v20) applies under its ceiling, is scaled the same way, and together with the
+   * federal credit never exceeds the premium (the actual premium when stated, else the benchmark).
+   */
+  private withMarketplaceShareAndStateSubsidy(result: AcaPremiumTaxCreditResult): AcaPremiumTaxCreditResult {
+    const members = this.deductionSettings.medicareMembers ?? SOLE_MEDICARE_MEMBER;
+    const enrollmentAge = this.deductionSettings.medicare?.enrollmentAge ?? MEDICARE_ELIGIBILITY_AGE;
+    const yearEndAge = this.simulationState.time.age;
+    let alive = 0;
+    let enrolled = 0;
+    for (let k = 0; k < 12; k++) {
+      const planAge = yearEndAge - k / 12;
+      alive += members.filter((member) => planAge < member.deathAge).length;
+      enrolled += enrolledMedicareMembers(members, planAge, enrollmentAge);
+    }
+    const share = alive > 0 ? (alive - enrolled) / alive : 0;
+
+    const aca = this.deductionSettings.aca;
+    const statedState = aca?.stateSubsidy ?? 0;
+    const ceiling = aca?.stateSubsidyMaxFplPercent;
+    const premium = aca?.actualPremium ?? result.slcspPremium;
+    const federal = result.credit * share;
+    const stateEligible = statedState > 0 && (ceiling === undefined || result.fplPercent <= ceiling);
+    const stateSubsidy = stateEligible ? Math.max(0, Math.min(statedState * share, premium * share - federal)) : 0;
+
+    return {
+      ...result,
+      credit: federal,
+      ...(share < 1 ? { marketplaceShare: share } : {}),
+      ...(stateSubsidy > 0 ? { stateSubsidy } : {}),
+    };
+  }
+
+  /**
+   * Medicare-enrolled member-months on the return being priced, for the year being settled.
+   *
+   * IRMAA is a premium surcharge, so only a member enrolled in Medicare pays it, and each enrolled
+   * member pays it (42 U.S.C. §1395r(i)): a joint return counts both spouses, a separate return
+   * counts its own filer, and a member under the enrolment age or no longer alive counts nothing.
+   * Before this rule the surcharge was charged once per return from the first lookback year
+   * whatever anyone's age.
+   */
+  private medicareEnrolledMemberMonths(): number {
+    const members = this.deductionSettings.medicareMembers ?? SOLE_MEDICARE_MEMBER;
+    const onReturn = this.returnKey === '' ? members : members.filter((member) => member.role === this.returnKey);
+    const enrollmentAge = this.deductionSettings.medicare?.enrollmentAge ?? MEDICARE_ELIGIBILITY_AGE;
+
+    return enrolledMedicareMemberMonths(onReturn, this.simulationState.time.age, enrollmentAge);
+  }
+
   private processIrmaa({ magi, taxYear }: { magi: number; taxYear: TaxYear }): IrmaaData {
     // The lookback follows the *return*, not the household: a separate return's premium is set by
     // the MAGI on that return two years earlier (P3-P1b).
@@ -1625,6 +1706,7 @@ export class TaxProcessor {
 
     const tierIndex = irmaaTierFor(basisMagi, tiers);
     const tier = tiers[tierIndex];
+    const enrolledMemberMonths = this.medicareEnrolledMemberMonths();
 
     return {
       basisMagi,
@@ -1633,7 +1715,7 @@ export class TaxProcessor {
       tier: tierIndex,
       partBMonthly: tier.partBMonthly,
       partDMonthly: tier.partDMonthly,
-      total: (tier.partBMonthly + tier.partDMonthly) * 12,
+      total: (tier.partBMonthly + tier.partDMonthly) * enrolledMemberMonths,
     };
   }
 

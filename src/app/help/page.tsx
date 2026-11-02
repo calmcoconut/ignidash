@@ -58,10 +58,6 @@ const faqs = [
     ),
   },
   {
-    question: 'How can I work around the lack of debt modeling?',
-    answer: 'Enter your monthly debt payment as a regular expense. You can make it a monthly expense using the Frequency input.',
-  },
-  {
     question: 'How can I try out different options for incomes or expenses within a single Simulator plan?',
     answer:
       'You can disable (and then re-enable) individual incomes, expenses, and contributions using the Disable button in the three dot menu next to each. This keeps the data in the plan, but excludes it from the simulation results.',
@@ -69,7 +65,7 @@ const faqs = [
   {
     question: 'Can I choose not to automatically reinvest dividends and interest?',
     answer:
-      "No. For now, Ignidash always assumes that dividends and interest are automatically reinvested, which is a common practice. There are currently no plans to change this in the future, but let me know if it's something you'd like.",
+      'Yes, per taxable brokerage account: turn on "Pay dividends and interest as cash" in the account. The income then funds spending before any withdrawal. Reinvested income (the default) is added to the cost basis, so it is not taxed again when the shares are sold. Either way it is taxed in the year it is earned. Tax-advantaged accounts always reinvest.',
   },
   {
     question: "Why doesn't investment income, such as dividends and interest, show up in the Cash Flow tab?",
@@ -145,9 +141,15 @@ export default function HelpPage() {
               An income line you enter, adjusted for its claim age against the earner&apos;s own full retirement age. For a couple, a
               spousal benefit (up to half the other member&apos;s PIA, less your own, reduced for a claim before your full retirement age)
               is added from the later of the two claims, and on the first death the survivor receives the larger of their own benefit and
-              the deceased&apos;s, from the later of the death and their own claim. A member with two Social Security lines, or a line with
-              no estimate, is left out of these couple rules. Not modelled: an early-claiming reduction on a survivor&apos;s benefit, a
-              separate survivor claiming strategy, dependent (child) benefits, and the retirement earnings test.
+              the deceased&apos;s, reduced if the survivor starts it before their survivor full retirement age; a survivor claim age lets
+              the survivor benefit start before the survivor&apos;s own. Children entered on the timeline are paid half the parent&apos;s
+              PIA (three quarters after a parent&apos;s death) to 18, or 19 as a student, within the family maximum. Before full retirement
+              age the earnings test withholds $1 for every $2 earned over the limit ($1 for $3 in the year you reach it), and the benefit is
+              recomputed upward at full retirement age. A member&apos;s record is their one Social Security line, or the one that carries a
+              PIA when they have several; a line without a PIA still counts for the survivor rule, but not for the spousal benefit, children
+              or the family maximum. Not modelled: a spouse&apos;s benefit for caring for a child under 16, a worker&apos;s earnings
+              withholding the spouse&apos;s benefit, and the test&apos;s calendar-year timing (it runs on plan years, after the excess is
+              earned).
             </DescriptionDetails>
 
             <DescriptionTerm>Roth conversions</DescriptionTerm>
@@ -167,11 +169,16 @@ export default function HelpPage() {
 
             <DescriptionTerm>ACA premium tax credit</DescriptionTerm>
             <DescriptionDetails>
-              The federal §36B credit only — no Covered California state subsidy, and no Alaska or Hawaii poverty lines.
+              The federal §36B credit, plus a Covered California state subsidy you enter from your eligibility notice (the state&apos;s
+              schedule is not built in). Both stop for anyone on Medicare. No Alaska or Hawaii poverty lines.
             </DescriptionDetails>
 
             <DescriptionTerm>Medicare premiums</DescriptionTerm>
-            <DescriptionDetails>Only the IRMAA surcharge is a liability line, not the base Part B and Part D premiums.</DescriptionDetails>
+            <DescriptionDetails>
+              IRMAA is charged per member on Medicare (from 65, or a later enrollment age). The base Part B, Part D and supplemental
+              premiums are expenses only if you turn them on in tax settings, since your expenses may already include them. Premiums are
+              held flat in today&apos;s dollars, not grown faster than inflation.
+            </DescriptionDetails>
 
             <DescriptionTerm>Net-worth journal</DescriptionTerm>
             <DescriptionDetails>

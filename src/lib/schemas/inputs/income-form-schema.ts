@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 
-import { currencyFieldForbidsZero, optionalPercentageField } from '@/lib/utils/zod-utils';
+import { currencyFieldForbidsZero, optionalCoerceNumber, optionalPercentageField } from '@/lib/utils/zod-utils';
 
 import { ownerSchema, propertyRegimeSchema } from './household-schema';
 import { amountBasisSchema, growthSchema, frequencyTimeframeSchema } from './income-expenses-shared-schemas';
@@ -69,8 +69,9 @@ export const incomeTaxSchema = z
  * income without it simply has no Social Security estimate.
  *
  * Spousal and survivor benefits are modelled for a couple (P1-P8, E2): `src/lib/calc/incomes.ts`
- * adds the spousal share and the survivor top-up to the lines that carry this block. The block itself
- * still describes one earner's own retirement benefit, and the schema is unchanged.
+ * adds the spousal share and the survivor top-up to the lines that carry this block. The block
+ * describes one earner's own retirement benefit, plus (v20) the age they would start a survivor
+ * benefit at.
  */
 export const socialSecuritySchema = z
   .object({
@@ -85,6 +86,18 @@ export const socialSecuritySchema = z
       .min(62, 'Claim age must be at least 62')
       .max(70, 'Claim age must be at most 70'),
     colaRate: optionalPercentageField(0, 10, 'COLA rate'),
+    /**
+     * The age (60–70) this member would start a **survivor** benefit if widowed (v20). Absent means
+     * the same age as `claimAge`, which is how the top-up was always timed. Starting it earlier than
+     * the own benefit — survivor at 60, own benefit at 70 — is the usual switching strategy.
+     */
+    survivorClaimAge: optionalCoerceNumber(
+      z
+        .number('Must be a valid number')
+        .int('Survivor claim age must be a whole age')
+        .min(60, 'A survivor benefit can start at 60 at the earliest')
+        .max(70, 'Survivor claim age must be at most 70')
+    ),
   })
   .refine((data) => data.mode !== 'estimated' || data.aime !== undefined, {
     message: 'Estimated Social Security needs an AIME',

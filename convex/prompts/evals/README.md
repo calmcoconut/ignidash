@@ -62,7 +62,7 @@ carries a `socialSecurity` block, which is the fixture gap.
 
 California's omission is a third kind, not a refusal either: the state return is computed (P3-P8) and
 the prompt tells the agent to quote `jurisdictions.california.reported`, but no case turns on a
-state-only lever. Covered California subsidies and California AMT are not modelled, which
+state-only lever. Covered California's subsidy schedule and California AMT are not modelled, which
 `jurisdictions.california.notModelled` says on every run.
 
 - **ACA premium tax credit and its cliff.** No case in this set opts in (`taxSettings.aca.optIn`

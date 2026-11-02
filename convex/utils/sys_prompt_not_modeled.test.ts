@@ -62,7 +62,7 @@ const MODELLED_FEATURES: readonly { name: string; pattern: RegExp }[] = [
 
 // Items that really are unmodelled. The list must still name them, so the paragraph cannot pass
 // by being deleted or renamed.
-const STILL_UNMODELLED = ['529/ABLE', 'annuities', 'estate planning', 'dependents', 'other than California'] as const;
+const STILL_UNMODELLED = ['529/ABLE', 'annuities', 'estate planning', 'child-in-care', 'other than California'] as const;
 
 // `getInsightsSystemPrompt` takes a SimulationResult and KeyMetrics; both are optional in
 // practice (the builders render "none" for null), so null is passed on purpose.

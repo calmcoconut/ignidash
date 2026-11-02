@@ -290,9 +290,10 @@ describe('a couple with an estimated Social Security line each', () => {
     expect(lineIncomeAt(result, 73, 'primarySs') + lineIncomeAt(result, 73, 'partnerSs')).toBeCloseTo(36_000, 6);
   });
 
-  it('stops the deceased’s line at death when the survivor’s line is unwired: a second Social Security line makes the partner unwired', () => {
-    // The partner's second, stored-amount line means their benefit is unknown, so the survivor top-up
-    // cannot be computed and the primary's line stops at the death, as it did before this item.
+  it('wires a member with a second Social Security line through the one line that carries a block (v20)', () => {
+    // The partner's second, stored-amount line is not their record: the line with the block is. So
+    // the survivor top-up is computed from it — 36,000 − 12,000 = 24,000 — and the stray line keeps
+    // paying its own figure.
     const extra: SimulatorInputs['incomes'] = {
       stray: {
         ...createIncomeInput({
@@ -308,11 +309,22 @@ describe('a couple with an estimated Social Security line each', () => {
     const result = run(couplePlan({ primary: { pia: 3000, claimAge: 67 }, partner: { pia: 1000, claimAge: 67 }, extraIncomes: extra }));
 
     expect(lineIncomeAt(result, 74, 'primarySs')).toBeCloseTo(36_000, 6);
+    expect(lineIncomeAt(result, 76, 'primarySs')).toBeCloseTo(24_000, 6);
+    expect(lineIncomeAt(result, 76, 'stray')).toBeCloseTo(500, 6);
+  });
+
+  it('keeps the deceased’s line unwired when two lines both carry a block: the record is ambiguous', () => {
+    const extra: SimulatorInputs['incomes'] = {
+      second: { ...socialSecurityLine('second', 'partner', { pia: 500, claimAge: 67 }) },
+    };
+    const result = run(couplePlan({ primary: { pia: 3000, claimAge: 67 }, partner: { pia: 1000, claimAge: 67 }, extraIncomes: extra }));
+
     expect(lineIncomeAt(result, 76, 'primarySs')).toBe(0);
   });
 
-  it('stops a deceased member’s line without a Social Security estimate at death, as before', () => {
-    // A line with no block is paid its stored amount and is not wired, so there is no survivor term.
+  it('pays a survivor top-up from a deceased member’s stated-amount line (v20)', () => {
+    // A line with no block has no PIA, but the survivor rule only needs the benefit being paid: the
+    // survivor gets the larger of their own $12,000 and the deceased's $20,000, so the line pays 8,000.
     const plainPrimary = {
       ...createIncomeInput({
         id: 'plainPrimary',
@@ -326,7 +338,7 @@ describe('a couple with an estimated Social Security line each', () => {
     const result = run(couplePlan({ partner: { pia: 1000, claimAge: 67 }, extraIncomes: { plainPrimary } }));
 
     expect(lineIncomeAt(result, 74, 'plainPrimary')).toBeCloseTo(20_000, 6);
-    expect(lineIncomeAt(result, 76, 'plainPrimary')).toBe(0);
+    expect(lineIncomeAt(result, 76, 'plainPrimary')).toBeCloseTo(8_000, 6);
   });
 });
 

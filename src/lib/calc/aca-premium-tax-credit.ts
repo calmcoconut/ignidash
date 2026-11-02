@@ -80,6 +80,19 @@ export interface AcaPremiumTaxCreditResult {
   readonly credit: number;
   /** True when §36B(b)(2) bound the credit to the premium actually paid. */
   readonly cappedByActualPremium: boolean;
+  /**
+   * The share of the year the household was on marketplace cover, as member-months not on Medicare
+   * over member-months alive (`taxes.ts`): Medicare is minimum essential coverage, so a member on it
+   * has no premium tax credit (IRC §36B(c)(2)(B)). Present only when it is below 1; the federal and
+   * state amounts above are already multiplied by it.
+   */
+  readonly marketplaceShare?: number;
+  /**
+   * California state premium assistance (Covered California), annual, after the marketplace share
+   * and the premium cap (v20). The operator enters it from their Covered California eligibility
+   * notice; the state's own schedule is not vendored. Absent when none is stated or applicable.
+   */
+  readonly stateSubsidy?: number;
 }
 
 /**

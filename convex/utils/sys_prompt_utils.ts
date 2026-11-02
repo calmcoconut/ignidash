@@ -95,7 +95,7 @@ export const keyMetricsForDisplay = (keyMetrics: KeyMetrics) => {
  * The features the engine does not simulate, as the AI chat and insights prompts list them. Exported so
  * the MCP resource `ignidash://help/limitations` carries the same text instead of a copy.
  */
-export const NOT_MODELED_LIST = `529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), Social Security claiming-age strategies, dependent and child benefits, estate planning, dependents`;
+export const NOT_MODELED_LIST = `529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), recommendations on when to claim Social Security, a spouse's child-in-care benefit, estate planning`;
 
 const systemPrompt = (planData: string, keyMetrics: string, simulationData: string): string => `
   You are an educational assistant for Ignidash, a retirement planning simulator.
@@ -263,7 +263,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   Trade-offs to explain:
   - Paying taxes now vs. deferring them
   - Reducing the asset base available to compound in the near term
-  - Large conversions can trigger Medicare IRMAA surcharges (the surcharge is charged as a liability line, two years after the MAGI that caused it; only the base, non-income-related Part B and Part D premiums are outside this simulation)
+  - Large conversions can trigger Medicare IRMAA surcharges (the surcharge is charged as a liability line, two years after the MAGI that caused it; charged per Medicare-enrolled member; the base Part B, Part D and supplemental premiums are expenses only when the plan opts in)
   - Converted amounts have a 5-year holding period before tax-free withdrawal of earnings
 
   Describe whether this plan shows a period of lower taxable income that is sometimes associated with conversion considerations.

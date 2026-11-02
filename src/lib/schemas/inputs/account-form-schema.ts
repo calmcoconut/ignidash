@@ -39,6 +39,11 @@ export const accountFormSchema = z.discriminatedUnion('type', [
     ...investmentAccountSchema.shape,
     type: z.literal('taxableBrokerage'),
     costBasis: optionalCurrencyFieldAllowsZero('Cost basis cannot be negative'),
+    /**
+     * Pay dividends and interest out as cash instead of reinvesting them (v20). Absent means
+     * reinvested, which is what every earlier build assumed.
+     */
+    distributeIncome: z.boolean().optional(),
   }),
 
   // Roth
