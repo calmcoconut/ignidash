@@ -353,9 +353,9 @@ export default function TaxSettingsDrawer({ setOpen, taxSettings }: TaxSettingsD
                       <Description>The state subsidy stops above this income. Leave blank to apply it at any income.</Description>
                     </Field>
                   </div>
-                  <Description className="mt-4">
+                  <p className="mt-4 text-sm/6 text-zinc-500 dark:text-zinc-400">
                     Both credits stop for anyone on Medicare: they are prorated to the months each member is off it.
-                  </Description>
+                  </p>
                 </Fieldset>
                 <Divider />
                 <Fieldset aria-label="Medicare">

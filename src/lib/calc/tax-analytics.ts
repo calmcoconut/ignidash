@@ -798,7 +798,7 @@ const NOT_COMPUTED = [
  * return is complete.
  */
 const CALIFORNIA_NOT_MODELLED = [
-  'Covered California premium subsidies — the state schedule is not vendored. A plan may state its own subsidy (`taxSettings.aca.stateSubsidy`, from the eligibility notice), which offsets with the federal credit; the analytics do not price the state ceiling as a cliff.',
+  'Covered California premium subsidies — the state schedule is not vendored. The federal credit itself *is* modelled, and a plan may state its own subsidy (`taxSettings.aca.stateSubsidy`, from the eligibility notice), which offsets with the federal credit; the analytics do not price the state ceiling as a cliff.',
   'California AMT — the state alternative minimum tax (RTC §17062) is not computed, so the state figure is the regular tax plus the Behavioral Health Services Tax, less the exemption credits.',
 ] as const;
 

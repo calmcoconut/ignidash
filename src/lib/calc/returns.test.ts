@@ -492,6 +492,7 @@ describe('ReturnsProcessor.getAnnualData', () => {
     let callIdx = 0;
     return {
       applyYields: () => ({ yieldAmounts: zeroYields(), cumulativeYieldAmounts: zeroYields() }),
+      settleInvestmentIncome: () => 0,
       applyReturns: () => {
         const data = monthlyResults[callIdx] ?? monthlyResults[monthlyResults.length - 1];
         callIdx++;
@@ -711,6 +712,7 @@ describe('ReturnsProcessor.getAnnualData', () => {
     ];
 
     const mockPortfolio = {
+      settleInvestmentIncome: () => 0,
       applyYields: () => {
         const yields = monthlyYields[yieldCallIdx] ?? monthlyYields[monthlyYields.length - 1];
         yieldCallIdx++;

@@ -204,12 +204,17 @@ describe('the two runs differ only in housing', () => {
 describe('the break-even', () => {
   /**
    * Owning wins, and it has to earn it: the down payment realizes taxable gains, so owning is behind
-   * for four years and then compounds past renting.
+   * for three years and then compounds past renting.
    *
-   *   year 3: −4,684
-   *   year 4: +15,765   <- break-even
-   *   year 5: +36,639
-   *   final:  owning ahead by 748,999 over 53 years
+   *   year 2: −14,845
+   *   year 3: +5,681    <- break-even
+   *   year 4: +26,639
+   *   final:  owning ahead by 514,727 over 53 years
+   *
+   * v20 readings: a reinvested dividend now adds to the cost basis (it was taxed again as a gain on
+   * sale) and IRMAA is charged only from Medicare enrolment at 65 (it was charged from the third
+   * year, at 36). Both cut the renter's tax on the larger invested portfolio, so owning wins by less
+   * and breaks even a year sooner.
    *
    * The figures are the post-R2 readings. Statute-locked thresholds (the NIIT base amount, the
    * Additional Medicare threshold, the SALT cap) are now deflated to today's dollars, and the renter
@@ -220,54 +225,54 @@ describe('the break-even', () => {
 
   it('reports the year owning overtakes renting and stays ahead', () => {
     const report = owningWins();
-    const before = report.years[3];
-    const at = report.years[4];
+    const before = report.years[2];
+    const at = report.years[3];
 
     expect(before.deltaNetWorth).toBeLessThan(0);
     expect(at.deltaNetWorth).toBeGreaterThan(0);
     expect(at.deltaNetWorth).toBeLessThan(20_000);
 
-    expect(report.breakEven).toEqual({ yearIndex: 4, age: at.age, calendarYear: 2031 });
-    expect(at.calendarYear).toBe(2031);
+    expect(report.breakEven).toEqual({ yearIndex: 3, age: at.age, calendarYear: 2030 });
+    expect(at.calendarYear).toBe(2030);
 
     // "Stays ahead" is what makes it a break-even: from there to the end owning leads every year.
-    expect(report.years.every((year) => year.yearIndex < 4 || year.deltaNetWorth > HOUSING_TIE_TOLERANCE)).toBe(true);
+    expect(report.years.every((year) => year.yearIndex < 3 || year.deltaNetWorth > HOUSING_TIE_TOLERANCE)).toBe(true);
 
     expect(report.firstAhead).toEqual(report.breakEven);
     expect(report.finalWinner).toBe('owning');
-    expect(report.finalDeltaNetWorth).toBeGreaterThan(700_000);
-    expect(report.finalDeltaNetWorth).toBeLessThan(800_000);
+    expect(report.finalDeltaNetWorth).toBeGreaterThan(490_000);
+    expect(report.finalDeltaNetWorth).toBeLessThan(540_000);
   });
 
   it('prices the sale separately, so selling costs push the break-even later', () => {
     const report = owningWins();
 
-    // Net worth says owning is ahead from year 4; after a 6% commission it is ahead from year 7.
-    expect(report.liquidationBreakEven?.yearIndex).toBe(7);
-    expect(report.liquidationBreakEven?.calendarYear).toBe(2034);
+    // Net worth says owning is ahead from year 3; after a 6% commission it is ahead from year 6.
+    expect(report.liquidationBreakEven?.yearIndex).toBe(6);
+    expect(report.liquidationBreakEven?.calendarYear).toBe(2033);
     expect(report.finalLiquidationWinner).toBe('owning');
-    expect(report.finalDeltaLiquidationValue).toBeGreaterThan(480_000);
-    expect(report.finalDeltaLiquidationValue).toBeLessThan(560_000);
+    expect(report.finalDeltaLiquidationValue).toBeGreaterThan(260_000);
+    expect(report.finalDeltaLiquidationValue).toBeLessThan(310_000);
     // The commission costs the owner 6% of the house, which is why the two series disagree.
     expect(report.finalDeltaLiquidationValue).toBeLessThan(report.finalDeltaNetWorth);
   });
 
   /**
    * Renting wins — but owning led for 39 years first, so this is the case a naive "first year owning
-   * is ahead" implementation gets wrong. It would report a break-even at year 6 for a comparison the
-   * owner loses by half a million.
+   * is ahead" implementation gets wrong. It would report a break-even at year 5 for a comparison the
+   * owner loses by close to half a million.
    *
-   *   rent 3,400 instead of 3,800: year 5 −9,498, year 6 +1,448, ..., year 44 +108,487, year 52 −410,643
+   *   rent 3,400 instead of 3,800 (v20): year 4 −7,112, year 5 +6,809, ..., ahead through year 46, final −444,189
    */
   it('refuses to call a temporary lead a break-even', () => {
     const report = compareHousing(withEmbeddedGains(), { residence: createFinancedResidence(), monthlyRent: 3400 }, OPTIONS);
 
-    expect(report.firstAhead).toEqual({ yearIndex: 6, age: report.years[6].age, calendarYear: 2033 });
+    expect(report.firstAhead).toEqual({ yearIndex: 5, age: report.years[5].age, calendarYear: 2032 });
     expect(report.breakEven).toBeNull();
     expect(report.liquidationBreakEven).toBeNull();
 
     const ahead = report.years.filter((year) => year.deltaNetWorth > HOUSING_TIE_TOLERANCE);
-    expect(ahead[0].yearIndex).toBe(6);
+    expect(ahead[0].yearIndex).toBe(5);
     expect(ahead[ahead.length - 1].yearIndex).toBeLessThan(report.years.length - 1);
 
     expect(report.finalWinner).toBe('renting');
@@ -288,12 +293,15 @@ describe('the break-even', () => {
     expect(report.breakEven).toBeNull();
     expect(report.liquidationBreakEven).toBeNull();
     expect(report.finalWinner).toBe('renting');
-    expect(report.finalDeltaNetWorth).toBeLessThan(-4_400_000);
-    expect(report.finalDeltaNetWorth).toBeGreaterThan(-4_600_000);
+    // v20: −4,834,738 (the renter's reinvested dividends now carry basis, so its portfolio keeps more).
+    expect(report.finalDeltaNetWorth).toBeLessThan(-4_700_000);
+    expect(report.finalDeltaNetWorth).toBeGreaterThan(-4_950_000);
   });
 
   it('reports owning ahead from the first data point as year 0', () => {
-    const report = compareHousing(withNoEmbeddedGains(), { residence: createResidence(), monthlyRent: 4000 }, OPTIONS);
+    // 4,500 a month (v20; 4,000 before the basis and IRMAA corrections, which now leave the renter
+    // narrowly ahead at the end at that rent): final owning ahead by 1,163,611.
+    const report = compareHousing(withNoEmbeddedGains(), { residence: createResidence(), monthlyRent: 4500 }, OPTIONS);
 
     expect(report.years[0].deltaNetWorth).toBeGreaterThan(0);
     expect(report.years.every((year) => year.deltaNetWorth > HOUSING_TIE_TOLERANCE)).toBe(true);
@@ -522,9 +530,9 @@ describe('the guards', () => {
   });
 
   it('refuses a rent the plan cannot fund', () => {
-    // 7,000 a month exhausts the portfolio before the horizon ends; the unpaid rent would otherwise
-    // stop the renter's net worth from falling.
-    expect(() => compareHousing(withNoEmbeddedGains(), { residence: createResidence(), monthlyRent: 7000 }, OPTIONS)).toThrow(
+    // 8,000 a month exhausts the portfolio before the horizon ends (7,000 did before v20's basis
+    // correction); the unpaid rent would otherwise stop the renter's net worth from falling.
+    expect(() => compareHousing(withNoEmbeddedGains(), { residence: createResidence(), monthlyRent: 8000 }, OPTIONS)).toThrow(
       /renting path leaves up to .* unfunded/
     );
   });

@@ -1044,7 +1044,14 @@ export class FinancialSimulationEngine {
       accountOwners,
       physicalAssetOwners,
       firstDeath,
-      members: memberFacts.map((member) => ({ role: member.role, ageOffset: member.ageOffset, deathAge: member.deathAge })),
+      // Only a first death ends a member's months inside the run: the last survivor is alive in every
+      // month the run simulates, its final month at their life expectancy included, which is how the
+      // incomes and expenses treat them too.
+      members: memberFacts.map((member) => ({
+        role: member.role,
+        ageOffset: member.ageOffset,
+        deathAge: firstDeath !== undefined && firstDeath.owner === member.role ? firstDeath.age : Number.POSITIVE_INFINITY,
+      })),
     };
   }
 
