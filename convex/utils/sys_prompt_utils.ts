@@ -5,6 +5,7 @@ import { incomeTimeFrameForDisplay } from '../validators/incomes_validator';
 import { expenseTimeFrameForDisplay } from '../validators/expenses_validator';
 import type { KeyMetrics } from '../validators/key_metrics_validator';
 import type { SimulationResult } from '../validators/simulation_result_validator';
+import { getRules } from '../../src/lib/calc/tax-data';
 
 export const formatNumber = (num: number, fractionDigits: number = 2, prefix: string = ''): string => {
   const absNum = Math.abs(num);
@@ -97,6 +98,22 @@ export const keyMetricsForDisplay = (keyMetrics: KeyMetrics) => {
  */
 export const NOT_MODELED_LIST = `529/ABLE accounts, annuities, rental income and partnership or S-corporation income, state taxes other than California, most tax credits (the ACA premium tax credit and California's exemption credits are modelled), Social Security claiming-age strategies, dependent and child benefits, estate planning, dependents`;
 
+/**
+ * The 0% long-term capital gains ceilings, read from the federal ruleset for `today`'s year (or the
+ * nearest prior year the engine has), so the insights prompt quotes the figures the engine taxes
+ * with instead of a copy that goes stale each January.
+ */
+export const zeroRateCapitalGainsCeilings = (today: Date): string => {
+  const rules = getRules(today.getFullYear());
+  const brackets = rules.tables.capitalGainsTaxBrackets.values;
+  const ceiling = (status: keyof typeof brackets): string => {
+    const zero = brackets[status].find((bracket) => bracket.rate === 0);
+    if (!zero) throw new Error(`The ${rules.year} ruleset has no 0% capital gains bracket for ${status}`);
+    return `$${zero.max.toLocaleString('en-US')}`;
+  };
+  return `${ceiling('marriedFilingJointly')} (MFJ), ${ceiling('single')} (Single) or ${ceiling('headOfHousehold')} (Head of Household) in ${rules.year}`;
+};
+
 const systemPrompt = (planData: string, keyMetrics: string, simulationData: string): string => `
   You are an educational assistant for Ignidash, a retirement planning simulator.
 
@@ -171,7 +188,13 @@ ${keyMetrics}
 ${simulationData}
 `;
 
-const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationData: string, userPrompt: string | undefined): string => `
+const insightsSystemPrompt = (
+  planData: string,
+  keyMetrics: string,
+  simulationData: string,
+  userPrompt: string | undefined,
+  zeroRateCeilings: string
+): string => `
   You provide educational retirement plan overviews for Ignidash, a retirement planning simulator.
 
   ## Educational Purpose & Boundaries
@@ -232,7 +255,7 @@ const insightsSystemPrompt = (planData: string, keyMetrics: string, simulationDa
   Key concepts to explain:
   - **Stacking:** ordinary income fills lower brackets first; capital gains and qualified dividends layer on top
   - **Marginal vs. Effective:** different rates apply to each income layer—no single rate applies to all income
-  - **0% Capital Gains Zone:** long-term gains and qualified dividends are taxed at 0% when taxable income stays below approximately $96K (MFJ) or $48K (Single). Some factor this into decisions about Roth conversions or realizing gains.
+  - **0% Capital Gains Zone:** long-term gains and qualified dividends are taxed at 0% when taxable income stays below ${zeroRateCeilings}. Some factor this into decisions about Roth conversions or realizing gains.
 
   **Tax Bracket Transitions Over Time**
 
@@ -707,7 +730,13 @@ export const getInsightsSystemPrompt = (
   simulationResult: SimulationResult,
   userPrompt: string | undefined
 ): string => {
-  return insightsSystemPrompt(formatPlanData(plan), formatKeyMetrics(keyMetrics), formatSimulationData(simulationResult), userPrompt);
+  return insightsSystemPrompt(
+    formatPlanData(plan),
+    formatKeyMetrics(keyMetrics),
+    formatSimulationData(simulationResult),
+    userPrompt,
+    zeroRateCapitalGainsCeilings(new Date())
+  );
 };
 
 /**

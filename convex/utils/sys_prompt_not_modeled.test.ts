@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { getInsightsSystemPrompt, getSystemPrompt } from './sys_prompt_utils';
+import { getInsightsSystemPrompt, getSystemPrompt, zeroRateCapitalGainsCeilings } from './sys_prompt_utils';
 import type { Doc } from '../_generated/dataModel';
 
 /** A plan just complete enough for both prompt builders to render. */
@@ -100,5 +100,16 @@ describe('SEPP exception line in the insights prompt', () => {
 
   it('says the simulator models SEPP schedules', () => {
     expect(line).toMatch(/simulator models/i);
+  });
+});
+
+describe("the insights prompt's 0% capital gains line", () => {
+  it('quotes the current ruleset through zeroRateCapitalGainsCeilings, not a hard-coded figure', () => {
+    const prompt = getInsightsSystemPrompt(makePlanDoc(), null as never, null as never, undefined);
+    const line = prompt.split('\n').find((l) => l.includes('0% Capital Gains Zone'));
+
+    expect(line).toBeDefined();
+    expect(line).toContain(zeroRateCapitalGainsCeilings(new Date()));
+    expect(line).not.toContain('approximately $96K');
   });
 });

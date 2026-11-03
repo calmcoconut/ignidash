@@ -10,7 +10,9 @@ import {
   isTaxOptimizationConversation,
   resolveTaxOptimizationTurn,
   TAX_OPTIMIZATION_TOOLS_DISABLED_MESSAGE,
+  zeroRateCapitalGainsCeilings,
 } from './sys_prompt_utils';
+import { getRules } from '../../src/lib/calc/tax-data';
 import { TAX_OPTIMIZATION_SKILL_MARKER } from '../prompts/tax_optimization';
 import type { KeyMetrics } from '../validators/key_metrics_validator';
 import type { SimulationResult } from '../validators/simulation_result_validator';
@@ -465,5 +467,23 @@ describe('resolveTaxOptimizationTurn', () => {
     expect(
       resolveTaxOptimizationTurn({ requested: undefined, isNewConversation: false, conversation: marked, toolsEnabled: false })
     ).toEqual({ enabled: true });
+  });
+});
+
+describe('zeroRateCapitalGainsCeilings', () => {
+  const zeroCeiling = (year: number, status: 'single' | 'marriedFilingJointly' | 'headOfHousehold') =>
+    getRules(year).tables.capitalGainsTaxBrackets.values[status].find((bracket) => bracket.rate === 0)!.max;
+
+  it("quotes the engine's own 0% ceilings for the current tax year, not a hard-coded copy", () => {
+    const text = zeroRateCapitalGainsCeilings(new Date(2026, 5, 1));
+
+    expect(text).toContain(`$${zeroCeiling(2026, 'marriedFilingJointly').toLocaleString('en-US')} (MFJ)`);
+    expect(text).toContain(`$${zeroCeiling(2026, 'single').toLocaleString('en-US')} (Single)`);
+    expect(text).toContain(`$${zeroCeiling(2026, 'headOfHousehold').toLocaleString('en-US')} (Head of Household)`);
+    expect(text).toMatch(/in 2026$/);
+  });
+
+  it('names the ruleset year it fell back to when the calendar year has no ruleset yet', () => {
+    expect(zeroRateCapitalGainsCeilings(new Date(2031, 0, 15))).toMatch(new RegExp(`in ${getRules(2031).year}$`));
   });
 });
