@@ -537,8 +537,9 @@ export class TaxableBrokerageAccount extends InvestmentAccount {
     type: WithdrawalType,
     withdrawalAllocation: AssetAllocation
   ): AssetFlows & { realizedGains: number; earningsWithdrawn: number } {
-    // Pro-rata cost basis: withdrawals realize gains proportional to unrealized gain ratio
-    const basisProportion = this.costBasis / this.balance;
+    // Pro-rata cost basis: withdrawals realize gains proportional to unrealized gain ratio.
+    // An empty account has no basis to apportion, so the proportion is 0 rather than 0/0.
+    const basisProportion = this.balance > 0 ? this.costBasis / this.balance : 0;
     const basisWithdrawn = Math.min(amount * basisProportion, this.costBasis);
     this.costBasis -= basisWithdrawn;
 
@@ -554,7 +555,7 @@ export class TaxableBrokerageAccount extends InvestmentAccount {
     const totalSold = stocksSold + bondsSold;
     if (totalSold <= 0) return 0;
 
-    const basisProportion = this.costBasis / this.balance;
+    const basisProportion = this.balance > 0 ? this.costBasis / this.balance : 0;
     const basisSold = Math.min(totalSold * basisProportion, this.costBasis);
 
     const realizedGains = totalSold - basisSold;
