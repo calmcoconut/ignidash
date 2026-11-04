@@ -63,7 +63,7 @@ npm run docker:build     # Build the single-container image
 - A test that cannot fail is worse than no test: break the code, confirm the pin goes red, restore it.
 
 The golden corpus (`src/lib/calc/__tests__/golden/`) is the numerical net and is **frozen** at
-`1e002e8ab28549a44b6f819866dcbe91db6354442e8419c703c0cd724b4570fe`. Any movement needs a
+`33b86d33fc11bf375f56e9007d1fe30167406b70767a44498ff82f01c1fd87b6`. Any movement needs a
 per-fixture explanation in `golden/README.md`.
 
 ## Pre-commit Hooks

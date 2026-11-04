@@ -254,9 +254,18 @@ export interface IrmaaLookback {
   projected: IrmaaCliff;
   /**
    * The tier charged this year, from the MAGI of two years earlier. `null` when the caller could
-   * not supply that year — the plan starts later, or the year is within the first two of the run.
+   * not supply that year — the plan starts later, or the year is within the first two of the run —
+   * and when no member covered by the return is 65 or older in any month of the year, because the
+   * engine then charges no surcharge at all.
    */
   charged: (IrmaaTier & { magi: number; magiTaxYear: TaxYear }) | null;
+  /**
+   * Enrollee-months of this year the surcharge applies to, as the tax engine charged them: each
+   * covered member's months aged 65 or older, summed (`0` up to `12` per enrollee). A couple both
+   * 65+ on a joint return is `24`; a partner who turned 65 part-way through the year adds only the
+   * months after the birthday.
+   */
+  monthsCharged: number;
   /** Why `charged` is null, when it is. */
   unavailable: string | null;
 }
@@ -850,13 +859,18 @@ function seniorDeductionAvailability(
  */
 function resolveIrmaaLookback(input: TaxAnalyticsInput): {
   charged: (IrmaaTier & { magi: number; magiTaxYear: TaxYear }) | null;
+  monthsCharged: number;
   unavailable: string | null;
 } {
   const prior = input.priorYearMagi;
+  // The engine's own answer for how many months the surcharge applied this year (a covered member
+  // aged 65 or older). Read from the settled result, so the analytics cannot disagree with the charge.
+  const monthsCharged = input.taxes.irmaa.monthsCharged;
 
   if (!prior) {
     return {
       charged: null,
+      monthsCharged,
       unavailable:
         `The result carries no MAGI for ${input.taxYear - 2}, so the tier charged this year cannot be derived ` +
         '(the plan starts later, or this is one of its first two years).',
@@ -866,9 +880,18 @@ function resolveIrmaaLookback(input: TaxAnalyticsInput): {
   if (prior.taxYear !== input.taxYear - 2) {
     return {
       charged: null,
+      monthsCharged,
       unavailable:
         `The lookback year is ${input.taxYear - 2}, but the caller supplied ${prior.taxYear}. ` +
         'Premiums are set from the MAGI of exactly two years earlier.',
+    };
+  }
+
+  if (monthsCharged === 0) {
+    return {
+      charged: null,
+      monthsCharged,
+      unavailable: `No member covered by this return is 65 or older in ${input.taxes.irmaa.chargedInTaxYear}, so no IRMAA surcharge is charged.`,
     };
   }
 
@@ -879,7 +902,7 @@ function resolveIrmaaLookback(input: TaxAnalyticsInput): {
     filingStatus: input.filingStatus,
     inflationRatePercent: input.inflationRatePercent ?? 0,
   }).tier;
-  return { charged: { ...tier, magi: prior.magi, magiTaxYear: prior.taxYear }, unavailable: null };
+  return { charged: { ...tier, magi: prior.magi, magiTaxYear: prior.taxYear }, monthsCharged, unavailable: null };
 }
 
 /**

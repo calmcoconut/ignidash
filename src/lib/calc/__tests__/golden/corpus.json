@@ -517,6 +517,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -1073,6 +1074,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -1629,6 +1631,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -2185,6 +2188,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -2741,6 +2745,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -3297,6 +3302,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -3853,6 +3859,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -4409,6 +4416,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -4965,6 +4973,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -5521,6 +5530,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -6077,6 +6087,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -6633,6 +6644,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -7189,6 +7201,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -7745,6 +7758,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -8301,6 +8315,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -8857,6 +8872,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -9413,6 +9429,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -9969,6 +9986,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -10525,6 +10543,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -11081,6 +11100,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -11637,6 +11657,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -12193,6 +12214,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -12749,6 +12771,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -13305,6 +13328,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -13861,6 +13885,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 9,
                     "total": 0
                   },
                   "niit": {
@@ -14406,6 +14431,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -14951,6 +14977,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -15496,6 +15523,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -16041,6 +16069,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -16586,6 +16615,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -19679,6 +19709,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -20235,6 +20266,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -20791,6 +20823,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -21347,6 +21380,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -21903,6 +21937,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -22459,6 +22494,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -23015,6 +23051,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -23571,6 +23608,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -24127,6 +24165,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -24683,6 +24722,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -25239,6 +25279,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -25795,6 +25836,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -26351,6 +26393,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -26907,6 +26950,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -27463,6 +27507,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -28019,6 +28064,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -28575,6 +28621,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -29131,6 +29178,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -29687,6 +29735,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -30243,6 +30292,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -30799,6 +30849,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -31355,6 +31406,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -31911,6 +31963,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -32467,6 +32520,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -33023,6 +33077,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 9,
                     "total": 0
                   },
                   "niit": {
@@ -33568,6 +33623,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -34113,6 +34169,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -34658,6 +34715,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -35203,6 +35261,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -35748,6 +35807,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -38841,6 +38901,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -39397,6 +39458,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -39953,6 +40015,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -40509,6 +40572,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -41065,6 +41129,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -41621,6 +41686,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -42177,6 +42243,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -42733,6 +42800,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -43289,6 +43357,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -43845,6 +43914,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -44401,6 +44471,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -44957,6 +45028,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -45513,6 +45585,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -46069,6 +46142,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -46625,6 +46699,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -47181,6 +47256,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -47737,6 +47813,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -48293,6 +48370,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -48849,6 +48927,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -49405,6 +49484,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -49961,6 +50041,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -50517,6 +50598,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -51073,6 +51155,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -51629,6 +51712,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -52185,6 +52269,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 9,
                     "total": 0
                   },
                   "niit": {
@@ -52730,6 +52815,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -53275,6 +53361,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -53820,6 +53907,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -54365,6 +54453,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -54910,6 +54999,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -57859,6 +57949,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -58307,6 +58398,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -58755,6 +58847,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -59203,6 +59296,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -59651,6 +59745,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 9,
                     "total": 0
                   },
                   "niit": {
@@ -60084,6 +60179,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -60517,6 +60613,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -60950,6 +61047,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -61383,6 +61481,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -61816,6 +61915,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -62249,6 +62349,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -62682,6 +62783,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -63115,6 +63217,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -63548,6 +63651,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -63981,6 +64085,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -64414,6 +64519,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -64847,6 +64953,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -65280,6 +65387,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -65713,6 +65821,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -66146,6 +66255,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -66579,6 +66689,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -67012,6 +67123,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -67445,6 +67557,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -67878,6 +67991,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -68311,6 +68425,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -68744,6 +68859,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -69177,6 +69293,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -69610,6 +69727,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -70043,6 +70161,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -70476,6 +70595,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -73502,6 +73622,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -74043,6 +74164,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -74599,6 +74721,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -75155,6 +75278,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -75711,6 +75835,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -76272,6 +76397,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -76833,6 +76959,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -77389,6 +77516,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -77950,6 +78078,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -78511,6 +78640,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -79067,6 +79197,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -79628,6 +79759,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -80189,6 +80321,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -80745,6 +80878,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -81306,6 +81440,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -81867,6 +82002,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -82423,6 +82559,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -82984,6 +83121,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -83545,6 +83683,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -84101,6 +84240,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -84662,6 +84802,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -85212,6 +85353,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -85757,6 +85899,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -86307,6 +86450,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -86857,6 +87001,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -87402,6 +87547,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -87952,6 +88098,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -88502,6 +88649,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -89047,6 +89195,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -89636,6 +89785,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -90240,6 +90390,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -90839,6 +90990,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -91443,6 +91595,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -92047,6 +92200,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -92646,6 +92800,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -93250,6 +93405,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -93854,6 +94010,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -94453,6 +94610,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -95057,6 +95215,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -95661,6 +95820,7 @@
                     "tier": 1,
                     "partBMonthly": 81.2,
                     "partDMonthly": 14.5,
+                    "monthsCharged": 12,
                     "total": 1148.4
                   },
                   "niit": {
@@ -96260,6 +96420,7 @@
                     "tier": 1,
                     "partBMonthly": 81.2,
                     "partDMonthly": 14.5,
+                    "monthsCharged": 12,
                     "total": 1148.4
                   },
                   "niit": {
@@ -96864,6 +97025,7 @@
                     "tier": 1,
                     "partBMonthly": 81.2,
                     "partDMonthly": 14.5,
+                    "monthsCharged": 12,
                     "total": 1148.4
                   },
                   "niit": {
@@ -100691,6 +100853,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -101124,6 +101287,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 0,
                     "total": 0
                   },
                   "niit": {
@@ -101557,6 +101721,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -101990,6 +102155,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -102434,6 +102600,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -102878,6 +103045,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -103322,6 +103490,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -103766,6 +103935,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -104210,6 +104380,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -104654,6 +104825,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -105098,6 +105270,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -105542,6 +105715,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -106025,6 +106199,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -106527,6 +106702,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -107029,6 +107205,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -107531,6 +107708,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -108033,6 +108211,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -108535,6 +108714,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -109037,6 +109217,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -109539,6 +109720,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -110041,6 +110223,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -110543,6 +110726,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -111045,6 +111229,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -111547,6 +111732,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {
@@ -112049,6 +112235,7 @@
                     "tier": 0,
                     "partBMonthly": 0,
                     "partDMonthly": 0,
+                    "monthsCharged": 12,
                     "total": 0
                   },
                   "niit": {

@@ -305,10 +305,12 @@ describe('conversion-ladder-hand-worked', () => {
     expect(analytics.cliffs?.aca?.prerequisites?.some((line) => line.includes('taxSettings.aca.optIn'))).toBe(true);
   });
 
-  it('charges the IRMAA surcharge over the lifetime for the 22% fill, and none for the 12% fill', () => {
+  it('charges no IRMAA surcharge for either fill, because the premium years fall before Medicare age', () => {
     // The lifetime total is every tax line plus the IRMAA surcharge (the extractor adds it), and the
     // tool does not return the surcharge on its own. Subtracting the lines it does return leaves the
-    // surcharge: three conversion years, each setting tier 1 two premium years later.
+    // surcharge. The 22% fill sets tier 1 for 2028-2030, but the member is 58-60 in those premium
+    // years: the surcharge applies only to months at Medicare age (65), so it is charged nothing.
+    // The cliff itself is still reported above; it is a projection of the premium a 65+ year would pay.
     const lifetimeIrmaa = (label: string): number => {
       const toolkit = createChatToolkit({ inputs: planWithLever(label), asOf: EVAL_AS_OF });
       const result = JSON.parse(toolkit.execute('simulateVariant', { variantId: 'lever', planPatch: {} })) as {
@@ -325,7 +327,7 @@ describe('conversion-ladder-hand-worked', () => {
       return (lines.total ?? NaN) - listed;
     };
 
-    expect(Math.abs(lifetimeIrmaa(LADDER_22) - 3 * HAND.irmaaTier1Annual)).toBeLessThanOrEqual(1);
+    expect(Math.abs(lifetimeIrmaa(LADDER_22))).toBeLessThanOrEqual(1);
     expect(Math.abs(lifetimeIrmaa(LADDER_12))).toBeLessThanOrEqual(1);
   });
 });

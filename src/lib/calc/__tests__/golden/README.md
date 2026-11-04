@@ -399,3 +399,37 @@ four `incomes` blocks hold three salaries and a pension. So the `Math.pow` sites
 maths) are **outside** the corpus, and a future `Math.pow` change there would not be caught here.
 Closing it needs a fixture with Social Security income and one with a mortgage; that is a corpus
 regeneration with its own rule 3 entry, not a harness change.
+
+### Per-enrollee IRMAA and the age gate: a key added to every settled row, no value moved
+
+Two IRMAA rules changed since the last regeneration, and this entry records both and the one
+thing that moved in the file.
+
+- **The age gate.** The Part B + D surcharge is charged only for the months in which a member
+  covered by the return is 65 or older (Medicare eligibility). Before this, a 40-year-old on a
+  ,000 salary was billed ,620 a year.
+- **One surcharge per enrollee.** A joint return covering a couple charges the surcharge once for
+  each member who is 65 or older, in the months each is 65 or older (`monthsCharged` is
+  enrollee-months, `0` to `24` for a couple). Before this, a joint return was billed once.
+
+**What moved in `corpus.json`.** Each settled row's `taxes.irmaa` block gained one key,
+`monthsCharged` (enrollee-months), so the file has 187 new lines and no changed or removed lines.
+Checked structurally: every value in every fixture and mode is identical to the previous file
+(0 value movements, `crossPlan` included), so no number a user sees changed in these six runs.
+
+Per fixture (rows of the settled run, with `monthsCharged` counts):
+
+| fixture              | runs                                                     | settled rows | `monthsCharged` = 0 | = 12   | = 9 (65th birthday mid-period)           | IRMAA charged                     |
+| -------------------- | -------------------------------------------------------- | ------------ | ------------------- | ------ | ---------------------------------------- | --------------------------------- |
+| `steady-saver`       | `fixedReturns`, `stochasticReturns`, `historicalReturns` | 30 each      | 24 each             | 5 each | 1 each (born June 1985, 65 in June 2050) | none, under 65 throughout         |
+| `marginal-retiree`   | `fixedReturns`                                           | 30           | 4                   | 25     | 1 (born June 1965)                       | none                              |
+| `time-binding-mixed` | `fixedReturns`                                           | 42           | 19                  | 23     | 0                                        | 2066-2068 at $1,148.40, unchanged |
+| `shortfall-repaid`   | `fixedReturns`                                           | 25           | 2                   | 23     | 0                                        | none                              |
+
+Total: 187 settled rows, 0 value differences. Every fixture is a single household: none is a couple,
+so the per-enrollee change has no fixture in which to move a value. The age gate removes no frozen
+charge either, because no frozen row charged IRMAA before age 65. The surcharge in
+`time-binding-mixed` at 2066-2068 is for a 65+ member and is unchanged.
+
+**New frozen hash.** `sha256 33b86d33fc11bf375f56e9007d1fe30167406b70767a44498ff82f01c1fd87b6`, 4,482,624 bytes. The hash in the 2026 corpus-harness entry above is the
+previous file's and stays there as history.

@@ -25,9 +25,13 @@ import {
  * so a tagged plan and an untagged one must produce identical numbers to the last cent. The
  * **household** is different now that P1-P3 has shipped: two members select a joint filing status
  * and can change the horizon, so the couple fixture below is explicitly built to describe two
- * people of the same age and the same filing status the plan already stores — which is the case
- * where nothing may move. A two-member household that differs from the plan's own ages is
- * covered by `household-behaviour.test.ts`.
+ * people of the same age and the same filing status the plan already stores. A two-member household
+ * that differs from the plan's own ages is covered by `household-behaviour.test.ts`.
+ *
+ * One household effect is deliberate and tested on its own: IRMAA is charged once per enrollee
+ * (P3-P7a), so a couple both of Medicare age is billed for two enrollee-months per month. That
+ * changes `taxes.irmaa.monthsCharged` only; the surcharge total is unchanged here because this plan's
+ * MAGI sits in tier 0. Ownership tags alone change nothing at all.
  */
 
 /** A complete plan with no ownership anywhere: the shape every stored plan had before P1-P2. */
@@ -82,12 +86,32 @@ describe('a plan with no ownership simulates exactly as it did', () => {
     }
   });
 
-  it('produces byte-identical results with and without owner, regime and household', () => {
+  it('produces byte-identical results with owner and regime tags, and no household', () => {
     const plain = legacyPlan();
 
-    // The same plan, fully tagged: a couple, with a mix of primary / partner / joint items and
-    // both property regimes. If the engine read any of it, the numbers would move here.
+    // Every entity tagged with an owner and property regime, on a single-person timeline. If the
+    // engine read any of it, the numbers would move here.
     const tagged: SimulatorInputs = {
+      ...plain,
+      incomes: { salary: { ...plain.incomes.salary, owner: 'partner' } },
+      expenses: {
+        living: { ...plain.expenses.living, owner: 'joint', propertyRegime: 'community' },
+        extra: { ...plain.expenses.extra, owner: 'primary' },
+      },
+      debts: { card: { ...plain.debts.card, owner: 'joint', propertyRegime: 'jointTenancy' } },
+      physicalAssets: { house: { ...plain.physicalAssets.house, owner: 'joint', propertyRegime: 'community' } },
+      accounts: {
+        savings: { ...plain.accounts.savings, owner: 'partner' },
+        retirement: { ...plain.accounts.retirement, owner: 'joint', propertyRegime: 'community' },
+      },
+    };
+
+    expect(run(tagged)).toStrictEqual(run(plain));
+  });
+
+  it('adds a couple with the same ages and changes only the IRMAA enrollee-months, which double', () => {
+    const plain = legacyPlan();
+    const couple: SimulatorInputs = {
       ...plain,
       timeline: {
         ...plain.timeline!,
@@ -111,7 +135,19 @@ describe('a plan with no ownership simulates exactly as it did', () => {
       },
     };
 
-    expect(run(tagged)).toStrictEqual(run(plain));
+    const alone = run(plain);
+    const together = run(couple);
+    const withoutMonths = (result: SimulationResult) =>
+      JSON.parse(JSON.stringify(result, (key, value) => (key === 'monthsCharged' ? undefined : value)));
+
+    // Everything except the enrollee count is unchanged, to the last cent.
+    expect(withoutMonths(together)).toStrictEqual(withoutMonths(alone));
+
+    // Each settled row bills the same two Medicare-age members at the same ages: twice the months.
+    const pairs = alone.data.map((row, index) => [row.taxes?.irmaa.monthsCharged, together.data[index].taxes?.irmaa.monthsCharged]);
+    const settled = pairs.filter(([single]) => single !== undefined);
+    expect(settled.length).toBeGreaterThan(0);
+    for (const [single, both] of settled) expect(both).toBe(2 * (single as number));
   });
 
   it('leaves the plan untouched by the run itself', () => {

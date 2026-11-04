@@ -32,7 +32,9 @@
  *
  * IRMAA is a Medicare premium surcharge, not an income tax, and it is charged on the return of the
  * year it is paid: the tier comes from the MAGI of `lookbackYears` earlier (two), which is why this
- * processor keeps a small MAGI history rather than looking at the current year alone.
+ * processor keeps a small MAGI history rather than looking at the current year alone. It is charged
+ * only for the enrollee-months in which a covered member is 65 or older (`irmaaEnrolleeMonths`), once
+ * per enrollee, so a year with no Medicare-age member carries a tier but a zero charge.
  */
 
 import type { AccountInputs } from '@/lib/schemas/inputs/account-form-schema';
@@ -132,7 +134,14 @@ export interface IrmaaData {
   tier: number;
   partBMonthly: number;
   partDMonthly: number;
-  /** `(partBMonthly + partDMonthly) × 12`: the income-related surcharge for the year. */
+  /**
+   * Enrollee-months of the settled year: for each member the return covers, the months in which that
+   * member is 65 or older (Medicare eligibility), summed. One enrollee for a full year is `12`; a
+   * couple both 65+ is `24`. The surcharge is charged for these enrollee-months only, once per
+   * enrollee, so a joint return's surcharge is `(Part B + Part D) × enrollee-months`.
+   */
+  monthsCharged: number;
+  /** `(partBMonthly + partDMonthly) × monthsCharged`: the income-related surcharge for the year. */
   total: number;
 }
 
@@ -198,6 +207,13 @@ export interface TaxProcessorSettings {
    * first of its owners to reach the gate, i.e. the older member.
    */
   readonly ageOffsetByOwner?: Readonly<Record<Owner, number>> | undefined;
+  /**
+   * The members a single or joint return covers, for IRMAA (one Medicare premium per enrollee).
+   *
+   * Absent means the primary alone, which is a household of one. The engine passes both members for
+   * a couple. A separate return ignores this and covers its own owner (`returnKey`).
+   */
+  readonly householdMembers?: readonly HouseholdMemberRole[] | undefined;
   /**
    * ACA Premium Tax Credit (IRC §36B) opt-in and benchmark inputs (R8).
    *
@@ -807,6 +823,8 @@ function sumSeparateReturns(records: readonly TaxesData[]): TaxesData {
       tier: Math.max(...records.map((record) => record.irmaa.tier)),
       partBMonthly: sum(records.map((record) => record.irmaa.partBMonthly)),
       partDMonthly: sum(records.map((record) => record.irmaa.partDMonthly)),
+      // Enrollee-months add across the two returns: each separate return covers its own member.
+      monthsCharged: sum(records.map((record) => record.irmaa.monthsCharged)),
       total: sum(records.map((record) => record.irmaa.total)),
     },
     niit: {
@@ -1596,13 +1614,17 @@ export class TaxProcessor {
    * MAGI of each settled year. The first `lookbackYears` years of a run charge nothing: there is no
    * earlier return to look at, and assuming one would be worse than charging zero.
    *
-   * Hand check (2026, single, MAGI $110,000 two years earlier):
+   * Hand check (2026, single, MAGI $110,000 two years earlier, age 66 all year):
    *   tier 1 (> $109,000, ≤ $137,000): Part B $81.20 + Part D $14.50 = $95.70 a month
    *   the year charges 95.70 × 12 = $1,148.40
+   *
+   * The surcharge is a Medicare premium, so it is charged only for the months in which a member
+   * covered by the return is 65 or older (see `irmaaEnrolleeMonths`). The tier is still looked up
+   * from the lookback MAGI regardless of age: a member aged 63 today sets the premium they pay at 65.
    */
   private processIrmaa({ magi, taxYear }: { magi: number; taxYear: TaxYear }): IrmaaData {
     // The lookback follows the *return*, not the household: a separate return's premium is set by
-    // the MAGI on that return two years earlier (P3-P1b).
+    // the MAGI on that return two years earlier (P3-P1b). Recorded every year, whatever the age.
     const magiByYear = this.magiByYearFor(this.returnKey);
     magiByYear.set(taxYear, magi);
 
@@ -1610,6 +1632,7 @@ export class TaxProcessor {
     const basisTaxYear = taxYear - table.lookbackYears;
     const basisMagi = magiByYear.get(basisTaxYear) ?? null;
     const tiers = table.tiers[this.filingStatus];
+    const monthsCharged = this.irmaaEnrolleeMonths();
 
     if (basisMagi === null) {
       return {
@@ -1619,6 +1642,7 @@ export class TaxProcessor {
         tier: 0,
         partBMonthly: 0,
         partDMonthly: 0,
+        monthsCharged: 0,
         total: 0,
       };
     }
@@ -1633,8 +1657,47 @@ export class TaxProcessor {
       tier: tierIndex,
       partBMonthly: tier.partBMonthly,
       partDMonthly: tier.partDMonthly,
-      total: (tier.partBMonthly + tier.partDMonthly) * 12,
+      monthsCharged,
+      total: (tier.partBMonthly + tier.partDMonthly) * monthsCharged,
     };
+  }
+
+  /**
+   * The enrollee-months of the year just settled: for each member this return covers, the months in
+   * which that member is 65 or older.
+   *
+   * Medicare eligibility starts in the month of the 65th birthday, so a month counts when it ends
+   * after the birthday. Settlement runs at the end of the period, when `time.age` is the primary's
+   * age on the period's last day; a member's age on that day is `time.age − offset`. Each month of
+   * the period ends `k/12` years before that day (k = 0…11), so the months that end after the
+   * birthday number `ceil(12 × (age − 65))`, clamped to 0…12. A member whose birthday falls six months
+   * into the period gives 6; a member already 65 for the whole period gives 12.
+   *
+   * Covered members: a separate return covers its own owner alone. A single or joint return covers
+   * every member of the household (`householdMembers`, the primary alone when absent), and each is
+   * counted on their own age, so a couple both 65+ gives 24 and a partner who turns 65 part-way
+   * through the year adds only the months after the birthday. The MAGI tier is not per person: it is
+   * the return's own MAGI, and each enrollee pays that tier.
+   */
+  private irmaaEnrolleeMonths(): number {
+    const covered: readonly HouseholdMemberRole[] =
+      this.returnKey === 'primary' || this.returnKey === 'partner'
+        ? [this.returnKey]
+        : (this.deductionSettings.householdMembers ?? ['primary']);
+
+    return covered.reduce((total, role) => total + this.medicareMonthsFor(role), 0);
+  }
+
+  /** The months of the settled period in which one member is 65 or older; see `irmaaEnrolleeMonths`. */
+  private medicareMonthsFor(role: HouseholdMemberRole): number {
+    const offset = this.deductionSettings.ageOffsetByOwner?.[role] ?? 0;
+    const ageAtEnd = this.simulationState.time.age - offset;
+    // Medicare eligibility age. The same literal the senior deduction and HSA gates use.
+    const medicareAge = 65;
+    // The epsilon absorbs float noise on an exact boundary (a birthday on the last day of the period).
+    const monthsSinceEligible = Math.ceil(12 * (ageAtEnd - medicareAge) - 1e-9);
+
+    return Math.min(12, Math.max(0, monthsSinceEligible));
   }
 
   /**

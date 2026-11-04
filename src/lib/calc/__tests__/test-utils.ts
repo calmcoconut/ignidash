@@ -548,6 +548,7 @@ export const createZeroIrmaaData = (overrides: Partial<IrmaaData> = {}): IrmaaDa
   tier: 0,
   partBMonthly: 0,
   partDMonthly: 0,
+  monthsCharged: 0,
   total: 0,
   ...overrides,
 });

@@ -61,6 +61,11 @@ interface YearSpec {
   taxYear?: number;
   /** The settled state return, when the case exercises California (P3-P8). */
   state?: Partial<StateTaxesData>;
+  /**
+   * Months of the year a covered member was 65 or older, as the engine settled them. Defaults to 12
+   * (a full Medicare year), so a fixture that does not care about IRMAA age is charged as before.
+   */
+  irmaaMonthsCharged?: number;
 }
 
 // The 2026 standard deduction per filing status, including the separate return's $16,100 (§63(c)(2)(B):
@@ -139,7 +144,7 @@ function makeInput(spec: YearSpec): TaxAnalyticsInput {
       earlyWithdrawals: { rothEarnings: 0, '401kAndIra': 0, hsa: 0 },
     },
     amt: createZeroAmtData(),
-    irmaa: createZeroIrmaaData(),
+    irmaa: createZeroIrmaaData({ monthsCharged: spec.irmaaMonthsCharged ?? 12 }),
     deduction: createZeroDeductionData(),
     state: createZeroStateData(spec.state),
     totalTaxLiability: 0,
@@ -558,6 +563,27 @@ describe('cliffs', () => {
     expect(wrongYear.cliffs.irmaa.unavailable).toMatch(/exactly two years earlier/);
   });
 
+  it('reports no charged tier when the engine charged no IRMAA months (no covered member 65 or older)', () => {
+    // The same 2024 lookback as above, but the settled year charged nothing: the tier the MAGI would
+    // set is not a charge, so `charged` is null and the reason names the age gate.
+    const under65 = analyzeTaxYear({
+      ...makeInput({ taxableOrdinary: 60000, magi: 150000, taxYear: 2026, irmaaMonthsCharged: 0 }),
+      priorYearMagi: { taxYear: 2024, magi: 150000 },
+    });
+    expect(under65.cliffs.irmaa.charged).toBeNull();
+    expect(under65.cliffs.irmaa.monthsCharged).toBe(0);
+    expect(under65.cliffs.irmaa.unavailable).toMatch(/65 or older/);
+
+    // A part-year charge keeps the tier and reports the months the engine applied.
+    const partYear = analyzeTaxYear({
+      ...makeInput({ taxableOrdinary: 60000, magi: 150000, taxYear: 2026, irmaaMonthsCharged: 6 }),
+      priorYearMagi: { taxYear: 2024, magi: 150000 },
+    });
+    expect(partYear.cliffs.irmaa.monthsCharged).toBe(6);
+    expect(partYear.cliffs.irmaa.charged?.tier).toBe(2);
+    expect(partYear.cliffs.irmaa.unavailable).toBeNull();
+  });
+
   it('reports NIIT and Additional Medicare headroom from the ruleset', () => {
     const input = makeInput({ taxableOrdinary: 143900, magi: 205000, netInvestmentIncome: 205000, wages: 190000 });
     const analytics = analyzeTaxYear(input);
@@ -920,9 +946,16 @@ describe('engine equivalence', () => {
   });
 
   it('resolves the tax year from the row, and the IRMAA lookback from two rows earlier', () => {
-    const third = analyzeSimulationTaxYear({ data, index: 3, filingStatus: 'single' });
-    const rowYear = parseISODateString(data[3].date).year;
-    const lookbackRow = data[1];
+    // steadySaver is born in 1985, so no IRMAA is charged in its rows (the surcharge starts at 65).
+    // The lookback is checked on a plan whose covered member is already 65 in every settled year.
+    const olderSaver: SimulatorInputs = {
+      ...steadySaver,
+      timeline: { birthMonth: 6, birthYear: 1955, lifeExpectancy: 95, retirementStrategy: { type: 'fixedAge', retirementAge: 65 } },
+    };
+    const olderData = simulate(olderSaver, { mode: 'fixedReturns', seed: 1, asOf: '2026-03-15' }).result.data;
+    const third = analyzeSimulationTaxYear({ data: olderData, index: 3, filingStatus: 'single' });
+    const rowYear = parseISODateString(olderData[3].date).year;
+    const lookbackRow = olderData[1];
 
     expect(third.taxYear).toBe(rowYear);
     expect(third.cliffs.irmaa.charged).not.toBeNull();
@@ -931,10 +964,15 @@ describe('engine equivalence', () => {
 
     // The first two rows have no lookback year in the result; that is reported, not guessed.
     for (const index of [1, 2]) {
-      const analytics = analyzeSimulationTaxYear({ data, index, filingStatus: 'single' });
+      const analytics = analyzeSimulationTaxYear({ data: olderData, index, filingStatus: 'single' });
       expect(analytics.cliffs.irmaa.charged).toBeNull();
       expect(analytics.cliffs.irmaa.unavailable).toMatch(/no MAGI for/);
     }
+
+    // The 1985 plan is under 65 in row 3 too: the engine charges nothing, so nothing is reported as charged.
+    const underAge = analyzeSimulationTaxYear({ data, index: 3, filingStatus: 'single' });
+    expect(underAge.cliffs.irmaa.charged).toBeNull();
+    expect(underAge.cliffs.irmaa.monthsCharged).toBe(0);
 
     // Row 0 is the initial state: it has no settled tax result and must be refused by name.
     expect(() => analyzeSimulationTaxYear({ data, index: 0, filingStatus: 'single' })).toThrow(/no settled tax result/);

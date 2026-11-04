@@ -2470,7 +2470,9 @@ describe('TaxProcessor', () => {
     const year = (totalIncome: number) => createEmptyIncomesData({ totalIncome, totalWageIncome: totalIncome });
 
     it('charges nothing until two years of MAGI exist, then bills the lookback tier', () => {
-      const processor = new TaxProcessor(createMockSimulationState(60), 'single', 2026);
+      // Age 66 throughout: the surcharge is gated on a covered member being 65 or older (see the
+      // age-gate tests below), so this test runs the charge at an age where it applies.
+      const processor = new TaxProcessor(createMockSimulationState(66), 'single', 2026);
       const run = (taxYear: number, totalIncome: number) => {
         processor.setTaxYear(taxYear);
         return processor.process(createEmptyPortfolioData(), year(totalIncome), createEmptyReturnsData(), createEmptyPhysicalAssetsData());
@@ -2562,6 +2564,143 @@ describe('TaxProcessor', () => {
       expect(billed.irmaa.basisMagi).toBeCloseTo(200000);
       expect(billed.irmaa.tier).toBe(0);
       expect(billed.irmaa.total).toBe(0);
+    });
+
+    describe('age gate (a covered member must be 65 or older)', () => {
+      // A single filer's settled years, run in order on one processor. `age` is the primary's age on
+      // the settlement date, which is what the engine passes in `simulationState.time.age`.
+      const runYears = (
+        state: SimulationState,
+        years: readonly { taxYear: number; totalIncome: number; age: number }[]
+      ): ReturnType<TaxProcessor['process']>[] => {
+        const processor = new TaxProcessor(state, 'single', 2026);
+        return years.map(({ taxYear, totalIncome, age }) => {
+          state.time.age = age;
+          processor.setTaxYear(taxYear);
+          return processor.process(
+            createEmptyPortfolioData(),
+            year(totalIncome),
+            createEmptyReturnsData(),
+            createEmptyPhysicalAssetsData()
+          );
+        });
+      };
+
+      it('charges no IRMAA to a single filer under 65, however high the lookback MAGI', () => {
+        // MAGI $150,000 in 2026 is tier 2 ($137,001 to $171,000), so 2028 would bill $2,884.80 at 65.
+        // At age 60 it is tier 2 in the table and nothing on the return.
+        const [, , y2028] = runYears(createMockSimulationState(60), [
+          { taxYear: 2026, totalIncome: 150000, age: 60 },
+          { taxYear: 2027, totalIncome: 0, age: 61 },
+          { taxYear: 2028, totalIncome: 0, age: 62 },
+        ]);
+
+        expect(y2028.irmaa.basisMagi).toBeCloseTo(150000);
+        expect(y2028.irmaa.tier).toBe(2);
+        expect(y2028.irmaa.monthsCharged).toBe(0);
+        expect(y2028.irmaa.total).toBe(0);
+      });
+
+      it('charges the tier surcharge for every month a covered member is 65 or older', () => {
+        // The same MAGI history, now at 66 in the settled year: (202.90 + 37.50) × 12 = $2,884.80.
+        const [, , y2028] = runYears(createMockSimulationState(66), [
+          { taxYear: 2026, totalIncome: 150000, age: 64 },
+          { taxYear: 2027, totalIncome: 0, age: 65 },
+          { taxYear: 2028, totalIncome: 0, age: 66 },
+        ]);
+
+        expect(y2028.irmaa.tier).toBe(2);
+        expect(y2028.irmaa.monthsCharged).toBe(12);
+        expect(y2028.irmaa.total).toBeCloseTo(2884.8);
+      });
+
+      it('sets the premium from the MAGI of age 63, and prorates the year a member turns 65', () => {
+        // 2026 MAGI at 63 is tier 1 ($109,001 to $137,000) and must be remembered even though nothing
+        // is charged that year. Settling 2028 at 65.5 means the member turned 65 six months into the
+        // year, so the surcharge is six months of $95.70: $574.20.
+        const years = runYears(createMockSimulationState(63), [
+          { taxYear: 2026, totalIncome: 110000, age: 63 },
+          { taxYear: 2027, totalIncome: 0, age: 64 },
+          { taxYear: 2028, totalIncome: 0, age: 65.5 },
+        ]);
+
+        expect(years[0].irmaa.total).toBe(0);
+        expect(years[2].irmaa.basisTaxYear).toBe(2026);
+        expect(years[2].irmaa.basisMagi).toBeCloseTo(110000);
+        expect(years[2].irmaa.tier).toBe(1);
+        expect(years[2].irmaa.monthsCharged).toBe(6);
+        expect(years[2].irmaa.total).toBeCloseTo(1148.4 / 2);
+        expect(years[2].totalTaxLiability).toBeCloseTo(
+          years[2].federalIncomeTaxes.federalIncomeTaxAmount +
+            years[2].capitalGainsTaxes.capitalGainsTaxAmount +
+            years[2].amt.netCharge +
+            years[2].niit.niitAmount +
+            years[2].state.total +
+            years[2].irmaa.total +
+            years[2].earlyWithdrawalPenalties.totalPenaltyAmount +
+            years[2].fica.total
+        );
+      });
+    });
+
+    describe('one surcharge per enrollee on a joint return', () => {
+      // A joint return's tier comes from the household MAGI, and every enrollee pays that tier. The
+      // one-person joint return is the baseline, so the expectations are the engine's own figures.
+      const runJoint = (
+        householdMembers: readonly ('primary' | 'partner')[],
+        partnerOffset: number,
+        settledAge: number
+      ): ReturnType<TaxProcessor['process']> => {
+        const state = createMockSimulationState(64);
+        const processor = new TaxProcessor(state, 'marriedFilingJointly', 2026, undefined, {
+          householdMembers,
+          ageOffsetByOwner: { primary: 0, partner: partnerOffset, joint: Math.min(0, partnerOffset) },
+        });
+        const runAt = (taxYear: number, totalIncome: number, age: number) => {
+          state.time.age = age;
+          processor.setTaxYear(taxYear);
+          return processor.process(
+            createEmptyPortfolioData(),
+            year(totalIncome),
+            createEmptyReturnsData(),
+            createEmptyPhysicalAssetsData()
+          );
+        };
+        // MAGI $230,000 in 2026 sets the 2028 premium: above the joint tier-1 floor of $218,000.
+        runAt(2026, 230000, 64);
+        runAt(2027, 0, 65);
+        return runAt(2028, 0, settledAge);
+      };
+
+      it('charges each enrollee on a couple both 65 or older: twice the one-person surcharge', () => {
+        const single = runJoint(['primary'], 0, 66);
+        const couple = runJoint(['primary', 'partner'], 0, 66);
+
+        expect(single.irmaa.total).toBeGreaterThan(0);
+        expect(single.irmaa.monthsCharged).toBe(12);
+        expect(couple.irmaa.monthsCharged).toBe(24);
+        expect(couple.irmaa.tier).toBe(single.irmaa.tier);
+        expect(couple.irmaa.total).toBeCloseTo(single.irmaa.total * 2, 6);
+      });
+
+      it('charges only the enrollee who is 65 or older when the partner is under 65', () => {
+        // The partner is six years younger: 60 when the primary is 66, so no partner share.
+        const single = runJoint(['primary'], 0, 66);
+        const couple = runJoint(['primary', 'partner'], 6, 66);
+
+        expect(couple.irmaa.monthsCharged).toBe(12);
+        expect(couple.irmaa.total).toBeCloseTo(single.irmaa.total, 6);
+      });
+
+      it('prorates the partner’s own share from the month the partner turns 65', () => {
+        // The partner turns 65 six months into the settled year (age 65.5 at period end), so the
+        // partner contributes 6 enrollee-months: 12 for the primary plus 6 is 18, i.e. 1.5× one person.
+        const single = runJoint(['primary'], 0, 66);
+        const couple = runJoint(['primary', 'partner'], 0.5, 66);
+
+        expect(couple.irmaa.monthsCharged).toBe(18);
+        expect(couple.irmaa.total).toBeCloseTo(single.irmaa.total * 1.5, 6);
+      });
     });
   });
 

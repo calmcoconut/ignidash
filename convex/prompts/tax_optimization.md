@@ -206,7 +206,7 @@ with what the tools accept, trust the tools and say the limit has changed.
   lines carry no §170 charitable AGI limit and no §163(h)(3) mortgage-debt cap. **IRMAA is modelled**:
   the surcharge
   is a liability line, and `cliffs.irmaa` reports the tier, the room before the next one and what
-  crossing it costs, from the two-year MAGI lookback. **The ACA premium tax credit is modelled, for
+  crossing it costs, from the two-year MAGI lookback. The surcharge is charged only for the months in which a member covered by the return is 65 or older (Medicare age), once for each such enrollee, so a joint return with both spouses 65 or older is charged twice and a member under 65 is charged nothing. **The ACA premium tax credit is modelled, for
   a plan that opts in.** `taxSettings.aca` — the opt-in flag, the second-lowest-cost silver
   premium, optionally the household size and the premium actually paid — makes the year's return
   compute the §36B credit, which is refundable: it lands in `totalTaxesRefund`/`totalTaxesDue`

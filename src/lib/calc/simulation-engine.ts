@@ -506,6 +506,8 @@ export class FinancialSimulationEngine {
       // The early-withdrawal gates read the account owner's age, not the primary's (P1-P3): the
       // engine already charges per-member RMD ages from the same offsets.
       ...(simulationContext.ageOffsetByOwner === undefined ? {} : { ageOffsetByOwner: simulationContext.ageOffsetByOwner }),
+      // IRMAA is one Medicare premium per enrollee (P3-P7a): a couple's joint return covers both members.
+      householdMembers: isCoupleHousehold(timeline.household) ? ['primary', 'partner'] : ['primary'],
       ownership: {
         accounts: simulationContext.accountOwners ?? {},
         physicalAssets: simulationContext.physicalAssetOwners ?? {},
