@@ -28,7 +28,7 @@ import {
   updateDef as updateJournalEntryDef,
   deleteEntryDef as deleteJournalEntryDef,
 } from '../net_worth_journal';
-import { clonePlanDef, createPlanWithDataDef, updatePlanNameDef } from '../plans';
+import { clonePlanDef, createPlanWithDataDef, setPlanAsDefaultDef, updatePlanNameDef } from '../plans';
 import { preparePastedPlan, type ImportIssue } from '../../src/lib/export/plan-envelope';
 import type { FunctionDef } from '../utils/function_defs';
 
@@ -247,5 +247,10 @@ export const WRITE_TOOLS: McpTool[] = [
     ].join(' ')
   ),
   writeTool('rename_plan', updatePlanNameDef, 'Renames a plan. `name` is the new name.'),
+  writeTool(
+    'set_default_plan',
+    setPlanAsDefaultDef,
+    "Makes one of the user's plans the default plan (the one the dashboard opens first). The previous default stops being default. Fails if the plan is not one of the caller's."
+  ),
   createPlan,
 ];

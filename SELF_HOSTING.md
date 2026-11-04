@@ -156,7 +156,7 @@ An AI client can read and edit your plans through the MCP endpoint at `http://<h
 | ------------------------------------------------------------------------ | ----- |
 | `list_plans`, `get_plan`, `get_schema`, `validate_plan`, `list_journal`  | read  |
 | `analyze_plan` (the in-app chat's engine tools, batched in one call)     | read  |
-| `create_plan`, `clone_plan`, `rename_plan`                               | write |
+| `create_plan`, `clone_plan`, `rename_plan`, `set_default_plan`           | write |
 | `upsert_*` / `delete_*` for accounts, income, expenses, debts, property, | write |
 | contribution rules; `update_*` for timeline, taxes, settings, SEPP, etc. |       |
 | `add_journal_entry`, `update_journal_entry`, `delete_journal_entry`      | write |

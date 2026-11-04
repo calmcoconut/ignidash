@@ -307,7 +307,7 @@ export const updatePlanNameDef = mutationDef({
 
 export const updatePlanName = mutation(updatePlanNameDef);
 
-export const setPlanAsDefault = mutation({
+export const setPlanAsDefaultDef = mutationDef({
   args: { planId: v.id('plans') },
   handler: async (ctx, { planId }) => {
     const { userId } = await getUserIdOrThrow(ctx);
@@ -321,3 +321,5 @@ export const setPlanAsDefault = mutation({
     await ctx.db.patch(planId, { isDefault: true });
   },
 });
+
+export const setPlanAsDefault = mutation(setPlanAsDefaultDef);

@@ -201,6 +201,43 @@ describe('clone_plan', () => {
   });
 });
 
+describe('set_default_plan', () => {
+  it('makes the chosen plan the default and unsets the previous default', async () => {
+    const t = newTest();
+    const defaultId = await insertPlan(t, { name: 'Current default', isDefault: true });
+    const otherId = await insertPlan(t, { name: 'Other', isDefault: false });
+
+    expect(await writeTool(t, 'set_default_plan', { planId: otherId })).toEqual({ ok: true });
+
+    expect((await readPlan(t, otherId)).isDefault).toBe(true);
+    expect((await readPlan(t, defaultId)).isDefault).toBe(false);
+  });
+
+  it("fails on another user's plan and changes nothing", async () => {
+    const t = newTest();
+    const ownDefaultId = await insertPlan(t, { name: 'Mine', isDefault: true });
+    const theirsId = await insertPlan(t, { userId: OTHER, name: 'Theirs', isDefault: false });
+
+    await expect(writeTool(t, 'set_default_plan', { planId: theirsId })).rejects.toThrow(/Not authorized/);
+
+    expect((await readPlan(t, theirsId)).isDefault).toBe(false);
+    expect((await readPlan(t, ownDefaultId)).isDefault).toBe(true);
+  });
+
+  it('is a no-op when the plan is already the default', async () => {
+    const t = newTest();
+    const defaultId = await insertPlan(t, { name: 'Default', isDefault: true });
+    const otherId = await insertPlan(t, { name: 'Other', isDefault: false });
+    const before = await plansOwnedBy(t, OWNER);
+
+    expect(await writeTool(t, 'set_default_plan', { planId: defaultId })).toEqual({ ok: true });
+
+    expect(await plansOwnedBy(t, OWNER)).toEqual(before);
+    expect((await readPlan(t, defaultId)).isDefault).toBe(true);
+    expect((await readPlan(t, otherId)).isDefault).toBe(false);
+  });
+});
+
 describe('limitations resource', () => {
   it('carries the not-modeled list the AI chat uses, verbatim', () => {
     const resource = MCP_RESOURCES.find((r) => r.uri === 'ignidash://help/limitations');
