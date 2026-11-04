@@ -489,3 +489,54 @@ describe('edge cases', () => {
     expect(account.getBalance()).toBe(50000);
   });
 });
+
+// ============================================================================
+// Absent basis (the form leaves cost / contribution basis blank)
+// ============================================================================
+
+describe('absent basis defaults to the starting balance', () => {
+  it('taxable brokerage with no costBasis starts with basis equal to balance', () => {
+    const { costBasis: _omitted, ...data } = createTaxableBrokerageAccount({ balance: 100000 });
+    const account = new TaxableBrokerageAccount(data);
+
+    expect(account.getCostBasis()).toBe(100000);
+  });
+
+  it('withdrawal from taxable brokerage with no costBasis realizes no gain and stays finite', () => {
+    const { costBasis: _omitted, ...data } = createTaxableBrokerageAccount({ balance: 100000 });
+    const account = new TaxableBrokerageAccount(data);
+
+    const result = account.applyWithdrawal(40000, 'regular', DEFAULT_ALLOCATION);
+
+    expect(result.realizedGains).toBe(0);
+    expect(account.getCostBasis()).toBe(60000);
+    expect(account.getBalance()).toBe(60000);
+    expect(Number.isFinite(result.realizedGains)).toBe(true);
+    expect(Number.isFinite(account.getCostBasis())).toBe(true);
+  });
+
+  it('taxable brokerage with an explicit costBasis of 0 keeps 0 (absent is not zero)', () => {
+    const account = new TaxableBrokerageAccount(createTaxableBrokerageAccount({ balance: 100000, costBasis: 0 }));
+
+    expect(account.getCostBasis()).toBe(0);
+  });
+
+  it('Roth IRA with no contributionBasis starts with basis equal to balance', () => {
+    const { contributionBasis: _omitted, ...data } = createRothIraAccount({ balance: 50000 });
+    const account = new TaxFreeAccount(data);
+
+    expect(account.getContributionBasis()).toBe(50000);
+  });
+
+  it('withdrawal from Roth IRA with no contributionBasis is all contribution: no earnings, finite', () => {
+    const { contributionBasis: _omitted, ...data } = createRothIraAccount({ balance: 50000 });
+    const account = new TaxFreeAccount(data);
+
+    const result = account.applyWithdrawal(30000, 'regular', DEFAULT_ALLOCATION);
+
+    expect(result.earningsWithdrawn).toBe(0);
+    expect(account.getContributionBasis()).toBe(20000);
+    expect(account.getBalance()).toBe(20000);
+    expect(Number.isFinite(result.realizedGains)).toBe(true);
+  });
+});

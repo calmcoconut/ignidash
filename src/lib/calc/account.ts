@@ -501,7 +501,9 @@ export class TaxableBrokerageAccount extends InvestmentAccount {
 
   constructor(data: AccountInputs & { type: 'taxableBrokerage' }) {
     super(data);
-    this.costBasis = data.costBasis!;
+    // Absent means the form left the basis blank: the account is treated as all cost basis, so no
+    // gain is realized on a sale until the balance grows past it. A stated 0 is kept as 0.
+    this.costBasis = data.costBasis ?? data.balance;
   }
 
   getCostBasis(): number {
@@ -601,7 +603,9 @@ export class TaxFreeAccount extends InvestmentAccount {
 
   constructor(data: AccountInputs & { type: 'rothIra' | 'roth401k' | 'roth403b' }) {
     super(data);
-    this.contributionBasis = data.contributionBasis!;
+    // Absent means the form left the contribution basis blank: the whole balance is treated as
+    // contributions, withdrawable without tax or penalty. A stated 0 is kept as 0.
+    this.contributionBasis = data.contributionBasis ?? data.balance;
   }
 
   getContributionBasis(): number {
